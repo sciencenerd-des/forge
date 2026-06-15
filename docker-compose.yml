@@ -1,0 +1,63 @@
+# Plug-and-play stack: Postgres (the engine's store) + the control-plane API.
+# `docker compose up` gives you a working backend with zero manual DB setup.
+#
+#   docker compose up -d            # Postgres + control-plane API on :8787
+#   docker compose run --rm forge forge run --goal "build a snake game"
+#
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forge
+    # Host port is overridable to avoid colliding with a native Postgres:
+    #   FORGE_DB_PORT=5433 docker compose up -d db
+    ports:
+      - "127.0.0.1:${FORGE_DB_PORT:-5432}:5432"
+    volumes:
+      - forge_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  control-plane:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://forge:forge@db:5432/forge
+      FORGE_CONTROL_DATABASE_URL: postgresql://forge:forge@db:5432/forge
+      # Point at a model backend reachable from the container:
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      LLM_MODEL: ${LLM_MODEL:-google/gemma-4-12b-qat}
+      FORGE_LLM_API_KEY: ${FORGE_LLM_API_KEY:-not-needed}
+      FORGE_CONTROL_TOKEN: ${FORGE_CONTROL_TOKEN:-forge-local-control}
+    ports:
+      - "127.0.0.1:8787:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # One-shot service for running the loop: `docker compose run --rm forge forge run ...`
+  forge:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://forge:forge@db:5432/forge
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      LLM_MODEL: ${LLM_MODEL:-google/gemma-4-12b-qat}
+      FORGE_LLM_API_KEY: ${FORGE_LLM_API_KEY:-not-needed}
+      FORGE_ALLOW_HOST_EXECUTION: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles: ["cli"]
+    entrypoint: ["forge"]
+    command: ["config"]
+
+volumes:
+  forge_pgdata:

@@ -1,0 +1,27 @@
+{
+  "description": "The mandatory JSON schema the agent must output at the end of every turn to persist state.",
+  "properties": {
+    "progress_summary": {
+      "type": "string",
+      "description": "A concise summary of the actions taken in this specific turn."
+    },
+    "next_task_description": {
+      "type": "string",
+      "description": "A detailed instruction for the next turn. If the current task is complete, describe the next task to be started."
+    },
+    "blocker": {
+      "type": "string",
+      "description": "A description of any blockers encountered. Leave as null if no blocker exists."
+    },
+    "resume_instruction": {
+      "type": "string",
+      "description": "A specific, high-level command for the agent to start the next turn, ensuring it picks up exactly where it left off."
+    }
+  },
+  "required": [
+    "progress_summary",
+    "next_task_description",
+    "blocker",
+    "resume_instruction"
+  ]
+}

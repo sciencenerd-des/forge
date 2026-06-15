@@ -1,0 +1,13 @@
+# Runtime dependencies (mirror of pyproject [project.dependencies]).
+# For development: pip install -e ".[dev]"
+langgraph>=0.2
+langchain-core>=0.3
+langchain-openai>=0.2
+openai>=1.40
+pydantic>=2.5
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+pgvector>=0.2
+python-dotenv>=1.0
+fastapi>=0.110
+uvicorn>=0.27

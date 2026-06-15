@@ -1,0 +1,25 @@
+[package]
+name = "forge-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Operator CLI and TUI for the Forge autonomous coding harness"
+license = "Apache-2.0"
+
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.29"
+directories = "6.0"
+ratatui = "0.30"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+url = "2.5"
+
+[dev-dependencies]
+tempfile = "3.23"

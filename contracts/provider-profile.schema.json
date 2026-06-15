@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/contracts/provider-profile.schema.json",
+  "title": "Forge provider profile",
+  "type": "object",
+  "required": ["id", "name", "model", "kind", "created_at"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "kind": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "const": "codex_subscription" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "base_url", "api_key_env"],
+          "properties": { "type": { "const": "cloud_api" }, "base_url": { "type": "string", "format": "uri" }, "api_key_env": { "type": "string", "minLength": 1 } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "base_url"],
+          "properties": { "type": { "const": "local_open_ai" }, "base_url": { "type": "string", "format": "uri" } },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

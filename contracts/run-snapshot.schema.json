@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/contracts/run-snapshot.schema.json",
+  "title": "Forge run snapshot",
+  "type": "object",
+  "required": ["id", "project_id", "goal_id", "status", "current_node", "turn", "max_turns", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "project_id": { "type": "string", "format": "uuid" },
+    "goal_id": { "type": "string", "format": "uuid" },
+    "provider_id": { "type": ["string", "null"], "format": "uuid" },
+    "status": { "enum": ["queued", "running", "paused", "blocked", "completed", "failed", "cancelled"] },
+    "current_node": { "enum": ["planner", "executor", "evaluator", "auditor"] },
+    "turn": { "type": "integer", "minimum": 0 },
+    "max_turns": { "type": "integer", "minimum": 1, "default": 90 },
+    "started_at": { "type": ["string", "null"], "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

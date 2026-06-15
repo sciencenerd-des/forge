@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.forge-shell { --ink:#111; --paper:#f2eadb; --blue:#165dff; --red:#ff4d30; --yellow:#ffd52e; --mint:#59d39b; position:relative; isolation:isolate; background:var(--paper)!important; color:var(--ink)!important; }
+.forge-shell > .min-h-screen { position:relative; z-index:1; }
+.forge-shell aside, .forge-shell header, .forge-shell section, .forge-shell main > div { border-color:var(--ink)!important; }
+.forge-shell main > header { background:var(--paper)!important; border-width:0 0 3px!important; backdrop-filter:none; }
+.forge-shell main > section { background:var(--blue)!important; border-width:0 0 3px!important; color:white; }
+.forge-shell main > .grid { background:var(--paper); }
+.forge-shell main > .grid > aside { background:var(--red)!important; }
+.forge-shell .text-white, .forge-shell .text-slate-200, .forge-shell .text-slate-300, .forge-shell .text-slate-400 { color:var(--ink)!important; }
+.forge-shell main > section .text-white, .forge-shell main > section .text-slate-500, .forge-shell main > section .text-slate-600 { color:white!important; }
+.forge-shell main > .grid > aside .text-white, .forge-shell main > .grid > aside .text-slate-300, .forge-shell main > .grid > aside .text-slate-500, .forge-shell main > .grid > aside .text-slate-600 { color:var(--ink)!important; }
+.brand-mark { border:2px solid var(--ink); border-radius:50%!important; background:var(--red)!important; box-shadow:3px 3px 0 var(--ink); }
+.dynamic-island { position:fixed; z-index:40; top:18px; left:50%; width:min(1120px,calc(100vw - 32px)); height:64px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; padding:8px 10px; overflow-x:auto; overflow-y:hidden; border:3px solid var(--ink)!important; border-radius:999px; background:var(--yellow)!important; color:var(--ink); box-shadow:7px 7px 0 var(--blue); scrollbar-width:none; }
+.dynamic-island::-webkit-scrollbar { display:none; }
+.island-brand { display:flex; flex:none; align-items:center; gap:10px; padding:0 10px 0 2px; }
+.island-brand .text-white { color:var(--ink)!important; }
+.island-brand .text-slate-500 { color:#645a26!important; }
+.island-nav { display:flex; flex:none; align-items:center; gap:4px; }
+.island-meta { display:flex; flex:none; align-items:center; gap:7px; margin-left:auto; }
+.workspace-chip, .island-live { display:flex; align-items:center; gap:8px; height:38px; padding:0 12px; border:2px solid var(--ink); border-radius:999px; color:var(--ink); background:rgba(255,255,255,.24); font:500 10px/1 "IBM Plex Mono",monospace; }
+.workspace-shape { width:9px; height:9px; background:var(--blue); border:1px solid var(--ink); transform:rotate(45deg); }
+.island-live { color:#056c43; border-color:var(--ink); background:var(--mint); }
+.island-live.offline { color:var(--ink); background:var(--red); }
+.island-settings { display:flex; align-items:center; gap:7px; height:38px; padding:0 12px; border:2px solid var(--ink); border-radius:999px; color:var(--ink); background:var(--paper); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; transition:.18s ease; }
+.island-settings:hover { color:white; background:var(--blue); }
+.run-title { font-family:"Archivo Black",sans-serif; text-transform:uppercase; letter-spacing:-.035em; }
+.geo-field { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+.geo-field span { position:absolute; display:block; border:3px solid var(--ink); }
+.geo-field span:nth-child(1){ width:120px;height:120px;border-radius:50%;right:4vw;top:12vh;background:var(--yellow); }
+.geo-field span:nth-child(2){ width:90px;height:160px;right:18vw;bottom:-55px;background:var(--blue);transform:rotate(35deg); }
+.geo-field span:nth-child(3){ width:70px;height:70px;left:25vw;top:45vh;background:var(--red);transform:rotate(45deg); }
+.geo-field span:nth-child(4){ width:140px;height:25px;left:42vw;top:13vh;background:var(--mint);transform:rotate(-8deg); }
+
+.section-label { @apply text-xs font-bold uppercase tracking-[0.14em] text-slate-600; color:var(--ink)!important; }
+.nav-item { @apply flex shrink-0 items-center gap-2 px-3 py-2 text-xs transition; height:40px; border:2px solid transparent; border-radius:999px; color:var(--ink); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+.nav-item:hover { border-color:var(--ink); background:rgba(255,255,255,.35); }
+.nav-active { border-color:var(--ink)!important; background:var(--blue)!important; color:white!important; box-shadow:3px 3px 0 var(--ink); }
+.control-button { @apply flex items-center gap-2 px-3 py-2 text-xs transition; border:2px solid var(--ink); background:var(--paper); color:var(--ink); font-weight:700; box-shadow:3px 3px 0 var(--ink); }
+.control-button:hover { transform:translate(2px,2px); box-shadow:none; }
+.control-button:disabled { cursor:not-allowed; opacity:.48; transform:none; box-shadow:3px 3px 0 var(--ink); }
+.control-button.danger { @apply text-red-300/80 hover:border-red-400/30 hover:bg-red-400/5; }
+.control-button.danger { color:var(--ink)!important; background:var(--red)!important; border-color:var(--ink)!important; }
+.icon-button { @apply p-2 transition; border:2px solid var(--ink); color:var(--ink); background:var(--yellow); }
+.tag { @apply px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider; border:2px solid var(--ink); background:var(--mint); color:var(--ink); }
+.panel { @apply p-4; border:2px solid var(--ink); background:var(--paper); box-shadow:5px 5px 0 var(--ink); }
+.workflow-node { @apply p-4 transition; min-height:150px; border:2px solid var(--ink); background:var(--paper); box-shadow:4px 4px 0 var(--ink); }
+.workflow-node:nth-child(2){background:var(--yellow)} .workflow-node:nth-child(3){background:var(--red)} .workflow-node:nth-child(4){background:var(--mint)}
+.workflow-node.active { background:var(--blue)!important; color:white; transform:translate(-3px,-3px); box-shadow:7px 7px 0 var(--ink); }
+.workflow-node.active .text-white,.workflow-node.active .text-slate-500,.workflow-node.active .text-slate-600{color:white!important}
+.workflow-node.completed { @apply border-emerald-400/15; }
+.node-indicator { @apply size-3 bg-slate-700; border:2px solid var(--ink); }
+.node-indicator.active { @apply bg-amber-300 shadow-[0_0_10px_rgba(253,224,71,.6)]; }
+.node-indicator.completed { @apply bg-emerald-400; }
+.status-dot { @apply size-2 rounded-full bg-slate-500; border:1px solid var(--ink); }
+.status-dot.running { @apply bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.6)]; }
+.status-dot.paused { @apply bg-amber-300; }
+.status-dot.failed { @apply bg-red-400; }
+.event-mark { @apply mt-1.5 inline-block size-2.5 shrink-0 rounded-full bg-sky-400; }
+.event-mark.success { @apply bg-emerald-400; }
+.event-mark.warning { @apply bg-amber-300; }
+
+.instruction-composer { position:relative; overflow:hidden; border:3px solid var(--ink)!important; border-radius:0!important; background:var(--paper)!important; box-shadow:7px 7px 0 var(--blue); }
+.instruction-composer::before { content:"OPERATOR INPUT"; position:absolute; top:0; right:0; padding:7px 12px; border:0 solid var(--ink); border-width:0 0 2px 2px; background:var(--blue); color:white; font:600 11px/1 "IBM Plex Mono",monospace; letter-spacing:.12em; }
+.instruction-composer textarea { min-height:96px; padding-top:24px!important; }
+.instruction-composer > div:last-child { border-color:var(--ink)!important; }
+.forge-shell textarea { color:var(--ink)!important; }
+.forge-shell textarea::placeholder { color:#6d665d!important; }
+.forge-shell .divide-y > * { border-color:rgba(17,17,17,.18)!important; }
+.forge-shell .divide-y > *:hover { background:var(--yellow)!important; }
+.forge-shell button[class*="bg-amber-300"] { background:var(--yellow)!important; border:2px solid var(--ink); border-radius:0!important; box-shadow:3px 3px 0 var(--ink); }
+.forge-shell input { border:2px solid var(--ink)!important; background:var(--paper)!important; color:var(--ink)!important; }
+.forge-shell button:focus-visible, .forge-shell input:focus-visible, .forge-shell textarea:focus-visible { outline:4px solid white; outline-offset:3px; box-shadow:0 0 0 7px var(--blue); }
+.event-search { display:flex; align-items:center; gap:8px; min-width:210px; padding:5px 8px; border:2px solid var(--ink); background:var(--yellow); }
+.event-search input { width:100%; min-width:0; border:0!important; background:transparent!important; font:600 12px/1.4 "IBM Plex Mono",monospace; }
+.modal-backdrop { position:fixed; inset:0; z-index:80; display:grid; place-items:center; padding:20px; background:rgba(17,17,17,.72); }
+.confirm-dialog { width:min(480px,100%); border:3px solid var(--ink); padding:24px; background:var(--paper); color:var(--ink); box-shadow:10px 10px 0 var(--red); }
+.goal-composer { display:grid; grid-template-columns:minmax(180px,.7fr) minmax(280px,1.5fr) auto; gap:18px; align-items:end; padding:24px; border-bottom:3px solid var(--ink)!important; background:var(--yellow)!important; color:var(--ink)!important; }
+.goal-composer h2 { margin:4px 0 0; font:900 24px/1.05 "Archivo Black",sans-serif; text-transform:uppercase; }
+.goal-composer textarea { width:100%; min-height:76px; resize:vertical; border:3px solid var(--ink); padding:12px; background:var(--paper); font:600 14px/1.4 "IBM Plex Mono",monospace; }
+.button-primary { min-height:52px; padding:0 20px; border:3px solid var(--ink); background:var(--blue); color:white; box-shadow:5px 5px 0 var(--ink); font-weight:900; text-transform:uppercase; }
+.button-primary:disabled { opacity:.5; cursor:not-allowed; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior:auto!important; transition-duration:.01ms!important; animation-duration:.01ms!important; animation-iteration-count:1!important; } }
+
+@media (max-width:767px){.dynamic-island{top:10px;width:calc(100vw - 16px);height:58px;padding:6px 8px}.island-brand{padding-right:5px}.island-brand>div:last-child{display:none}.brand-mark{width:34px;height:34px}.nav-item{height:36px;padding:0 10px;font-size:10px}.nav-item svg{display:none}.workspace-chip{display:none}.island-settings{width:36px;height:36px;padding:0;justify-content:center}.island-live{width:12px;height:12px;padding:0;border:0}.geo-field{display:none}}
+@media (max-width:639px){.event-row{grid-template-columns:82px minmax(0,1fr)}.event-row>span:nth-child(2){grid-column:2}.event-row>div{grid-column:1/-1}}
+@media (max-width:800px){.goal-composer{grid-template-columns:1fr}.button-primary{width:100%}}
+
+/* Approval risk pills — colourblock, hard-edged */
+.risk-pill {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 2px solid #000;
+  color: #000;
+}
+.risk-low { background: #6ee7b7; }
+.risk-medium { background: #fcd34d; }
+.risk-high { background: #fb923c; }
+.risk-critical { background: #f87171; }

@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forge-harness"
+version = "0.1.0"
+description = "A plug-and-play harness for long-running autonomous coding with local or cloud models"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Biswajit Mondal" }]
+keywords = ["agents", "autonomous", "langgraph", "llm", "coding-agent", "local-llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Code Generators",
+]
+
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "openai>=1.40",
+    "pydantic>=2.5",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pgvector>=0.2",
+    "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+forge = "forge_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/sciencenerd-des/forge"
+Documentation = "https://github.com/sciencenerd-des/forge/blob/main/ARCHITECTURE.md"
+Issues = "https://github.com/sciencenerd-des/forge/issues"
+
+# App-style layout: the engine runs from a checkout (forge_cli/run_pge add the two
+# package roots to sys.path). We expose the top-level modules + nested packages.
+[tool.setuptools]
+py-modules = ["forge_config", "forge_cli", "run_pge", "pge_launcher", "models", "repository"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "control_plane*", "forge_runtime*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Extracted legacy modules still carry formatting and unused-import debt. Keep CI
+# focused on errors that can break execution while frontend lint remains strict.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

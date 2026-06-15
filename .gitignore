@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Databases / local state
+*.db
+*.sqlite
+*.sqlite3
+forge-control.db
+.forge/
+
+# Node / web
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Rust (experimental)
+target/
+
+# Workspaces created by the loop
+workspaces/
+test-workspaces/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Generated marketing media (rebuild with docs/marketing/assets/render_campaign_video.sh)
+docs/marketing/assets/forge-campaign-30s.mp4
+docs/marketing/assets/forge-campaign-preview.gif
