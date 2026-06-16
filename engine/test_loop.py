@@ -1,10 +1,12 @@
-
-import os
 import json
 import time
 import sys
 import uuid
+from pathlib import Path
 from typing import Dict, Optional
+
+import forge_config
+
 from src.state.schema import AgentState, Task, Goal, Heartbeat
 from src.nodes.planner_node import planner_node
 from src.nodes.executor_node import executor_node
@@ -16,6 +18,8 @@ from src.runtime import active_goal_query
 def run_test_loop():
     # Unique ID for this specific test run
     project_id = f"test-project-{uuid.uuid4().hex[:8]}"
+    workspace = forge_config.workspaces_root() / project_id
+    workspace.mkdir(parents=True, exist_ok=True)
     db = SessionLocal()
     service = MemoryService(db)
     
@@ -23,7 +27,7 @@ def run_test_loop():
     service.create_project(
         project_id=project_id,
         name="Test Project",
-        repo_path="/Users/biswajitmondal/Developer/hermes_memory",
+        repo_path=str(workspace),
         description="Test Project Description"
     )
     db.commit()
@@ -49,7 +53,7 @@ def run_test_loop():
     task = Task(
         id="task-1",
         title="Write test file",
-        description="Write to /Users/biswajitmondal/test.txt", # Valid path for this user
+        description="Write to test.txt inside the project workspace.",
         status="active",
         priority=1
     )
@@ -73,7 +77,8 @@ def run_test_loop():
         "turn_count": 0,
         "current_run_id": "test-run-1",
         "last_eval": None,
-        "heartbeat": None
+        "heartbeat": None,
+        "active_sandbox": {"workspace": str(workspace)},
     }
 
     print(f"Starting test loop for goal: {new_goal.title}")
