@@ -1,14 +1,22 @@
-import sys
-import os
 import json
-from datetime import datetime, timedelta
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now (avoids the deprecated ``datetime.utcnow()``)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Ensure we can import app modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
+from app.models import (
+    HermesMemoryItem,
+)
 from app.services import MemoryService
-from app.models import HermesProject, HermesGoal, HermesTask, HermesEvent, HermesMemoryItem, HermesFileChange, HermesCheckpoint
+
 
 def test_enhancements():
     db = SessionLocal()
@@ -43,25 +51,25 @@ def test_enhancements():
         # 3. Create fine-grained events, file changes, and checkpoints for consolidation testing
         # We will manually set task as completed and backdate it to simulate an old task
         task.status = "completed"
-        task.completed_at = datetime.utcnow() - timedelta(days=10)
+        task.completed_at = _utcnow() - timedelta(days=10)
         db.commit()
         
-        event = service.record_event(
+        service.record_event(
             project_id=project_id,
             task_id=task.id,
             event_type="test_run",
             content="Ran pytest with 100% coverage"
         )
-        
-        fc = service.record_file_change(
+
+        service.record_file_change(
             project_id=project_id,
             task_id=task.id,
             file_path="app/services/__init__.py",
             change_summary="Implemented SQLite state.db bridge",
             reason="Expose command logs to context pack"
         )
-        
-        cp = service.create_checkpoint(
+
+        service.create_checkpoint(
             project_id=project_id,
             task_id=task.id,
             summary="Task bridge complete, ready for verification"
