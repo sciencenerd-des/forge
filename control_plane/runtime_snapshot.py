@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func
@@ -11,7 +11,6 @@ import forge_config
 from app.database import SessionLocal
 from app.models import HermesFileChange, HermesGoal, HermesProject, HermesTask, HermesTestRun
 from pge_launcher import load_run_state, process_is_alive
-
 
 GATEWAY_PROCESS_MARKER = "hermes_cli.main gateway run"
 
