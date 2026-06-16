@@ -1,6 +1,7 @@
-import os
 import json
 import datetime
+import tempfile
+
 from src.state.schema import Goal, AgentState
 from src.graph import app
 
@@ -12,13 +13,6 @@ def verify_environment():
         from langgraph.graph import StateGraph
         print("✅ LangGraph library is available.")
         
-        # Check for required directory
-        path = "/Users/biswajitmondal/Developer/hermes_memory/agent-autonomy-project"
-        if os.path.exists(path):
-            print(f"✅ Project directory exists: {path}")
-        else:
-            print(f"❌ Project directory NOT found: {path}")
-            return False
         return True
     except ImportError as e:
         print(f"❌ Missing dependencies: {e}")
@@ -54,7 +48,8 @@ def run_smoke_test():
         "history": [],
         "turn_count": 0,
         "current_run_id": "smoke_test_001",
-        "timestamp": datetime.datetime.now()
+        "timestamp": datetime.datetime.now(),
+        "active_sandbox": {"workspace": tempfile.mkdtemp(prefix="forge-smoke-")},
     }
 
     print(f"Goal: {initial_goal.title}")
