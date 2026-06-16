@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 
 def _utcnow() -> datetime:
@@ -26,7 +27,7 @@ def test_enhancements():
         # 1. Create a dummy test project
         project = service.create_project(
             name="Enhancement Test Project",
-            repo_path="/Users/biswajitmondal/Developer/hermes_memory",
+            repo_path=str(Path.cwd()),
             description="Testing pgvector and SQLite state.db bridge"
         )
         project_id = project.id
