@@ -27,7 +27,9 @@ def planner_node(state: AgentState) -> Dict:
     This node acts as the 'Architect'.
     """
     print("🎯 planner_node execution started")
-    project_id = state.get("project_id", "2be10944-8429-4a61-ae16-5a8a65b9d7c7")
+    project_id = state.get("project_id")
+    if not project_id:
+        raise ValueError("planner_node requires 'project_id' in state")
     print(f"🎯 planner_node: opening database session for project {project_id}")
     db = SessionLocal()
     print("🎯 planner_node: database session opened")
