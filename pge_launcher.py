@@ -54,9 +54,11 @@ def save_run_state(state: dict[str, dict[str, Any]]) -> None:
 def _persist_lifecycle(record: dict[str, Any], event_type: str) -> None:
     """Mirror detached lifecycle into canonical PostgreSQL control-plane tables."""
     from sqlalchemy import func, select
+
     from app.database import SessionLocal as PgeSession
     from app.models import HermesGoal
-    from control_plane.database import SessionLocal as ControlSession, create_schema
+    from control_plane.database import SessionLocal as ControlSession
+    from control_plane.database import create_schema
     from control_plane.models import RunEventRecord, RunRecord
 
     project_id = record["project_id"]
