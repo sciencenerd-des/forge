@@ -11,10 +11,10 @@ Run after adding toolsets/plugins/MCP servers:
 (The pge plugin's post_tool_call hook also captures tools dynamically the
 first time they are used, so unseen tools self-document at runtime.)
 """
-import os
-import sys
 import json
+import os
 import sqlite3
+import sys
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
