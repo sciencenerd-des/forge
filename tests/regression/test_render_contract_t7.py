@@ -10,11 +10,8 @@ T7 is now pure shell and format-aware. These tests run the ACTUAL command the
 render template generates against real P3/P6 fixtures.
 """
 import subprocess
-import textwrap
 
-import pytest
-
-from src.auditor import template_contract, detect_stack
+from src.auditor import detect_stack, template_contract
 
 STACK = detect_stack("raytracer render image")
 T7 = next(t for t in template_contract(STACK, "raytracer render")["tests"] if t["id"] == "T7")
