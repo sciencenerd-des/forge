@@ -1,10 +1,12 @@
-import sys
-import os
-import forge_config
 import json
-from typing import List, Optional, Dict, Any
-from mcp.server.fastmcp import FastMCP
+import os
+import sys
+from typing import Optional
+
 from dotenv import load_dotenv
+from mcp.server.fastmcp import FastMCP
+
+import forge_config
 
 # Ensure we can import app modules by adding the parent folder to the sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -94,7 +96,7 @@ def create_task(project_id: str, goal_id: str, title: str,
             "status": "success",
             "message": f"Task created successfully: {task.title}",
             "task_id": str(task.id),
-            "status": task.status
+            "task_status": task.status
         }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
@@ -118,7 +120,7 @@ def set_active_task(project_id: str, task_id: str) -> str:
                 "status": "success",
                 "message": f"Task activated: {task.title}",
                 "task_id": str(task.id),
-                "status": task.status
+                "task_status": task.status
             }, indent=2)
         else:
             return json.dumps({"status": "error", "message": "Task not found"}, indent=2)
@@ -143,7 +145,7 @@ def complete_task(project_id: str, task_id: str) -> str:
             "status": "success",
             "message": f"Task completed: {task.title}",
             "task_id": str(task.id),
-            "status": task.status
+            "task_status": task.status
         }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
@@ -414,9 +416,9 @@ def run_autonomy_loop(project_id: str) -> str:
     Args:
         project_id: The UUID of the project to run the loop for
     """
-    import sys
-    import os
     import datetime
+    import os
+    import sys
     
     # Ensure the agent-autonomy-project directory is on sys.path
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -426,11 +428,11 @@ def run_autonomy_loop(project_id: str) -> str:
         
     from src.graph import app
     from src.state.schema import Goal
+
     from app.models import HermesGoal
     
     db = SessionLocal()
     try:
-        service = MemoryService(db)
         db_goal = db.query(HermesGoal).filter(HermesGoal.project_id == project_id).first()
         if not db_goal:
             return json.dumps({
