@@ -11,13 +11,13 @@ Usage:
     python run_pge.py --project <uuid> --goal "Build X" --desc "..."
     PGE_MAX_TURNS=20 python run_pge.py
 """
+import argparse
 import os
 import sys
-import uuid
-import argparse
-import traceback
 import time
-from datetime import datetime
+import traceback
+import uuid
+from datetime import datetime, timezone
 
 # --- Make both package roots importable (the layout splits `app` from `src`) ---
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -27,18 +27,30 @@ for p in (_ROOT, _AUTONOMY):
         sys.path.insert(0, p)
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.graph import app as pge_graph, MAX_TURNS          # noqa: E402
-from src.state.schema import AgentState, Goal               # noqa: E402
-from src.runtime import active_goal_query                    # noqa: E402
-from app.database import SessionLocal                       # noqa: E402
-from app.models import (HermesFileChange, HermesMemoryItem, HermesTask,
-                        HermesTestRun)                      # noqa: E402
-from app.services import MemoryService                     # noqa: E402
-from pge_launcher import load_run_state, update_run         # noqa: E402
+from src.graph import MAX_TURNS
+from src.graph import app as pge_graph  # noqa: E402
+from src.runtime import active_goal_query  # noqa: E402
+from src.state.schema import Goal  # noqa: E402
 
 import forge_config  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
+from app.models import (
+    HermesFileChange,
+    HermesMemoryItem,
+    HermesTask,
+    HermesTestRun,  # noqa: E402
+)
+from app.services import MemoryService  # noqa: E402
+from pge_launcher import load_run_state, update_run  # noqa: E402
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now. DB columns are TIMESTAMP WITHOUT TIME ZONE, so we keep
+    timestamps naive while avoiding the deprecated ``datetime.utcnow()``."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def resolve_default_project() -> str:
@@ -122,7 +134,7 @@ def _initial_state(project_id: str, goal=None):
         "goal_verified": False,
         "turn_count": 0,
         "current_run_id": str(uuid.uuid4()),
-        "timestamp": datetime.utcnow(),
+        "timestamp": _utcnow(),
     }
 
 
@@ -130,7 +142,7 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
             run_id: str | None = None):
     if run_id:
         update_run(project_id, run_id, status="running", runner_pid=os.getpid(),
-                   heartbeat_at=datetime.utcnow().isoformat())
+                   heartbeat_at=_utcnow().isoformat())
     print(f"--- PGE loop start | project={project_id} | max_turns={MAX_TURNS} ---")
     sync_db = SessionLocal()
     try:
@@ -170,7 +182,7 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
         batch += 1
         if run_id:
             update_run(project_id, run_id, status="running", batch=batch,
-                       heartbeat_at=datetime.utcnow().isoformat())
+                       heartbeat_at=_utcnow().isoformat())
         db_goal, before = _load_progress(project_id)
         if db_goal and db_goal.status == "completed":
             print("🏁 Persisted goal is verified complete.")
@@ -225,7 +237,7 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
                     update_run(project_id, run_id, status="blocked",
                                terminal_reason=f"failure_budget_exhausted:{failure_name}",
                                last_failure=f"{failure_name}: {failure_text}"[:2000],
-                               heartbeat_at=datetime.utcnow().isoformat())
+                               heartbeat_at=_utcnow().isoformat())
                 raise RuntimeError(
                     f"PGE failure budget exhausted after {consecutive_failures} "
                     f"consecutive failures (last: {failure_name}: {failure_text})"
@@ -237,7 +249,7 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
                     project_id, run_id, status="recovering",
                     consecutive_failures=consecutive_failures,
                     last_failure=f"{failure_name}: {failure_text}"[:2000],
-                    heartbeat_at=datetime.utcnow().isoformat(),
+                    heartbeat_at=_utcnow().isoformat(),
                 )
             time.sleep(delay)
             continue
@@ -298,11 +310,11 @@ if __name__ == "__main__":
             if current.get("run_id") == args.run_id and current.get("status") != "blocked":
                 update_run(args.project, args.run_id, status="completed",
                            final_decision=current_decision,
-                           finished_at=datetime.utcnow().isoformat(), exit_code=0)
+                           finished_at=_utcnow().isoformat(), exit_code=0)
     except BaseException as exc:
         if args.run_id:
             update_run(args.project, args.run_id, status="failed",
                        failure=f"{type(exc).__name__}: {exc}",
                        traceback=traceback.format_exc()[-12000:],
-                       finished_at=datetime.utcnow().isoformat(), exit_code=1)
+                       finished_at=_utcnow().isoformat(), exit_code=1)
         raise
