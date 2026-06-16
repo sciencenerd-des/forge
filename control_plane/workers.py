@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from .models import BrowserActionRecord, BrowserSessionRecord, ExternalActionRecord
 from .service import ConflictError, append_event, now_utc
 
-
 MAX_RESULT_BYTES = 64_000
 
 
