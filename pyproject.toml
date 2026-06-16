@@ -66,8 +66,10 @@ select = ["E9", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 # The engine was extracted from a larger codebase and keeps its original import
-# ordering and a few re-export shims; lint it for hard errors only for now.
-"engine/**" = ["F401", "F403", "F405", "F541", "F811", "F841", "I001"]
+# ordering and a few re-export shims (F401/F403/F405) plus intentional
+# function-scope re-imports (I001). Logic-level pyflakes rules (F541/F811/F841)
+# ARE enforced — the violations they flagged have been fixed in the sources.
+"engine/**" = ["F401", "F403", "F405", "I001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
