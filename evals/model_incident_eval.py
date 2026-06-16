@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-
 ALLOWED_TOOLS = {"read_file", "write_file", "run_command", "notebook_cell"}
 
 FIXTURES = {
