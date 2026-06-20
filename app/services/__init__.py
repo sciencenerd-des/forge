@@ -1,20 +1,35 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, false, func, literal_column, or_, select
-from ..database import engine, Base
-from ..models import (
-    HermesProject, HermesGoal, HermesTask, 
-    HermesEvent, HermesMemoryItem, 
-    HermesFileChange, HermesTestRun, 
-    HermesCheckpoint, HermesContextPackLog,
-    HermesSession, HermesMessage, HermesRuntimeMetadata
-)
-import uuid
-import json
 import hashlib
+import json
 import os
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import and_, false, func, literal_column, or_, select
+from sqlalchemy.orm import Session
+
 import forge_config
-from datetime import datetime
-from typing import List, Optional, Dict, Any
+
+from ..database import Base, engine
+from ..models import (
+    HermesCheckpoint,
+    HermesEvent,
+    HermesFileChange,
+    HermesGoal,
+    HermesMemoryItem,
+    HermesMessage,
+    HermesProject,
+    HermesRuntimeMetadata,
+    HermesSession,
+    HermesTask,
+    HermesTestRun,
+)
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now. DB columns are TIMESTAMP WITHOUT TIME ZONE, so we keep
+    timestamps naive while avoiding the deprecated ``datetime.utcnow()``."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 # Schema bootstrap is BEST-EFFORT at import: the engine should import
 # without a live database (unit tests, `forge config`, CLI help). A real
@@ -157,7 +172,7 @@ class MemoryService:
         if task:
             task.status = "active"
             if task.evidence_baseline_at is None:
-                task.evidence_baseline_at = datetime.utcnow()
+                task.evidence_baseline_at = _utcnow()
             self.db.commit()
             self.db.refresh(task)
             return task
@@ -184,7 +199,7 @@ class MemoryService:
         task.attempt_count = (task.attempt_count or 0) + 1
         if made_progress:
             task.no_progress_count = 0
-            task.last_progress_at = datetime.utcnow()
+            task.last_progress_at = _utcnow()
         else:
             task.no_progress_count = (task.no_progress_count or 0) + 1
         self.db.commit()
@@ -214,7 +229,7 @@ class MemoryService:
                 raise ValueError("Verification required: Task needs fresh evidence created after activation.")
         
         task.status = "completed"
-        task.completed_at = datetime.utcnow()
+        task.completed_at = _utcnow()
         self.db.commit()
         self.db.refresh(task)
         
@@ -440,8 +455,6 @@ class MemoryService:
 
     def sync_sqlite_to_postgres(self, state_db_path: Optional[str] = None):
         import sqlite3
-        import os
-        from ..models import HermesSession, HermesMessage, HermesRuntimeMetadata
         
         if not state_db_path:
             state_db_path = os.getenv("HERMES_STATE_DB_PATH", forge_config.state_db_path())
@@ -532,7 +545,7 @@ class MemoryService:
                 HermesTask.status == "active",
             ).order_by(HermesTask.updated_at.desc()).first()
 
-        now = datetime.utcnow()
+        now = _utcnow()
         superseded_ids = select(HermesMemoryItem.supersedes_id).where(
             HermesMemoryItem.supersedes_id.isnot(None))
         memory_scope = false()
@@ -710,8 +723,8 @@ class MemoryService:
 
     def consolidate_old_logs(self, project_id: str, days_threshold: int = 7) -> Dict[str, Any]:
         """Consolidate old fine-grained events and checkpoints into high-level digest items."""
-        from datetime import datetime, timedelta
-        cutoff_date = datetime.utcnow() - timedelta(days=days_threshold)
+        from datetime import timedelta
+        cutoff_date = _utcnow() - timedelta(days=days_threshold)
         
         old_completed_tasks = self.db.query(HermesTask).filter(
             HermesTask.project_id == project_id,

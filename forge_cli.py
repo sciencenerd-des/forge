@@ -21,8 +21,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     import run_pge
     project = args.project or run_pge.resolve_default_project()
     if args.detached:
-        from pge_launcher import launch_pge
         import json
+
+        from pge_launcher import launch_pge
         print(json.dumps(launch_pge(project, source="cli:run"), indent=2))
         return 0
     run_pge.run_pge(project, args.goal, args.desc, None)
@@ -41,8 +42,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 def _cmd_config(_args: argparse.Namespace) -> int:
     """Print the resolved configuration (paths, DB, default provider)."""
-    import forge_config as c
     import json
+
+    import forge_config as c
     provider = c.provider_for("executor")
     print(json.dumps({
         "home": str(c.home()),

@@ -27,7 +27,9 @@ def _checkpoint(state: AgentState, updated: Dict, label: str):
     merged = dict(state)
     if isinstance(updated, dict):
         merged.update(updated)
-    project_id = state.get("project_id", "2be10944-8429-4a61-ae16-5a8a65b9d7c7")
+    project_id = state.get("project_id")
+    if not project_id:
+        return  # no project context — nothing to checkpoint against
     try:
         mcp_hermes_memory_create_checkpoint(
             project_id=project_id,

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import secrets
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -11,7 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal, create_schema
-from .models import ApprovalRecord, ExternalActionRecord, RunEventRecord, RunRecord
+from .models import ApprovalRecord, RunEventRecord, RunRecord
+from .runtime_snapshot import (
+    get_config_snapshot,
+    get_system_snapshot,
+    list_project_snapshots,
+    list_runtime_snapshots,
+)
 from .schemas import (
     ApprovalCreate,
     ApprovalDecision,
@@ -39,20 +46,15 @@ from .service import (
     serialize_model,
 )
 from .workers import execute_external_action, run_browser_worker_once
-from .runtime_snapshot import (
-    get_config_snapshot,
-    get_system_snapshot,
-    list_project_snapshots,
-    list_runtime_snapshots,
-)
 
 
-app = FastAPI(title="Forge Control Plane", version="0.1.0")
-
-
-@app.on_event("startup")
-def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     create_schema()
+    yield
+
+
+app = FastAPI(title="Forge Control Plane", version="0.1.0", lifespan=lifespan)
 
 
 def get_db():
@@ -114,6 +116,7 @@ def runtime_stop(project_id: str) -> dict:
     """Stop a detached run: signal its process and mark the manifest stopped.
     Loopback dashboard control (the console runs on localhost)."""
     import signal
+
     from pge_launcher import load_run_state, process_is_alive, update_run
 
     manifest = load_run_state().get(project_id)
@@ -202,6 +205,9 @@ def events_list(run_id: str, after: int = Query(0, ge=0), db: Session = Depends(
 
 @app.get("/runs/{run_id}/events/stream", dependencies=[Depends(require_control_token)])
 async def events_stream(run_id: str, after: int = Query(0, ge=0)) -> StreamingResponse:
+    """SSE event stream for programmatic clients that send a bearer token
+    (e.g. via a proxy). The web console polls ``/runs/{id}/events`` instead,
+    since native EventSource cannot attach an Authorization header."""
     async def generate():
         cursor = after
         while True:

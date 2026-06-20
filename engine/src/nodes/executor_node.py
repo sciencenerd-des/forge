@@ -159,7 +159,9 @@ def executor_node(state: AgentState) -> Dict:
     if not active_task:
         return {"heartbeat": None}
 
-    project_id = state.get("project_id", "2be10944-8429-4a61-ae16-5a8a65b9d7c7")
+    project_id = state.get("project_id")
+    if not project_id:
+        raise ValueError("executor_node requires 'project_id' in state")
     db_workspace = SessionLocal()
     try:
         workspace = project_workspace(db_workspace, project_id)
@@ -421,7 +423,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
             print(f"Failed to parse LLM JSON output: {parse_err}")
             # Append error message to LLM and retry
             messages.append({"role": "assistant", "content": response_raw})
-            messages.append({"role": "user", "content": f"Error: Output was not valid JSON. Please return ONLY a valid JSON block as specified."})
+            messages.append({"role": "user", "content": "Error: Output was not valid JSON. Please return ONLY a valid JSON block as specified."})
             continue
 
         msg_type = data.get("type")

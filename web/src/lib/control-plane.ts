@@ -122,12 +122,6 @@ export class ControlPlaneClient {
     })
   }
 
-  eventStreamUrl(runId: string, after = 0): string {
-    // Native EventSource cannot send Authorization headers. A production web
-    // deployment should proxy this route through an authenticated same-origin backend.
-    return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/events/stream?after=${after}`
-  }
-
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,

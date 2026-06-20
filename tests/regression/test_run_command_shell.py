@@ -7,7 +7,7 @@ an argv list. Undetected, cmake received ``>/dev/null`` as an argument and faile
 import pytest
 
 pytest.importorskip("langgraph")
-from src.nodes.executor_node import _shellish_run_command, _run_command_string
+from src.nodes.executor_node import _run_command_string, _shellish_run_command
 
 
 def test_command_string_is_shellish():

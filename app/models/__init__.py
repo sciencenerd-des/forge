@@ -1,9 +1,24 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Boolean, Integer, JSON, Numeric, ARRAY, Index, literal_column
-from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
-from pgvector.sqlalchemy import Vector
-from ..database import Base
 import uuid
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    ARRAY,
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    literal_column,
+)
+from sqlalchemy.sql import func
+
+from ..database import Base
+
 
 class HermesProject(Base):
     __tablename__ = "hermes_projects"

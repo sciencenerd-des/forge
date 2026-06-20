@@ -394,7 +394,7 @@ def generate_contract(title: str, description: str = "", user_prompt: str = "",
         raw = llm.generate(prompt, schema=CONTRACT_SCHEMA)
         c = _parse_contract(raw)
         if c["checklist"]:
-            print(f"🛡️  Auditor degraded to LOCAL model")
+            print("🛡️  Auditor degraded to LOCAL model")
             c["auditor_model"] = "local-fallback"
             return c
     except Exception as e:

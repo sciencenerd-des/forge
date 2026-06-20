@@ -4,16 +4,19 @@ from typing import Dict
 from src.state.schema import AgentState
 from hermes_tools import llm
 
-import os
-import json
-from typing import Dict
-from src.state.schema import AgentState, Task, Goal
-from hermes_tools import llm, EVALUATOR_SCHEMA
+from src.state.schema import Task, Goal
+from hermes_tools import EVALUATOR_SCHEMA
 from app.database import SessionLocal
 from app.services import MemoryService
 from app.models import HermesGoal, HermesTask, HermesMemoryItem
 from src.runtime import active_goal_query, project_workspace
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now. DB columns are TIMESTAMP WITHOUT TIME ZONE, so we keep
+    timestamps naive while avoiding the deprecated ``datetime.utcnow()``."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def evaluator_node(state: AgentState) -> Dict:
@@ -24,7 +27,9 @@ def evaluator_node(state: AgentState) -> Dict:
     The goal is to ensure the loop persists until the success criteria are met
     or a hard blocker is identified.
     """
-    project_id = state.get("project_id", "2be10944-8429-4a61-ae16-5a8a65b9d7c7")
+    project_id = state.get("project_id")
+    if not project_id:
+        raise ValueError("evaluator_node requires 'project_id' in state")
     heartbeat = state.get('heartbeat')
     active_task = state.get('active_task')
 
@@ -391,7 +396,7 @@ def evaluator_node(state: AgentState) -> Dict:
                 row = db.query(HermesTask).filter(HermesTask.id == active_task.id).first()
                 if row:
                     row.status = "completed"
-                    row.completed_at = datetime.utcnow()
+                    row.completed_at = _utcnow()
                     db.commit()
             db_tasks = db.query(HermesTask).filter(
                 HermesTask.project_id == project_id,
@@ -414,7 +419,6 @@ def evaluator_node(state: AgentState) -> Dict:
             if g:
                 g.status = "completed"
             db.commit()
-            goal_complete = True
         finally:
             db.close()
         if remaining:
@@ -635,7 +639,7 @@ def evaluator_node(state: AgentState) -> Dict:
                 db_task = db.query(HermesTask).filter(HermesTask.id == active_task.id).first()
                 if db_task:
                     db_task.status = "completed"
-                    db_task.completed_at = datetime.utcnow()
+                    db_task.completed_at = _utcnow()
                     db.commit()
             
             # Retrieve updated active task with status="completed"

@@ -1,9 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from app.database import SessionLocal
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now (avoids the deprecated ``datetime.utcnow()``)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 from app.models import HermesFileChange, HermesGoal, HermesMemoryItem, HermesProject, HermesTask, HermesTestRun
 from app.services import MemoryService
 from src.nodes.executor_node import record_tool_msg
@@ -49,11 +54,11 @@ def test_historical_evidence_cannot_complete_new_activation(task_record):
     project_id, task_id = task_record
     with SessionLocal() as db:
         task = db.get(HermesTask, task_id)
-        task.evidence_baseline_at = datetime.utcnow()
+        task.evidence_baseline_at = _utcnow()
         db.add(HermesTestRun(
             project_id=project_id, task_id=task_id, command="old",
             status="success", output_summary="old",
-            created_at=datetime.utcnow() - timedelta(days=1),
+            created_at=_utcnow() - timedelta(days=1),
         ))
         db.commit()
         with pytest.raises(ValueError, match="fresh evidence"):

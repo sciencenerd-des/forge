@@ -12,7 +12,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-
 MAX_OUTPUT_BYTES = 64_000
 MAX_READ_BYTES = 1_000_000
 DEFAULT_TIMEOUT_SECONDS = 120

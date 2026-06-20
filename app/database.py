@@ -1,8 +1,8 @@
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Resolve .env relative to the PROJECT ROOT (parent of this app/ package), not the
 # current working directory. The MCP server and the native Hermes plugin import
@@ -17,6 +17,7 @@ load_dotenv()  # also honor a cwd .env / already-exported vars if present
 # matches the bundled docker-compose Postgres service so `docker compose up` is
 # plug-and-play. Override with DATABASE_URL. See forge_config.database_url().
 import forge_config
+
 DATABASE_URL = forge_config.database_url()
 
 # For SQLAlchemy 1.4/2.0, postgresql needs to use the correct dialect

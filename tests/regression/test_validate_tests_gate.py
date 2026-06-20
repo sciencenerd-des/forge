@@ -7,7 +7,7 @@ missing binary. With the variety check gone, a trivial build "passed" all
 remaining tests, the evaluator declared the goal complete, and the loop exited
 after one batch. These tests pin the gate's behavior so that can never recur.
 """
-from src.auditor import validate_tests, detect_stack, template_contract
+from src.auditor import detect_stack, template_contract, validate_tests
 
 CPP = detect_stack("Brooklyn 3D Raytracer Development render raytracer")
 
