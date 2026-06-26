@@ -152,7 +152,7 @@ def runtime_start(body: RuntimeRunStart) -> dict:
     result = launch_pge(project_id, source="control-plane:web", invocation={"goal": body.goal})
     if result.get("status") != "success":
         raise HTTPException(409, result.get("message", "run failed to start"))
-    return result
+    return {**result, "project_id": project_id}
 
 
 @app.post("/runs", status_code=201, dependencies=[Depends(require_control_token)])

@@ -40,6 +40,12 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_slack(_args: argparse.Namespace) -> int:
+    """Run the Slack (Socket Mode) bridge for the #hermesbot channel."""
+    from integrations.slack.bridge import run
+    return run()
+
+
 def _cmd_config(_args: argparse.Namespace) -> int:
     """Print the resolved configuration (paths, DB, default provider)."""
     import json
@@ -82,6 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     ps = sub.add_parser("serve", help="serve the control-plane API")
     ps.add_argument("--reload", action="store_true", help="auto-reload (dev)")
     ps.set_defaults(func=_cmd_serve)
+
+    psl = sub.add_parser("slack", help="run the Slack (Socket Mode) bridge for #hermesbot")
+    psl.set_defaults(func=_cmd_slack)
 
     sub.add_parser("config", help="print resolved configuration").set_defaults(func=_cmd_config)
 
