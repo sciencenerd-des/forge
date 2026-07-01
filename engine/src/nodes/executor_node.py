@@ -187,6 +187,7 @@ def executor_node(state: AgentState) -> Dict:
         db.close()
 
     runtime_tool_state = context_pack.get("RUNTIME_TOOL_STATE", {})
+    repo_context = context_pack.get("REPO_CONTEXT", {})
     compression = context_pack.get("CONTEXT_COMPRESSION", {})
     if compression.get("snapshot_id"):
         print("Headroom context: "
@@ -267,6 +268,9 @@ STEWARD BRIEFING (fresh from the DB, stale context filtered out):
 
 DYNAMIC AUDITOR REPAIR PACK (fresh durable facts; follow next_action and avoid repeats):
 {json.dumps(state.get('dynamic_audit_context') or {}, default=str)[:12000]}
+
+REPO CONTEXT PACK (deterministic; use steering.next_actions and steering.completion_gate):
+{json.dumps(repo_context, default=str)[:12000]}
 
 LESSONS / PREVIOUS MISTAKES (do not repeat):
 {json.dumps(context_pack.get('LESSONS_AND_MISTAKES', []))}

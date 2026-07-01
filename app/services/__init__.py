@@ -609,6 +609,29 @@ class MemoryService:
                 "active_sandbox_info": {"workspace": project.repo_path}
             }
         }
+        try:
+            from forge_runtime.context_pack import build_repo_context_pack
+
+            pack["REPO_CONTEXT"] = build_repo_context_pack(
+                project.repo_path,
+                task_text=" ".join(
+                    part for part in [
+                        goal.title if goal else "",
+                        goal.description if goal else "",
+                        active_task.title if active_task else "",
+                        active_task.description if active_task else "",
+                    ]
+                    if part
+                ),
+            )
+        except Exception as exc:
+            pack["REPO_CONTEXT"] = {
+                "schema_version": 1,
+                "cache_status": "error",
+                "reason": f"{type(exc).__name__}: {exc}"[:300],
+                "selected_files": [],
+                "invalidation_rules": [],
+            }
         from ..context_compression import compress_context_pack
         return compress_context_pack(
             self.db,
