@@ -1,5 +1,9 @@
 # Forge
 
+[![CI](https://github.com/sciencenerd-des/forge/actions/workflows/ci.yml/badge.svg)](https://github.com/sciencenerd-des/forge/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 ![Forge: keep coding agents running and honest](docs/marketing/assets/forge-og.svg)
 
 **A plug-and-play harness for long-running autonomous coding — with local or cloud models.**
