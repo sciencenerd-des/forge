@@ -116,6 +116,56 @@ def ensure_default_project(db, name: str = "default") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Control plane (HTTP) — used by clients like the Slack bridge
+# ---------------------------------------------------------------------------
+
+def control_url() -> str:
+    """Base URL of the local control-plane API (served by ``forge serve``).
+
+    Matches ``FORGE_CONTROL_HOST``/``FORGE_CONTROL_PORT`` defaults; override with
+    ``FORGE_CONTROL_URL``."""
+    host = os.getenv("FORGE_CONTROL_HOST", "127.0.0.1")
+    port = os.getenv("FORGE_CONTROL_PORT", "8787")
+    return os.getenv("FORGE_CONTROL_URL", f"http://{host}:{port}")
+
+
+def control_token() -> str | None:
+    """Bearer token required by the control-plane API (``FORGE_CONTROL_TOKEN``)."""
+    return os.getenv("FORGE_CONTROL_TOKEN") or None
+
+
+# ---------------------------------------------------------------------------
+# Slack bridge (integrations.slack) — Socket Mode, no public URL required
+# ---------------------------------------------------------------------------
+
+def slack_bot_token() -> str | None:
+    """Slack bot token (``xoxb-…``) for ``chat:write`` etc. — ``SLACK_BOT_TOKEN``."""
+    return os.getenv("SLACK_BOT_TOKEN") or None
+
+
+def slack_app_token() -> str | None:
+    """Slack app-level token (``xapp-…``, scope ``connections:write``) used by
+    Socket Mode — ``SLACK_APP_TOKEN``."""
+    return os.getenv("SLACK_APP_TOKEN") or None
+
+
+def slack_channel() -> str:
+    """Channel the bridge watches (name without ``#``). Default ``hermesbot``."""
+    return os.getenv("SLACK_HERMES_CHANNEL", "hermesbot")
+
+
+def slack_channel_id() -> str | None:
+    """Optional Slack channel id (``C...``/``G...``) for fail-closed routing."""
+    return os.getenv("SLACK_HERMES_CHANNEL_ID") or None
+
+
+def slack_allowed_user_ids() -> set[str]:
+    """Optional comma-separated Slack user id allowlist for bridge commands."""
+    raw = os.getenv("SLACK_ALLOWED_USER_IDS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+# ---------------------------------------------------------------------------
 # Model providers (generic OpenAI-compatible — LM Studio / Ollama / vLLM / cloud)
 # ---------------------------------------------------------------------------
 
