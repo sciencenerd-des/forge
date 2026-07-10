@@ -1,0 +1,43 @@
+{
+  "model": "gemma4:12b-mlx",
+  "score": 0,
+  "total": 5,
+  "pass_rate": 0.0,
+  "results": [
+    {
+      "fixture": "valid_structured_output",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "",
+      "latency_ms": 4946
+    },
+    {
+      "fixture": "correct_tool_selection",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "",
+      "latency_ms": 5585
+    },
+    {
+      "fixture": "no_repeated_action",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "```json\n{\n  \"action\": \"read_file\",\n  \"action_input\": {\n    \"path\": \"tests/test_parser.py\"\n  }\n}\n```",
+      "latency_ms": 6129
+    },
+    {
+      "fixture": "tool_result_interpretation",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "",
+      "latency_ms": 16779
+    },
+    {
+      "fixture": "failed_command_recovery",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "```json\n{\"action\": \"list_files\", \"args\": {\"path\": \".\"}}\n```",
+      "latency_ms": 17978
+    }
+  ]
+}

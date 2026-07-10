@@ -1,0 +1,64 @@
+{
+  "git_sha": "fbef8f5",
+  "verified_completion_rate": 0.0,
+  "mean_cycles_to_done": 0.0,
+  "mean_distance_auc": 0.0,
+  "false_completion_count": 0,
+  "token_cost": 0,
+  "goals": [
+    {
+      "goal_id": "python-fizzbuzz",
+      "outcome": "skipped",
+      "cycles": 0,
+      "distance_auc": 0.0,
+      "false_completion": false,
+      "token_cost": 0,
+      "note": "no LLM_BASE_URL/DATABASE_URL configured; run `make setup && make db` first"
+    },
+    {
+      "goal_id": "python-vacuous-contract-trap",
+      "outcome": "skipped",
+      "cycles": 0,
+      "distance_auc": 0.0,
+      "false_completion": false,
+      "token_cost": 0,
+      "note": "no LLM_BASE_URL/DATABASE_URL configured; run `make setup && make db` first"
+    },
+    {
+      "goal_id": "python-flaky-test",
+      "outcome": "skipped",
+      "cycles": 0,
+      "distance_auc": 0.0,
+      "false_completion": false,
+      "token_cost": 0,
+      "note": "no LLM_BASE_URL/DATABASE_URL configured; run `make setup && make db` first"
+    },
+    {
+      "goal_id": "node-cli-arg-parser",
+      "outcome": "skipped",
+      "cycles": 0,
+      "distance_auc": 0.0,
+      "false_completion": false,
+      "token_cost": 0,
+      "note": "no LLM_BASE_URL/DATABASE_URL configured; run `make setup && make db` first"
+    },
+    {
+      "goal_id": "cpp-string-reverse",
+      "outcome": "skipped",
+      "cycles": 0,
+      "distance_auc": 0.0,
+      "false_completion": false,
+      "token_cost": 0,
+      "note": "no LLM_BASE_URL/DATABASE_URL configured; run `make setup && make db` first"
+    },
+    {
+      "goal_id": "rust-word-count",
+      "outcome": "skipped",
+      "cycles": 0,
+      "distance_auc": 0.0,
+      "false_completion": false,
+      "token_cost": 0,
+      "note": "no LLM_BASE_URL/DATABASE_URL configured; run `make setup && make db` first"
+    }
+  ]
+}

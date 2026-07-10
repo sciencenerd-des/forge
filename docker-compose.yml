@@ -5,6 +5,21 @@
 #   docker compose run --rm forge forge run --goal "build a snake game"
 #
 services:
+  # OpenTelemetry Collector — the default trace/metric sink for
+  # forge_runtime/telemetry.py. Traces/metrics are visible via
+  # `docker compose logs -f otel-collector`; see otel-collector-config.yaml
+  # to point exporters at Jaeger/Prometheus/etc. instead. Optional: the
+  # engine degrades to running without tracing (silently, once) if this
+  # isn't up — see forge_runtime/telemetry.py's collector reachability probe.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC (forge_runtime/telemetry.py's default)
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+
   db:
     image: pgvector/pgvector:pg16
     environment:
@@ -36,10 +51,16 @@ services:
       LLM_MODEL: ${LLM_MODEL:-google/gemma-4-12b-qat}
       FORGE_LLM_API_KEY: ${FORGE_LLM_API_KEY:-not-needed}
       FORGE_CONTROL_TOKEN: ${FORGE_CONTROL_TOKEN:-forge-local-control}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "127.0.0.1:8787:8787"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Intentionally no /var/run/docker.sock mount. Docker's API is equivalent
+    # to host-root access, so giving it to an LLM-driven process would bypass
+    # the sandbox boundary. Run `forge` directly on the host when it needs to
+    # create the per-project sandbox containers; otherwise container mode
+    # fails closed here.
 
   # One-shot service for running the loop: `docker compose run --rm forge forge run ...`
   forge:
@@ -52,7 +73,11 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       LLM_MODEL: ${LLM_MODEL:-google/gemma-4-12b-qat}
       FORGE_LLM_API_KEY: ${FORGE_LLM_API_KEY:-not-needed}
-      FORGE_ALLOW_HOST_EXECUTION: "1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # Used ONLY with explicit FORGE_SANDBOX_MODE=host. Container mode fails
+      # closed here because this Compose service intentionally has no access
+      # to the host Docker daemon.
+      FORGE_ALLOW_HOST_EXECUTION: ${FORGE_ALLOW_HOST_EXECUTION:-0}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     profiles: ["cli"]

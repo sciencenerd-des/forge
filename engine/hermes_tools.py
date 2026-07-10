@@ -114,6 +114,19 @@ EXECUTOR_SCHEMA = {
                         "read_file",
                         "run_command",
                         "notebook_cell",
+                        "edit_file",
+                        "multi_edit",
+                        "bash",
+                        "install_deps",
+                        "grep",
+                        "glob",
+                        "git_diff",
+                        "fetch_doc",
+                        "run_tests",
+                        "build",
+                        "lint",
+                        "audit_deps",
+                        "web_search",
                     ],
                 },
                 "arguments": {"type": "object"},
@@ -123,6 +136,86 @@ EXECUTOR_SCHEMA = {
                 "resume_instruction": {"type": "string"},
             },
             "required": ["type"],
+        },
+    },
+}
+
+
+# Overfitting review (specs/convergent-autonomous-harness.html Phase 2,
+# LLM-based — complementary to the mechanical mutation/vacuous-assertion
+# gates in forge_runtime/contract_immune.py). Neither of those gates can
+# catch an implementation hardcoded to the EXACT literal inputs a test
+# suite happens to use — e.g. `if x == "null": return None; raise
+# ValueError(...)` — because a hardcoded lookup table IS a real function
+# call with a real non-constant assertion, structurally identical to
+# genuine logic. Reproduced live (2026-07-04, JSON parser goal): the
+# "parser" crashed on every real JSON input except the two literal strings
+# from its own test file. This needs semantic judgment, not AST/regex
+# matching — hence an LLM review, ideally on a DIFFERENT, stronger model
+# than the one that wrote the code, with fresh context.
+OVERFIT_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "overfit_review",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "is_hardcoded": {
+                    "type": "boolean",
+                    "description": "True ONLY if the implementation is clearly hardcoded/overfitted to the exact test inputs — e.g. literal string/value comparisons matching test data, a lookup table keyed by test cases, or logic that provably cannot generalize beyond what's tested. False if genuinely unsure — never guess.",
+                },
+                "reasoning": {"type": "string"},
+                "suspicious_snippets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Exact code lines that hardcode a test-specific value, if is_hardcoded is true; empty otherwise.",
+                },
+            },
+            "required": ["is_hardcoded", "reasoning", "suspicious_snippets"],
+        },
+    },
+}
+
+# Scope-completeness review (specs/convergent-autonomous-harness.html Phase
+# 2, LLM-based — same infrastructure as OVERFIT_SCHEMA, a different
+# question). The deterministic per-stack templates in
+# engine/src/auditor.py's template_contract() are intentionally
+# GOAL-AGNOSTIC — "some source file compiles and some test suite passes" —
+# by design, for reliability (a fixed template can't be tricked into a
+# tech-mismatched or trivial contract the way an LLM-authored one could).
+# The tradeoff: nothing ties that check's SCOPE to what the goal actually
+# asked for. Reproduced live (2026-07-04, Dijkstra goal): the goal
+# explicitly asked for "Dijkstra's shortest path algorithm... returning
+# shortest distance and path" with tests for "multiple paths, disconnected
+# nodes, and a single-node graph" — the loop instead built and verified only
+# a Graph data structure (itself genuine, non-hardcoded work) and stopped,
+# because the template contract never required Dijkstra's algorithm to
+# exist at all. Every other Phase-2 gate targets fake/incomplete TESTS;
+# this one targets an incomplete IMPLEMENTATION that legitimately passes
+# genuine tests scoped too narrowly.
+SCOPE_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "scope_review",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "is_scope_incomplete": {
+                    "type": "boolean",
+                    "description": "True ONLY if a core capability the goal EXPLICITLY asked for is completely missing from the implementation — not attempted at all, not just imperfect, partial, or missing edge-case handling. False if every explicitly-requested capability was at least attempted, or if genuinely unsure — never guess.",
+                },
+                "reasoning": {"type": "string"},
+                "missing_requirements": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Each explicitly-requested capability from the goal that is completely absent from the implementation, if is_scope_incomplete is true; empty otherwise.",
+                },
+            },
+            "required": ["is_scope_incomplete", "reasoning", "missing_requirements"],
         },
     },
 }
@@ -231,6 +324,15 @@ def _salvage_json(raw: str) -> dict:
 llm = LLM()
 planner_llm = LLM(os.getenv("PGE_PLANNER_MODEL") or MODEL)
 executor_llm = LLM(os.getenv("PGE_EXECUTOR_MODEL") or MODEL)
+# Second set of eyes with fresh context: the evaluator's LLM-judgment step
+# (interpreting a failing/ambiguous test result — never the deterministic
+# test EXECUTION itself, which stays local and instant since it's just
+# running shell commands) can be pointed at a stronger cloud model via
+# PGE_EVALUATOR_MODEL, independent of whatever local model the executor
+# uses. E.g. an Ollama free-cloud-tier model name (no prefix needed — it
+# routes through the same OpenAI-compatible endpoint as MODEL) once
+# `ollama signin` has been run once on this machine.
+evaluator_llm = LLM(os.getenv("PGE_EVALUATOR_MODEL") or MODEL)
 
 
 def mcp_hermes_memory_create_checkpoint(project_id: str, summary: str, current_state_json: str, next_actions_json: str) -> str:

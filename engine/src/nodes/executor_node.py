@@ -4,6 +4,7 @@ import json
 import subprocess
 import sqlite3
 import time
+from shlex import quote as shlex_quote
 from pathlib import Path
 from typing import Dict, Optional
 from src.state.schema import AgentState, Heartbeat
@@ -12,6 +13,7 @@ from app.database import SessionLocal
 from app.services import MemoryService
 from src.runtime import project_workspace
 from forge_runtime.tools import ToolContext, ToolRequest, default_registry
+from forge_runtime.telemetry import span as _otel_span, record_tool_call as _otel_tool_call
 
 def record_tool_msg(tool_name: str, content: str, session_id: str | None = None):
     """Mirror a tool result only when the caller owns an explicit session.
@@ -109,14 +111,119 @@ def _run_command_string(args: dict) -> str:
     return ""
 
 
-def _ensure_venv(workspace: str) -> str:
-    """Create <workspace>/.venv once; return its python path."""
-    import subprocess as _vsp
-    vpy = os.path.join(workspace, ".venv", "bin", "python")
-    if not os.path.exists(vpy):
-        _vsp.run(["python3", "-m", "venv", os.path.join(workspace, ".venv")],
-                 capture_output=True, timeout=120)
-    return vpy if os.path.exists(vpy) else "python3"
+# Closes the gap seen repeatedly in the goal reruns: the executor burning
+# whole turns retrying `bash`/`run_command` calls that were blocked pre-sandbox,
+# just to run its own test suite, and struggling to hand-assemble the right
+# CMake/cargo/npm incantation. These four tools give the harness deterministic,
+# stack-aware OSS commands for the actions that come up on every goal —
+# run_tests/build mirror the auditor's own template_contract() test commands
+# (engine/src/auditor.py's detect_stack), so "did my change work" and "will the
+# audit test pass" ask the same question the same way.
+def _detect_project_stack(sandbox) -> str:
+    """Sniff the stack from marker files actually present in the workspace —
+    more reliable mid-execution than re-parsing the goal text (auditor.py's
+    detect_stack), since it reflects what the executor has ACTUALLY built so
+    far, not how the goal happened to be phrased."""
+    if sandbox.exists("Cargo.toml"):
+        return "rust"
+    if sandbox.exists("CMakeLists.txt"):
+        return "cpp"
+    if sandbox.exists("package.json"):
+        return "node"
+    return "python"
+
+
+_RUN_TESTS_CMD = {
+    "rust": "cargo test 2>&1",
+    "cpp": ("cmake -S . -B build >/dev/null 2>&1 && cmake --build build >/dev/null 2>&1 "
+            "&& cd build && ctest --output-on-failure 2>&1"),
+    "node": "npm test 2>&1",
+    # Prefers the project .venv, but only if pytest is actually importable
+    # there — a fresh venv doesn't inherit the sandbox image's system-wide
+    # pytest, and blindly preferring an existing-but-pytest-less venv fell
+    # through to `unittest discover`, which silently reports a false "OK"
+    # ("Ran 0 tests") against pytest-style bare-function tests it can't see.
+    # Deliberately an `if/then/else`, NOT `pytest ... || unittest ...`: `||`
+    # also fires on a genuine pytest FAILURE (nonzero exit), so a real test
+    # failure was silently masked by the always-"OK" 0-test unittest
+    # fallback becoming the command's final exit code — caught live via
+    # smoke test before this ever reached an actual goal run.
+    "python": ('VENV="python3"; '
+               '[ -x .venv/bin/python3 ] && .venv/bin/python3 -c "import pytest" >/dev/null 2>&1 && VENV=".venv/bin/python3"; '
+               'if "$VENV" -c "import pytest" >/dev/null 2>&1; then "$VENV" -m pytest -q 2>&1; '
+               'else "$VENV" -m unittest discover -v 2>&1; fi'),
+}
+
+_BUILD_CMD = {
+    "rust": "cargo build 2>&1",
+    "cpp": "cmake -S . -B build 2>&1 && cmake --build build 2>&1",
+    "node": "npm run build --if-present 2>&1",
+    "python": ("VENV=$(test -x .venv/bin/python3 && echo .venv/bin/python3 || echo python3); "
+               "find . -name '*.py' -not -path './.venv/*' -print0 | xargs -0 -r $VENV -m py_compile "
+               "&& echo BUILD_OK"),
+}
+
+
+def _lint_cmd(stack: str, fix: bool) -> str:
+    # NOTE on `||`: safe ONLY when it guards install-if-missing before a `&&`
+    # that carries the real linter's own exit code (rust/python below) —
+    # NOT when it would also fire on the linter itself finding real
+    # violations. An earlier cpp/node version used `linter ... || echo
+    # 'not available'`, which also masked a REAL lint failure (linter
+    # present, violations found, nonzero exit) behind echo's always-0 exit —
+    # caught by smoke-testing before this ever reached a goal run. Using an
+    # explicit if/then/else keeps "tool missing" and "tool ran and failed"
+    # on clearly separate, non-overlapping exit paths.
+    if stack == "rust":
+        return f"cargo clippy {'--fix --allow-dirty --allow-staged' if fix else ''} 2>&1"
+    if stack == "cpp":
+        mode = "-i" if fix else "--dry-run --Werror"
+        return (
+            "if command -v clang-format >/dev/null 2>&1; then "
+            f"find . -regex '.*\\.\\(cpp\\|cc\\|h\\|hpp\\)' -print0 | xargs -0 -r clang-format {mode} 2>&1; "
+            "else echo 'clang-format not available in this sandbox image'; false; fi"
+        )
+    if stack == "node":
+        # No availability fallback here: npx's own exit code/output already
+        # distinguish "no eslint config" from "violations found" clearly
+        # enough to act on, and inventing a bucket for one risks masking the
+        # other.
+        return f"npx --yes eslint . {'--fix' if fix else ''} 2>&1"
+    fix_flag = "--fix" if fix else ""
+    return (f"(command -v ruff >/dev/null 2>&1 || pip install --quiet ruff) "
+            f"&& ruff check . {fix_flag} 2>&1")
+
+
+_AUDIT_DEPS_CMD = {
+    "rust": ("(command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit --quiet) "
+             "&& cargo audit 2>&1"),
+    "cpp": "echo 'no standard dependency-vulnerability scanner for C++/CMake projects — skipped'",
+    "node": "npm audit --audit-level=high 2>&1",
+    "python": ("(command -v pip-audit >/dev/null 2>&1 || pip install --quiet pip-audit) "
+               "&& pip-audit 2>&1"),
+}
+
+
+def _exec_in_sandbox(sandbox, command: str, workspace: str, timeout: int):
+    """Run a shell command through the active Workspace (container by
+    default, host as fallback — see forge_runtime/sandbox.py). Replaces the
+    old direct subprocess.run() call sites in bash/install_deps/grep/glob/
+    run_command below with a single dispatch point: HostWorkspace.run()
+    reproduces exactly what those call sites did before (same shell, cwd,
+    venv-aware PATH), so behavior is byte-for-byte unchanged when running in
+    host mode — the container path is what's actually new.
+
+    Raises ValueError (matching the prior behavior) if shell execution isn't
+    permitted in the resolved mode: for HostWorkspace this is still gated by
+    FORGE_ALLOW_HOST_EXECUTION; a ContainerSandbox is inherently isolated so
+    no such gate applies.
+    """
+    from forge_runtime.sandbox import ContainerSandbox
+    from forge_runtime.tools import host_execution_allowed as _host_exec
+    if not isinstance(sandbox, ContainerSandbox) and not _host_exec():
+        raise ValueError("shell execution is disabled outside an isolated container")
+    env = None if isinstance(sandbox, ContainerSandbox) else _venv_env(workspace)
+    return sandbox.run(command, timeout=timeout, env=env)
 
 
 def _fetch_doc(url: str) -> str:
@@ -167,7 +274,14 @@ def executor_node(state: AgentState) -> Dict:
         workspace = project_workspace(db_workspace, project_id)
     finally:
         db_workspace.close()
-    
+
+    # The default execution environment: a per-project sandbox (container by
+    # default, host as an explicit or graceful-degradation fallback — see
+    # forge_runtime/sandbox.py). Every tool call below threads this through
+    # instead of touching the host filesystem/subprocess directly.
+    from forge_runtime.sandbox import get_workspace as _get_sandbox
+    sandbox = _get_sandbox(project_id, workspace)
+
     # Fetch only project-scoped durable state. Interactive Hermes history is
     # deliberately excluded from the autonomy prompt.
     db = SessionLocal()
@@ -293,9 +407,14 @@ CORE (use these for almost everything):
 - write_file(path, content): create a NEW file only (modify existing files with edit_file).
 - read_file(path): read a file before editing it.
 - install_deps(packages=[...], manager="pip"): install dependencies the RIGHT way — pip installs into a project .venv (every later command/test sees them automatically), or manager="npm"/"brew"/"cargo". USE THIS for dependencies; never run raw `pip install` (the host has no `pip`, only a venv).
-- bash(command, timeout_seconds=120): real shell — pipes, &&, redirects, globs. `python`/`pip`/`python3` resolve to the project .venv. Use for builds, running tests, git, file ops.
+- run_tests(timeout_seconds=300): run the project's OWN test suite with the correct stack-specific command (pytest/unittest, cargo test, cmake+ctest, npm test) — auto-detected from files present (Cargo.toml/CMakeLists.txt/package.json). PREFER THIS over bash for "does my code pass its tests" — it can't be gotten wrong.
+- build(timeout_seconds=300): build/compile the project with the correct stack-specific command (cargo build, cmake configure+build, npm run build, python py_compile). Use before run_tests when the stack needs a build step (C++, Rust) or when you just want to check the code compiles.
+- lint(fix=false, timeout_seconds=120): run the project's linter/formatter (ruff, eslint, clippy, clang-format) and optionally auto-fix (fix=true). Never fails the turn if the linter isn't configured for this project — reports that instead.
+- audit_deps(timeout_seconds=180): scan installed dependencies for known vulnerabilities (pip-audit, npm audit, cargo-audit). Run once before declaring the goal done if the goal involves third-party packages.
+- bash(command, timeout_seconds=120): real shell — pipes, &&, redirects, globs. `python`/`pip`/`python3` resolve to the project .venv. Use for anything run_tests/build/lint/audit_deps don't cover: git, ad-hoc file ops, one-off inspection.
 - grep(pattern, path="."): regex content search across files.
 - glob(pattern): find files by pattern, e.g. "**/*.py".
+- web_search(query): search the web for an exact error message, API signature, or build-system incantation. MANDATORY REFLEX: if the same test/build error has appeared twice, your next action is web_search with the EXACT error text — do not keep editing on guesses. Chain with fetch_doc(url) to read a promising result in full.
 ON-DEMAND (only when needed):
 - list_files(path="."), search_text(query, path="."), run_command(argv-array, timeout_seconds=120)
 - git_diff(ref="HEAD", path=""): see what changed (your last edit + the ratchet's reverts) — use when a change unexpectedly failed or was reverted.
@@ -344,8 +463,18 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
     max_iterations = int(os.getenv("PGE_MAX_EXECUTOR_ITERATIONS", "4"))
     tools_executed = []
     turn_action_sigs = []
+    from forge_runtime.context_compactor import compact_messages
     for iteration in range(max_iterations):
         print(f"--- Executor Turn {iteration + 1} ---")
+        # Autocompaction: past the threshold, fold older tool chatter into a
+        # salvage summary (errors/commands/paths kept) so the prompt stays
+        # fast and attention stays on the working set. Deterministic — cannot
+        # fail the turn.
+        messages, _compact_report = compact_messages(messages)
+        if _compact_report.get("compacted"):
+            print(f"🗜️  Context compacted: {_compact_report['tokens_before']} -> "
+                  f"{_compact_report['tokens_after']} est. tokens "
+                  f"({_compact_report['folded_messages']} messages folded)")
         try:
             # Fully local: the 12B executes; the e2b steward coaches it via
             # the steering directives (loop/regression/error detection).
@@ -490,10 +619,10 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
             if tool_name == "write_file":
                 _wp = str(args.get("path", ""))
                 _abs = os.path.join(workspace, _wp) if not os.path.isabs(_wp) else _wp
-                if os.path.isfile(_abs) and os.path.getsize(_abs) > 0:
+                if sandbox.is_file(_wp):
                     _new_lines = (args.get("content") or "").splitlines()
                     try:
-                        _old_lines = open(_abs, encoding="utf-8", errors="ignore").read().splitlines()
+                        _old_lines = sandbox.read_text(_wp).splitlines()
                     except Exception:
                         _old_lines = []
                     _shared = len(set(_old_lines) & set(_new_lines))
@@ -525,6 +654,10 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                 })
                 print(f"⚠️ Guardrail Blocked Distraction Tool Call: {action_desc}")
             else:
+                # Span entered/exited manually (not lexically nested) so the
+                # large existing if/elif dispatch below doesn't need reindenting.
+                _tool_span_cm = _otel_span(f"tool.{tool_name}", tool=str(tool_name))
+                _tool_span_cm.__enter__()
                 try:
                     if tool_name == "edit_file":
                         # SURGICAL EDIT: exact unique-string replacement so the
@@ -534,7 +667,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # -> reverts). Routed through the sandboxed registry.
                         _ctx = ToolContext(workspace=Path(workspace), allow_write=True,
                                            allow_shell=False, allow_network=False,
-                                           allowed_hosts=frozenset())
+                                           allowed_hosts=frozenset(), sandbox=sandbox)
                         _path = str(args.get("path", "")); _old = args.get("old_string", "")
                         _new = args.get("new_string", "")
                         _rd = default_registry().execute(_ctx,
@@ -578,7 +711,8 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # cost) when several lines need changing. All-or-nothing:
                         # if any edit's old_string is missing/ambiguous, NONE apply.
                         _ctx = ToolContext(workspace=Path(workspace), allow_write=True,
-                                           allow_shell=False, allow_network=False, allowed_hosts=frozenset())
+                                           allow_shell=False, allow_network=False, allowed_hosts=frozenset(),
+                                           sandbox=sandbox)
                         _path = str(args.get("path", "")); _edits = args.get("edits") or []
                         _rd = default_registry().execute(_ctx,
                             ToolRequest("read_file", {"path": _path}, call_id="me-read"))
@@ -618,15 +752,13 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # Let the model SEE what changed — its own last edit and
                         # the ratchet's reverts. Critical for self-correction:
                         # without it the 12B re-derives state blindly each turn.
-                        import subprocess as _dsp
                         _ref = str(args.get("ref", "HEAD"))
                         _gp = str(args.get("path", ""))
                         _cmd = f"git diff {_ref} -- {_gp}".strip() if _gp else f"git diff {_ref}"
                         try:
-                            _d = _dsp.run(["/bin/bash", "-lc",
+                            _d = _exec_in_sandbox(sandbox,
                                 f"{_cmd} 2>&1 | head -200; echo '--- recent checkpoints ---'; "
-                                "git log --oneline -8 2>/dev/null"],
-                                capture_output=True, text=True, timeout=20, cwd=workspace)
+                                "git log --oneline -8 2>/dev/null", workspace, timeout=20)
                             tool_result = json.dumps({"status": "success", "diff": (_d.stdout or "(no diff)")[:6000]})
                         except Exception as _de:
                             tool_result = json.dumps({"status": "error", "message": f"git_diff: {_de}"})
@@ -638,28 +770,23 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # incantation right (venv for pip, etc.) so a small
                         # model can't fail on `pip` vs `pip3`, missing venv, or
                         # PATH. Full network.
-                        from forge_runtime.tools import host_execution_allowed as _host_exec
-                        import subprocess as _isp
                         _mgr = (args.get("manager") or "pip").lower()
                         _pkgs = args.get("packages") or []
                         if isinstance(_pkgs, str): _pkgs = _pkgs.split()
-                        _envp = _venv_env(workspace)
+                        _pkg_str = " ".join(shlex_quote(p) for p in _pkgs)
+                        if _mgr in ("pip", "python", "pip3"):
+                            _install_cmd = (f"test -x .venv/bin/pip || python3 -m venv .venv; "
+                                            f".venv/bin/pip install {_pkg_str}")
+                        elif _mgr in ("npm", "node"):
+                            _install_cmd = f"npm install {_pkg_str}"
+                        elif _mgr == "brew":
+                            _install_cmd = f"brew install {_pkg_str}"
+                        elif _mgr == "cargo":
+                            _install_cmd = f"cargo add {_pkg_str}"
+                        else:
+                            _install_cmd = f"{shlex_quote(_mgr)} install {_pkg_str}"
                         try:
-                            if not _host_exec():
-                                raise ValueError("dependency installation is disabled outside an isolated container")
-                            if _mgr in ("pip", "python", "pip3"):
-                                _vpy = _ensure_venv(workspace)
-                                _cmd = [_vpy, "-m", "pip", "install", *_pkgs]
-                            elif _mgr in ("npm", "node"):
-                                _cmd = ["npm", "install", *_pkgs]
-                            elif _mgr == "brew":
-                                _cmd = ["brew", "install", *_pkgs]
-                            elif _mgr == "cargo":
-                                _cmd = ["cargo", "add", *_pkgs]
-                            else:
-                                _cmd = [_mgr, "install", *_pkgs]
-                            _ir = _isp.run(_cmd, capture_output=True, text=True,
-                                           timeout=600, cwd=workspace, env=_envp)
+                            _ir = _exec_in_sandbox(sandbox, _install_cmd, workspace, timeout=600)
                             tool_result = json.dumps({
                                 "status": "success" if _ir.returncode == 0 else "error",
                                 "manager": _mgr, "packages": _pkgs,
@@ -667,31 +794,22 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                                 "stdout": (_ir.stdout or "")[-3000:],
                                 "stderr": (_ir.stderr or "")[-3000:],
                                 "note": "pip packages installed into ./.venv — tests run with .venv on PATH automatically."})
-                        except _isp.TimeoutExpired:
-                            tool_result = json.dumps({"status": "error", "message": "install timed out (600s)"})
                         except Exception as _ie:
                             tool_result = json.dumps({"status": "error", "message": f"install_deps: {_ie}"})
                         record_tool_msg("install_deps", tool_result[:200])
 
                     elif tool_name == "bash":
                         # Real shell (pipes, redirects, &&, globs) — the
-                        # registry run_command is argv-only. Sandboxed to the
-                        # workspace; output recorded as test-run evidence.
-                        from forge_runtime.tools import host_execution_allowed as _host_exec
-                        import subprocess as _bsp
+                        # registry run_command is argv-only. Routed through the
+                        # active sandbox (container by default); output
+                        # recorded as test-run evidence.
                         _cmd = args.get("command", "")
                         _to = min(int(args.get("timeout_seconds", 120) or 120), 600)
                         try:
-                            if not _host_exec():
-                                raise ValueError("shell execution is disabled outside an isolated container")
-                            _r = _bsp.run(["/bin/bash", "-lc", _cmd], capture_output=True,
-                                          text=True, timeout=_to, cwd=workspace,
-                                          env=_venv_env(workspace))
+                            _r = _exec_in_sandbox(sandbox, _cmd, workspace, timeout=_to)
                             tool_result = json.dumps({"status": "success" if _r.returncode == 0 else "error",
                                 "exit_code": _r.returncode, "stdout": (_r.stdout or "")[-6000:],
                                 "stderr": (_r.stderr or "")[-3000:]})
-                        except _bsp.TimeoutExpired:
-                            tool_result = json.dumps({"status": "error", "message": f"bash timed out after {_to}s"})
                         except Exception as _be:
                             tool_result = json.dumps({"status": "error", "message": f"bash: {_be}"})
                         record_tool_msg("bash", tool_result[:200])
@@ -707,18 +825,15 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                             _dbb.close()
 
                     elif tool_name == "grep":
-                        # Content search by regex (ripgrep if present, else python).
-                        import subprocess as _gsp
+                        # Content search by regex (ripgrep if present, else grep).
                         _pat = args.get("pattern", ""); _gp = str(args.get("path", "."))
                         try:
-                            _rg = _gsp.run(["rg", "-n", "--no-heading", "-S", _pat, _gp],
-                                           capture_output=True, text=True, timeout=30, cwd=workspace)
-                            _out = _rg.stdout
-                        except FileNotFoundError:
-                            _gg = _gsp.run(["/bin/bash", "-lc",
-                                f"grep -rn -E {json.dumps(_pat)} {json.dumps(_gp)} 2>/dev/null"],
-                                capture_output=True, text=True, timeout=30, cwd=workspace)
-                            _out = _gg.stdout
+                            _r = _exec_in_sandbox(
+                                sandbox,
+                                f"rg -n --no-heading -S {shlex_quote(_pat)} {shlex_quote(_gp)} 2>/dev/null || "
+                                f"grep -rn -E {shlex_quote(_pat)} {shlex_quote(_gp)} 2>/dev/null",
+                                workspace, timeout=30)
+                            _out = _r.stdout
                         except Exception as _ge:
                             _out = f"grep error: {_ge}"
                         tool_result = json.dumps({"status": "success",
@@ -728,10 +843,14 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                     elif tool_name == "glob":
                         # Find files by glob pattern, relative to the workspace.
                         _pat = args.get("pattern", "**/*")
+                        _py = (
+                            "import pathlib,json;"
+                            f"print(json.dumps(sorted(str(p) for p in pathlib.Path('.').glob({_pat!r}) if p.is_file())[:300]))"
+                        )
                         try:
-                            _hits = sorted(str(q.relative_to(workspace))
-                                           for q in Path(workspace).glob(_pat) if q.is_file())[:300]
-                            tool_result = json.dumps({"status": "success", "files": _hits})
+                            _r = _exec_in_sandbox(sandbox, f"python3 -c {shlex_quote(_py)}", workspace, timeout=30)
+                            _hits = json.loads(_r.stdout) if _r.returncode == 0 and _r.stdout.strip() else []
+                            tool_result = json.dumps({"status": "success" if _r.returncode == 0 else "error", "files": _hits})
                         except Exception as _gle:
                             tool_result = json.dumps({"status": "error", "message": f"glob: {_gle}"})
                         record_tool_msg("glob", tool_result[:200])
@@ -740,23 +859,14 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # The model handed run_command a SHELL line (pipes, >,
                         # ;, $(), &&) — the argv-only registry tool would mangle
                         # it. Run it through a real shell, like the bash tool.
-                        from forge_runtime.tools import host_execution_allowed as _host_exec
-                        import subprocess as _rsp
                         _cmd = _run_command_string(args)
                         _to = min(int(args.get("timeout_seconds", 120) or 120), 600)
                         try:
-                            if not _host_exec():
-                                raise ValueError("shell execution is disabled outside an isolated container")
-                            _r = _rsp.run(["/bin/bash", "-lc", _cmd], capture_output=True,
-                                          text=True, timeout=_to, cwd=workspace,
-                                          env=_venv_env(workspace))
+                            _r = _exec_in_sandbox(sandbox, _cmd, workspace, timeout=_to)
                             tool_result = json.dumps({"ok": _r.returncode == 0, "tool": "run_command",
                                 "status": "success" if _r.returncode == 0 else "error",
                                 "exit_code": _r.returncode, "stdout": (_r.stdout or "")[-6000:],
                                 "stderr": (_r.stderr or "")[-3000:]})
-                        except _rsp.TimeoutExpired:
-                            tool_result = json.dumps({"ok": False, "status": "error",
-                                "message": f"run_command timed out after {_to}s"})
                         except Exception as _re:
                             tool_result = json.dumps({"ok": False, "status": "error",
                                 "message": f"run_command: {_re}"})
@@ -772,6 +882,46 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         finally:
                             _dbr.close()
 
+                    elif tool_name in ("run_tests", "build", "lint", "audit_deps"):
+                        # Deterministic, stack-aware OSS tooling: the harness
+                        # picks the right incantation (cargo/cmake+ctest/npm/
+                        # pytest, cargo clippy/eslint/ruff, cargo-audit/npm
+                        # audit/pip-audit) instead of the model hand-assembling
+                        # it via bash — closes the exact gap observed live
+                        # across the goal reruns (wasted turns on blocked bash
+                        # calls; repeated CMake-wiring struggles).
+                        _stack = _detect_project_stack(sandbox)
+                        _to = min(int(args.get("timeout_seconds", 300) or 300), 600)
+                        if tool_name == "run_tests":
+                            _tcmd = _RUN_TESTS_CMD[_stack]
+                        elif tool_name == "build":
+                            _tcmd = _BUILD_CMD[_stack]
+                        elif tool_name == "lint":
+                            _tcmd = _lint_cmd(_stack, fix=bool(args.get("fix")))
+                        else:
+                            _tcmd = _AUDIT_DEPS_CMD[_stack]
+                        try:
+                            _r = _exec_in_sandbox(sandbox, _tcmd, workspace, timeout=_to)
+                            tool_result = json.dumps({
+                                "status": "success" if _r.returncode == 0 else "error",
+                                "tool": tool_name, "stack": _stack, "command": _tcmd,
+                                "exit_code": _r.returncode,
+                                "stdout": (_r.stdout or "")[-6000:], "stderr": (_r.stderr or "")[-3000:]})
+                        except Exception as _te:
+                            tool_result = json.dumps({"status": "error", "message": f"{tool_name}: {_te}"})
+                        record_tool_msg(tool_name, tool_result[:200])
+                        if tool_name in ("run_tests", "build"):
+                            _dbt = SessionLocal()
+                            try:
+                                MemoryService(_dbt).record_test_run(project_id=project_id,
+                                    task_id=active_task.id, command=_tcmd,
+                                    status="success" if '"status": "success"' in tool_result else "failure",
+                                    output_summary=tool_result[:300])
+                            except Exception:
+                                pass
+                            finally:
+                                _dbt.close()
+
                     elif tool_name in default_registry().names:
                         allowed_hosts = frozenset(
                             host.strip().lower()
@@ -784,6 +934,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                             allow_shell=True,
                             allow_network=bool(allowed_hosts),
                             allowed_hosts=allowed_hosts,
+                            sandbox=sandbox,
                         )
                         result = default_registry().execute(
                             context,
@@ -819,12 +970,27 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         tool_result = _fetch_doc(str(args.get("url", "")))
                         record_tool_msg("fetch_doc", tool_result[:200])
 
+                    elif tool_name == "web_search":
+                        # External knowledge at the executor's fingertips —
+                        # search result titles/URLs/snippets, cached by query.
+                        # Chain with fetch_doc(url) to read a full page.
+                        from src.auditor import web_search_cached as _wsc
+                        _q = str(args.get("query", ""))
+                        _found = _wsc(_q)
+                        tool_result = json.dumps({
+                            "status": "success" if _found else "error",
+                            "results": _found or "no results (search unavailable or empty)"})
+                        record_tool_msg("web_search", tool_result[:200])
+
                     else:
                         tool_result = json.dumps({"status": "error", "message": f"Unknown tool: {tool_name}"})
 
                 except Exception as tool_err:
                     print(f"Tool execution failed: {tool_err}")
                     tool_result = json.dumps({"status": "error", "message": str(tool_err)})
+                finally:
+                    _tool_span_cm.__exit__(None, None, None)
+                    _otel_tool_call(tool_name, '"status": "error"' not in tool_result and '"ok": false' not in tool_result.lower())
 
             print(f"Tool Result: {tool_result}\n")
             # Feed the result back into THIS turn's transcript and continue the
