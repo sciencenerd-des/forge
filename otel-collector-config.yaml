@@ -1,0 +1,40 @@
+# Minimal OTel Collector config for forge_runtime/telemetry.py's default
+# target (docker-compose's otel-collector service, OTLP gRPC on :4317).
+# Exports to the `debug` exporter (structured logs via
+# `docker compose logs otel-collector`) out of the box — zero extra services
+# required to see traces/metrics flowing. Point `exporters:` at Jaeger,
+# Prometheus, or any OTLP-compatible backend to extend this; see the
+# commented example below.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: normal
+
+# Example: send traces to a local Jaeger instance instead of (or alongside)
+# `debug` — add a `jaeger` service to docker-compose.yml exposing 4317, then:
+#   otlp/jaeger:
+#     endpoint: jaeger:4317
+#     tls:
+#       insecure: true
+# and add it to the traces pipeline's exporters list below.
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

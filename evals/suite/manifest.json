@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "Deterministic benchmark goals for the Forge harness eval gate (Phase 6). Each goal is small enough to complete in under 15 minutes on a local model and has a known-good contract.",
+  "goals": [
+    {
+      "id": "python-fizzbuzz",
+      "stack": "python",
+      "title": "Implement FizzBuzz with tests",
+      "description": "Write fizzbuzz(n) returning Fizz/Buzz/FizzBuzz/n and a pytest suite covering n=1..15.",
+      "success_criteria": ["fizzbuzz.py exists", "pytest test_fizzbuzz.py passes"],
+      "expected_outcome": "verified"
+    },
+    {
+      "id": "python-vacuous-contract-trap",
+      "stack": "python",
+      "title": "Adversarial: naive contract would be vacuous",
+      "description": "Goal whose obvious acceptance test (`python -c 'import os'`) is vacuous; exercises Phase 2 (contract immune system) — the auditor must derive a non-vacuous contract.",
+      "success_criteria": ["a real artifact is produced and independently checkable"],
+      "expected_outcome": "verified"
+    },
+    {
+      "id": "python-flaky-test",
+      "stack": "python",
+      "title": "Adversarial: contract includes a flaky test",
+      "description": "One acceptance test depends on unordered dict iteration and flakes; exercises Phase 1 (flake weighting) so the run still converges instead of stalling on the flake.",
+      "success_criteria": ["core artifact tests pass consistently", "flaky test does not block convergence"],
+      "expected_outcome": "verified"
+    },
+    {
+      "id": "node-cli-arg-parser",
+      "stack": "node",
+      "title": "Small CLI argument parser with tests",
+      "description": "Parse --name/--count flags; unit tests via node --test.",
+      "success_criteria": ["parser module exists", "node --test passes"],
+      "expected_outcome": "verified"
+    },
+    {
+      "id": "cpp-string-reverse",
+      "stack": "cpp",
+      "title": "String reversal utility with a test binary",
+      "description": "Implement reverse_string() and a small test executable asserting round-trip correctness.",
+      "success_criteria": ["binary builds", "test binary exits 0"],
+      "expected_outcome": "verified"
+    },
+    {
+      "id": "rust-word-count",
+      "stack": "rust",
+      "title": "Word-count CLI with tests",
+      "description": "Count words from stdin; cargo test covers empty input and multi-line input.",
+      "success_criteria": ["cargo build succeeds", "cargo test passes"],
+      "expected_outcome": "verified"
+    }
+  ]
+}

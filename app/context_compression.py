@@ -35,7 +35,7 @@ def compress_context_pack(db, *, project_id: str, goal_id: str | None,
     source_hash = hashlib.sha256(_stable_json(bulk).encode("utf-8")).hexdigest()
 
     try:
-        import headroom
+        import headroom  # noqa: F401 — optional heavy compressor; local fallback below
         from headroom import compress
 
         version = f"{getattr(headroom, '__version__', 'unknown')}:pge-fields-v2"
@@ -120,10 +120,57 @@ def compress_context_pack(db, *, project_id: str, goal_id: str | None,
         }
         return output
     except Exception as exc:
-        output = deepcopy(pack)
+        # Headroom missing or broken must not mean "no compression at all"
+        # (observed: every executor turn logging ModuleNotFoundError while the
+        # pack shipped uncompressed). Fall back to a local, deterministic
+        # threshold compaction of the bulk fields.
+        return _local_compact(pack, bulk, source_hash,
+                              reason=f"{type(exc).__name__}: {exc}"[:300])
+
+
+def _local_compact(pack: dict[str, Any], bulk: dict[str, Any],
+                   source_hash: str, reason: str) -> dict[str, Any]:
+    """Dependency-free fallback: when the bulk pack exceeds the threshold,
+    shrink the largest fields by folding their oldest entries / truncating
+    oversized strings. Protected keys are never touched."""
+    threshold_chars = int(os.getenv(
+        "PGE_CONTEXT_COMPACT_THRESHOLD", "12000")) * 4  # ~4 chars/token
+    before = len(_stable_json(bulk))
+    output = deepcopy(pack)
+    if before <= threshold_chars:
         output["CONTEXT_COMPRESSION"] = {
-            "status": "fallback_uncompressed",
-            "error": f"{type(exc).__name__}: {exc}"[:500],
-            "source_hash": source_hash,
+            "status": "not_needed", "compressor": "local-fallback",
+            "source_hash": source_hash, "headroom_unavailable": reason,
         }
         return output
+
+    compacted: dict[str, Any] = {}
+    per_field_budget = max(500, threshold_chars // max(1, len(bulk)))
+    for key, value in bulk.items():
+        rendered = _stable_json(value)
+        if len(rendered) <= per_field_budget:
+            compacted[key] = value
+        elif isinstance(value, list):
+            kept = []
+            used = 0
+            # Newest entries carry the live state; drop from the OLD end.
+            for item in reversed(value):
+                used += len(_stable_json(item))
+                if used > per_field_budget:
+                    break
+                kept.append(item)
+            compacted[key] = list(reversed(kept)) or value[-1:]
+        elif isinstance(value, str):
+            compacted[key] = value[:per_field_budget] + "…[truncated]"
+        else:
+            # Dicts/scalars: no safe structural fold — keep whole rather
+            # than risk corrupting a field the executor relies on.
+            compacted[key] = value
+    output.update(compacted)
+    after = len(_stable_json(compacted))
+    output["CONTEXT_COMPRESSION"] = {
+        "status": "local_compacted", "compressor": "local-fallback",
+        "source_hash": source_hash, "headroom_unavailable": reason,
+        "chars_before": before, "chars_after": after,
+    }
+    return output

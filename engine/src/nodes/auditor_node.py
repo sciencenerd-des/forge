@@ -303,12 +303,66 @@ def auditor_node(state: AgentState) -> Dict:
         db_goal.success_criteria = criteria
         # Mechanically reject tests that can never pass on this machine —
         # an unsatisfiable immutable contract deadlocks the entire loop.
-        from src.auditor import validate_tests, detect_stack
+        from src.auditor import validate_tests, harden_pipefail, detect_stack
         _stack = detect_stack(f"{db_goal.title} {db_goal.description or ''}")
         kept, dropped = validate_tests(contract["tests"], _stack)
         for d in dropped:
             print(f"🛡️  REJECTED test {d.get('id')}: {d.get('rejected')} — `{d.get('command')}`")
+        # Repair (never drop) any piped command whose real exit code a later
+        # pipe stage (head/tail/etc.) would mask — general net for
+        # LLM-authored and any non-template-fixed contract; template_contract
+        # already bakes this in at the source for known stacks.
+        kept, _repaired = harden_pipefail(kept)
+        for rid in _repaired:
+            print(f"🛡️  REPAIRED test {rid}: added `set -o pipefail` — its exit code was masked by a later pipe stage.")
         contract["tests"] = kept
+
+        # CONTRACT STRENGTH GATE (specs/convergent-autonomous-harness.html
+        # Phase 2): validate_tests() above only rejects tests that can NEVER
+        # pass on this machine. It does not catch a test that is trivially
+        # satisfiable with ZERO implementation — e.g. a bare
+        # `python3 -c "import os"` — which is the exact failure class Lesson 1
+        # documents. Probe every kept test against an empty scratch workspace;
+        # anything that passes there proves nothing and is dropped, UNLESS
+        # dropping it would leave the contract with zero tests (an empty
+        # contract is worse than a weak one — it stops verifying entirely).
+        if contract["tests"]:
+            from forge_runtime.contract_immune import ContractTest as _CT, score_contract as _score
+            _probe_tests = [
+                _CT(test_id=str(t.get("id", "?")), command=t.get("command", ""),
+                    expect_substring=t.get("expect_substring") or "",
+                    expect_exit=int(t.get("expect_exit") or 0))
+                for t in contract["tests"]
+            ]
+            try:
+                from forge_runtime.sandbox import ContainerSandbox, get_workspace
+                _probe_sandbox = get_workspace(project_id, project_workspace(db, project_id))
+                if not isinstance(_probe_sandbox, ContainerSandbox):
+                    raise RuntimeError("contract strength probes require container sandbox mode")
+
+                def _run_in_empty_container(test):
+                    _result = _probe_sandbox.run_in_empty_scratch(test.command, timeout=60)
+                    _output = (_result.stdout or "") + (_result.stderr or "")
+                    return (_result.returncode == test.expect_exit
+                            and (test.expect_substring in _output if test.expect_substring else True))
+
+                _strength = _score(_probe_tests, _run_in_empty_container)
+                if _strength.vacuous_tests:
+                    _survivors = [t for t in contract["tests"] if t.get("id") not in _strength.vacuous_tests]
+                    if _survivors:
+                        for _vid in _strength.vacuous_tests:
+                            print(f"🛡️  VACUOUS test {_vid}: passes against an empty workspace — dropped.")
+                        contract["tests"] = _survivors
+                    else:
+                        print(f"🛡️  WEAK CONTRACT: all {len(contract['tests'])} test(s) "
+                              f"{_strength.vacuous_tests} pass against an empty workspace, but dropping "
+                              "all of them would leave zero verification — keeping as-is under protest.")
+            except Exception as _strength_err:
+                raise RuntimeError(
+                    "contract strength probe requires a healthy container sandbox; "
+                    f"refusing to issue an unverified contract ({str(_strength_err)[:80]})"
+                ) from _strength_err
+
         if contract["tests"]:
             svc.record_memory_item(
                 project_id=project_id, memory_type="audit_tests",

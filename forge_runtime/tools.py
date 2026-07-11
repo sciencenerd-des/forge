@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 MAX_OUTPUT_BYTES = 64_000
 MAX_READ_BYTES = 1_000_000
@@ -56,6 +56,11 @@ class ToolContext:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     max_output_bytes: int = MAX_OUTPUT_BYTES
     event_sink: Callable[[dict[str, Any]], None] | None = None
+    # When set, every tool below operates against this Workspace (host or
+    # container — see forge_runtime/sandbox.py) instead of touching
+    # `workspace` directly. None preserves the exact pre-sandbox behavior —
+    # existing callers/tests that never set this are completely unaffected.
+    sandbox: Optional[Any] = None
 
     def normalized(self) -> "ToolContext":
         return ToolContext(
@@ -68,6 +73,7 @@ class ToolContext:
             timeout_seconds=max(1, min(self.timeout_seconds, 900)),
             max_output_bytes=max(1_024, min(self.max_output_bytes, 1_000_000)),
             event_sink=self.event_sink,
+            sandbox=self.sandbox,
         )
 
 
@@ -129,7 +135,15 @@ def _bounded_text(value: bytes | str, limit: int) -> tuple[str, bool]:
 
 
 def read_file(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
-    path = _workspace_path(context, arguments.get("path"), must_exist=True)
+    raw_path = arguments.get("path")
+    if context.sandbox is not None:
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValueError("path must be a non-empty string")
+        if not context.sandbox.is_file(raw_path):
+            raise ValueError("path is not a regular file")
+        content, truncated = _bounded_text(context.sandbox.read_text(raw_path), context.max_output_bytes)
+        return ToolResult(True, "read_file", {"path": raw_path, "content": content, "size": len(content)}, truncated=truncated)
+    path = _workspace_path(context, raw_path, must_exist=True)
     if not path.is_file():
         raise ValueError("path is not a regular file")
     size = path.stat().st_size
@@ -142,10 +156,16 @@ def read_file(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
 def write_file(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
     if not context.allow_write:
         raise ValueError("write access is disabled")
-    path = _workspace_path(context, arguments.get("path"))
     content = arguments.get("content")
     if not isinstance(content, str):
         raise ValueError("content must be a string")
+    if context.sandbox is not None:
+        raw_path = arguments.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValueError("path must be a non-empty string")
+        context.sandbox.write_text(raw_path, content)
+        return ToolResult(True, "write_file", {"path": raw_path, "bytes_written": len(content.encode())})
+    path = _workspace_path(context, arguments.get("path"))
     if path.exists() and path.is_symlink():
         raise ValueError("refusing to write through a symlink")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,8 +176,11 @@ def write_file(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
 
 
 def list_files(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
-    root = _workspace_path(context, arguments.get("path", "."), must_exist=True)
     limit = max(1, min(int(arguments.get("limit", 200)), 2_000))
+    if context.sandbox is not None:
+        entries = context.sandbox.list_files(arguments.get("path", "."), limit=limit)
+        return ToolResult(True, "list_files", {"entries": entries}, truncated=len(entries) == limit)
+    root = _workspace_path(context, arguments.get("path", "."), must_exist=True)
     entries: list[str] = []
     iterator = root.rglob("*") if root.is_dir() else [root]
     for path in iterator:
@@ -173,6 +196,15 @@ def search_text(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
     query = arguments.get("query")
     if not isinstance(query, str) or not query or len(query) > 500:
         raise ValueError("query must contain 1-500 characters")
+    if context.sandbox is not None:
+        rel = str(arguments.get("path", "."))
+        command = ["rg", "--json", "--max-count", "100", "--", query, rel]
+        sandbox_result = context.sandbox.run(command, timeout=context.timeout_seconds)
+        stdout, truncated = _bounded_text(sandbox_result.stdout, context.max_output_bytes)
+        stderr, stderr_truncated = _bounded_text(sandbox_result.stderr, context.max_output_bytes)
+        return ToolResult(sandbox_result.returncode in (0, 1), "search_text",
+                           {"exit_code": sandbox_result.returncode, "matches": stdout, "stderr": stderr},
+                           truncated=truncated or stderr_truncated)
     root = _workspace_path(context, arguments.get("path", "."), must_exist=True)
     command = ["rg", "--json", "--max-count", "100", "--", query, str(root)]
     result = subprocess.run(command, cwd=context.workspace, capture_output=True, timeout=context.timeout_seconds)
@@ -181,10 +213,18 @@ def search_text(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
     return ToolResult(result.returncode in (0, 1), "search_text", {"exit_code": result.returncode, "matches": stdout, "stderr": stderr}, truncated=truncated or stderr_truncated)
 
 
+def _sandbox_is_isolated(context: ToolContext) -> bool:
+    """True when context.sandbox is a container (already isolated, so the
+    host-execution opt-in gate below is irrelevant — the whole point of the
+    gate is to stop a bare host directory from being treated as disposable;
+    a container sandbox already IS the disposable, isolated environment)."""
+    return context.sandbox is not None and type(context.sandbox).__name__ == "ContainerSandbox"
+
+
 def run_command(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
     if not context.allow_shell:
         raise ValueError("shell access is disabled")
-    if not host_execution_allowed():
+    if not _sandbox_is_isolated(context) and not host_execution_allowed():
         raise ValueError(
             "host command execution is disabled; run Forge in a container or set "
             "FORGE_ALLOW_HOST_EXECUTION=1 after accepting host filesystem risk"
@@ -199,6 +239,14 @@ def run_command(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
     if not context.allow_destructive and _is_destructive_command(command):
         raise ValueError("destructive command requires explicit approval")
     timeout = max(1, min(int(arguments.get("timeout_seconds", context.timeout_seconds)), context.timeout_seconds))
+    if context.sandbox is not None:
+        sandbox_result = context.sandbox.run(command, timeout=timeout)
+        stdout, stdout_truncated = _bounded_text(sandbox_result.stdout, context.max_output_bytes)
+        stderr, stderr_truncated = _bounded_text(sandbox_result.stderr, context.max_output_bytes)
+        return ToolResult(sandbox_result.returncode == 0, "run_command",
+                           {"argv": command, "exit_code": sandbox_result.returncode, "stdout": stdout, "stderr": stderr},
+                           error=None if sandbox_result.returncode == 0 else f"command exited with {sandbox_result.returncode}",
+                           truncated=stdout_truncated or stderr_truncated)
     result = subprocess.run(command, cwd=context.workspace, capture_output=True, timeout=timeout, env=_safe_environment())
     stdout, stdout_truncated = _bounded_text(result.stdout, context.max_output_bytes)
     stderr, stderr_truncated = _bounded_text(result.stderr, context.max_output_bytes)
@@ -247,17 +295,20 @@ def notebook_cell(context: ToolContext, arguments: dict[str, Any]) -> ToolResult
         raise ValueError("only code cells can be executed")
     if execute and not context.allow_shell:
         raise ValueError("code execution is disabled")
-    if execute and not host_execution_allowed():
+    if execute and not _sandbox_is_isolated(context) and not host_execution_allowed():
         raise ValueError(
             "host code execution is disabled; run Forge in a container or set "
             "FORGE_ALLOW_HOST_EXECUTION=1 after accepting host filesystem risk"
         )
 
-    if path.exists():
-        if path.is_symlink():
+    _rel_path = str(arguments.get("path", ".forge/notebooks/scratch.ipynb"))
+    _exists = context.sandbox.exists(_rel_path) if context.sandbox is not None else path.exists()
+    if _exists:
+        if context.sandbox is None and path.is_symlink():
             raise ValueError("refusing to write through a symlink")
         try:
-            notebook = json.loads(path.read_text(encoding="utf-8"))
+            _raw = context.sandbox.read_text(_rel_path) if context.sandbox is not None else path.read_text(encoding="utf-8")
+            notebook = json.loads(_raw)
         except (OSError, json.JSONDecodeError) as error:
             raise ValueError(f"invalid notebook: {error}") from error
         if not isinstance(notebook, dict) or not isinstance(notebook.get("cells"), list):
@@ -281,16 +332,22 @@ def notebook_cell(context: ToolContext, arguments: dict[str, Any]) -> ToolResult
     truncated = False
     if execute:
         timeout = max(1, min(int(arguments.get("timeout_seconds", 60)), context.timeout_seconds))
-        result = subprocess.run(
-            [os.environ.get("PYTHON", "python3"), "-c", source],
-            cwd=context.workspace,
-            capture_output=True,
-            timeout=timeout,
-            env=_safe_environment(),
-        )
-        exit_code = result.returncode
-        stdout, stdout_truncated = _bounded_text(result.stdout, context.max_output_bytes)
-        stderr, stderr_truncated = _bounded_text(result.stderr, context.max_output_bytes)
+        if context.sandbox is not None:
+            sandbox_result = context.sandbox.run(["python3", "-c", source], timeout=timeout)
+            exit_code = sandbox_result.returncode
+            stdout, stdout_truncated = _bounded_text(sandbox_result.stdout, context.max_output_bytes)
+            stderr, stderr_truncated = _bounded_text(sandbox_result.stderr, context.max_output_bytes)
+        else:
+            result = subprocess.run(
+                [os.environ.get("PYTHON", "python3"), "-c", source],
+                cwd=context.workspace,
+                capture_output=True,
+                timeout=timeout,
+                env=_safe_environment(),
+            )
+            exit_code = result.returncode
+            stdout, stdout_truncated = _bounded_text(result.stdout, context.max_output_bytes)
+            stderr, stderr_truncated = _bounded_text(result.stderr, context.max_output_bytes)
         output_text = stdout + stderr
         if stdout:
             outputs.append({"name": "stdout", "output_type": "stream", "text": stdout.splitlines(True)})
@@ -307,14 +364,20 @@ def notebook_cell(context: ToolContext, arguments: dict[str, Any]) -> ToolResult
     if cell_type == "code":
         cell.update({"execution_count": execution_count, "outputs": outputs})
     notebook["cells"].append(cell)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.forge-tmp-{os.getpid()}")
-    temporary.write_text(json.dumps(notebook, indent=1) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    notebook_json = json.dumps(notebook, indent=1) + "\n"
+    if context.sandbox is not None:
+        context.sandbox.write_text(_rel_path, notebook_json)
+        display_path = _rel_path
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.forge-tmp-{os.getpid()}")
+        temporary.write_text(notebook_json, encoding="utf-8")
+        os.replace(temporary, path)
+        display_path = str(path)
     return ToolResult(
         exit_code in (None, 0),
         "notebook_cell",
-        {"path": str(path), "cell_index": len(notebook["cells"]) - 1,
+        {"path": display_path, "cell_index": len(notebook["cells"]) - 1,
          "executed": execute, "exit_code": exit_code, "output": output_text},
         error=None if exit_code in (None, 0) else f"python exited with {exit_code}",
         truncated=truncated,

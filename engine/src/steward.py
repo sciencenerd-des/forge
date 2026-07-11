@@ -14,11 +14,14 @@ deterministic fallback (empty string / raw truncation), never blocks.
 import json
 import urllib.request
 
-STEWARD_URL = "http://127.0.0.1:1234/v1"
-# Model is env-driven so the whole loop can run single-model (all nodes on the
-# 12B) or split-brain (steward on the small e2b). Defaults to the same model the
-# other nodes use via LLM_MODEL, falling back to the 12B.
+# Base URL is env-driven like every other node — the hardcoded LM Studio
+# address (127.0.0.1:1234) kept answering HTTP 400 ("No models loaded") after
+# the stack moved to Ollama, silently degrading every briefing to the raw
+# fallback. PGE_STEWARD_BASE_URL lets a split-brain setup keep a second server.
 import os
+STEWARD_URL = (os.getenv("PGE_STEWARD_BASE_URL")
+               or os.getenv("LLM_BASE_URL")
+               or "http://127.0.0.1:1234/v1").rstrip("/")
 STEWARD_MODEL = (os.getenv("PGE_STEWARD_MODEL")
                  or os.getenv("LLM_MODEL")
                  or "google/gemma-4-12b-qat")

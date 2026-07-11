@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import time
 from typing import Dict
 from langgraph.graph import StateGraph, END
 from src.state.schema import AgentState
@@ -9,6 +10,23 @@ from src.nodes.executor_node import executor_node
 from src.nodes.evaluator_node import evaluator_node
 from src.nodes.auditor_node import auditor_node
 from hermes_tools import mcp_hermes_memory_create_checkpoint
+from forge_runtime.telemetry import span as _otel_span, record_node_duration as _otel_duration
+
+
+def _traced(node_name: str, fn):
+    """Wrap a PGE node with an OTel span + duration metric. The node's own
+    behavior and return value are untouched — telemetry is purely observational
+    and never affects the loop (span/duration helpers no-op if OTel is
+    unavailable or disabled)."""
+    def wrapped(state: AgentState) -> Dict:
+        started = time.monotonic()
+        with _otel_span(node_name, project_id=state.get("project_id") or "",
+                         turn_count=state.get("turn_count", 0)):
+            result = fn(state)
+        _otel_duration(node_name, (time.monotonic() - started) * 1000)
+        return result
+    wrapped.__name__ = getattr(fn, "__name__", node_name)
+    return wrapped
 
 # ---------------------------------------------------------------------------
 # Loop-control limits (env-overridable). These are what stop the runaway
@@ -171,10 +189,10 @@ def evaluator_router(state: AgentState) -> str:
 # ---------------------------------------------------------------------------
 workflow = StateGraph(AgentState)
 
-workflow.add_node("auditor", auditor_node)
-workflow.add_node("planner", planner_node)
-workflow.add_node("executor", executor_node)
-workflow.add_node("evaluator", evaluator_with_control)
+workflow.add_node("auditor", _traced("auditor", auditor_node))
+workflow.add_node("planner", _traced("planner", planner_node))
+workflow.add_node("executor", _traced("executor", executor_node))
+workflow.add_node("evaluator", _traced("evaluator", evaluator_with_control))
 
 # Flow: planner plans first; on the first pass its plan is forwarded to the
 # auditor, which derives the immutable dual contract (checklist + test list);
