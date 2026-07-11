@@ -73,7 +73,7 @@ def run_suite(*, model: str, timeout: int, max_turns: int, output: Path,
             status = "blocked"
         results.append({"slug": slug, "goal": goal, "project": project,
                         "status": status, "elapsed_s": round(time.monotonic() - begin, 2),
-                        "error": error, **durable})
+                        "error": error, "turns_used": None, **durable})
     report = {"model": model, "goals": results,
               "completed": sum(item["status"] == "completed" for item in results),
               "total": len(results), "elapsed_s": round(time.monotonic() - started, 2),

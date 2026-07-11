@@ -1,0 +1,110 @@
+{
+  "model": "gemma4:12b-mlx",
+  "goals": [
+    {
+      "slug": "snake",
+      "goal": "Build a playable Snake game in Python using curses.",
+      "project": "suite-1-snake-41b59d2b",
+      "status": "timeout",
+      "elapsed_s": 120.15,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-1-snake-41b59d2b', '--goal', 'Build a playable Snake game in Python using curses.', '--desc', 'Build a playable Snake game in Python using curses.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "digits",
+      "goal": "Build a sklearn digits experiment loop and save results.json with accuracy above 0.95.",
+      "project": "suite-2-digits-e504e53a",
+      "status": "timeout",
+      "elapsed_s": 120.03,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-2-digits-e504e53a', '--goal', 'Build a sklearn digits experiment loop and save results.json with accuracy above 0.95.', '--desc', 'Build a sklearn digits experiment loop and save results.json with accuracy above 0.95.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "lru",
+      "goal": "Implement an LRU cache with O(1) get and put operations.",
+      "project": "suite-3-lru-7c145dc5",
+      "status": "timeout",
+      "elapsed_s": 120.03,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-3-lru-7c145dc5', '--goal', 'Implement an LRU cache with O(1) get and put operations.', '--desc', 'Implement an LRU cache with O(1) get and put operations.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "rpn",
+      "goal": "Build a robust reverse Polish notation calculator.",
+      "project": "suite-4-rpn-3c9026a2",
+      "status": "timeout",
+      "elapsed_s": 120.03,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-4-rpn-3c9026a2', '--goal', 'Build a robust reverse Polish notation calculator.', '--desc', 'Build a robust reverse Polish notation calculator.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "json-parser",
+      "goal": "Implement a JSON parser from scratch without importing the json module.",
+      "project": "suite-5-json-parser-210dda33",
+      "status": "timeout",
+      "elapsed_s": 120.05,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-5-json-parser-210dda33', '--goal', 'Implement a JSON parser from scratch without importing the json module.', '--desc', 'Implement a JSON parser from scratch without importing the json module.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "tic-tac-toe",
+      "goal": "Build a playable tic-tac-toe game with win and draw detection.",
+      "project": "suite-6-tic-tac-toe-da8fb6fe",
+      "status": "timeout",
+      "elapsed_s": 120.04,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-6-tic-tac-toe-da8fb6fe', '--goal', 'Build a playable tic-tac-toe game with win and draw detection.', '--desc', 'Build a playable tic-tac-toe game with win and draw detection.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "dijkstra",
+      "goal": "Implement Dijkstra shortest paths with useful tests.",
+      "project": "suite-7-dijkstra-a5d21b32",
+      "status": "timeout",
+      "elapsed_s": 120.04,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-7-dijkstra-a5d21b32', '--goal', 'Implement Dijkstra shortest paths with useful tests.', '--desc', 'Implement Dijkstra shortest paths with useful tests.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 1,
+      "latest_test_status": null
+    },
+    {
+      "slug": "email-validator",
+      "goal": "Build a JavaScript email validator with tests.",
+      "project": "suite-8-email-validator-dc5fa481",
+      "status": "timeout",
+      "elapsed_s": 120.04,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-8-email-validator-dc5fa481', '--goal', 'Build a JavaScript email validator with tests.', '--desc', 'Build a JavaScript email validator with tests.']' timed out after 120 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    }
+  ],
+  "completed": 0,
+  "total": 8,
+  "elapsed_s": 960.42,
+  "summary": {
+    "completed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 8
+  }
+}
