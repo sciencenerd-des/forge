@@ -106,5 +106,6 @@
     "failed": 0,
     "blocked": 0,
     "timeout": 8
-  }
+  },
+  "notes": "Hard capability wall observed: Gemma 4 12B MLX did not complete any goal within the 120-second bounded budget; seven runs produced no file changes and one produced a single file change. This is recorded as evaluation evidence, not a successful implementation result."
 }
