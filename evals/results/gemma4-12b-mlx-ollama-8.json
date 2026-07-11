@@ -1,0 +1,64 @@
+{
+  "model": "gemma4:12b-mlx",
+  "score": 0,
+  "total": 8,
+  "pass_rate": 0.0,
+  "results": [
+    {
+      "fixture": "valid_structured_output",
+      "passed": false,
+      "reason": "invalid JSON: Expecting ',' delimiter: line 6 column 4 (char 93)",
+      "response": "json\n```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"read_file\",\n  \"arguments\": {\n    \"path\": \"src/app.py\"\n  },",
+      "latency_ms": 18019
+    },
+    {
+      "fixture": "correct_tool_selection",
+      "passed": false,
+      "reason": "unknown executor tool",
+      "response": "json```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"ls\",\n  \"arguments\": {\n    \"path\": \"src\"\n  },\n  \"progress_summary\": \"Listing files in src directory to confirm the existence of parser.py.\",\n  \"next_task_description\": \"Read the content of src/parser.py to identify the assertion at line 41.\",\n  \"blocker\": null,\n  \"resume_instruction\": null\n}\n```",
+      "latency_ms": 7189
+    },
+    {
+      "fixture": "no_repeated_action",
+      "passed": false,
+      "reason": "invalid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+      "response": "json\n{```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"read_file\",\n  \"arguments\": {\n    \"path\": \"tests/test_parser.py\"\n  },\n  \"progress_summary\": \"Reading the regression test file to identify the failing test case.\",\n  \"next_task_description\": \"Analyze the test cases in tests/test_parser.py and identify which one is failing.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Read the content of tests/test_parser.py.\"\n}\n```",
+      "latency_ms": 5831
+    },
+    {
+      "fixture": "tool_result_interpretation",
+      "passed": false,
+      "reason": "did not verify after successful write",
+      "response": "json\n```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"run_command\",\n  \"arguments\": {\n    \"command\": \"pytest src/parser.py\"\n  },\n  \"progress_summary\": \"Running the parser tests to verify the fix.\",\n  \"next_task_description\": \"Analyze the test results to ensure the parser handles the input correctly.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Run the test command and check for any failures.\"\n}\n```",
+      "latency_ms": 12872
+    },
+    {
+      "fixture": "failed_command_recovery",
+      "passed": false,
+      "reason": "type must be tool_call or heartbeat",
+      "response": "json\n```json\n{\n  \"type\": \"list_files\",\n  \"name\": \"list_root_directory\",\n  \"arguments\": {\n    \"path\": \".\"\n  },\n  \"progress_summary\": \"Listing root directory contents to identify the test directory structure.\",\n  \"next_task_description\": \"Identify the correct directory containing tests and verify its contents.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Continue by identifying the test folder and checking for a pytest configuration file.\"\n}\n```",
+      "latency_ms": 15322
+    },
+    {
+      "fixture": "heartbeat_progress_reporting",
+      "passed": false,
+      "reason": "model call failed: model response did not contain a JSON object",
+      "response": "",
+      "latency_ms": 0
+    },
+    {
+      "fixture": "notebook_tool_selection",
+      "passed": false,
+      "reason": "model call failed: model response did not contain a JSON object",
+      "response": "",
+      "latency_ms": 0
+    },
+    {
+      "fixture": "single_action_discipline",
+      "passed": false,
+      "reason": "unknown executor tool",
+      "response": "json\n```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"ls\",\n  \"arguments\": {\n    \"path\": \"src\"\n  },\n  \"progress_summary\": \"Identified two independent fixes needed in src/a.py and src/b.py.\",\n  \"next_task_description\": \"Explore the contents of the src directory to locate a.py and b.py.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Continue with reading the content of src/a.py.\"\n}\n```",
+      "latency_ms": 9018
+    }
+  ]
+}

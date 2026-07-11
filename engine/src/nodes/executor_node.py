@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from src.state.schema import AgentState, Heartbeat
-from forge_runtime.llm import executor_llm, EXECUTOR_SCHEMA
+from forge_runtime.llm import executor_llm, EXECUTOR_SCHEMA, extract_json
 from app.database import SessionLocal
 from app.services import MemoryService
 from src.runtime import project_workspace
@@ -416,13 +416,17 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                 clean_raw = clean_raw.split("</think>")[-1].strip()
                 
             if "```json" in clean_raw:
-                json_str = clean_raw.split("```json")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_raw:
-                json_str = clean_raw.split("```")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```")[1].split("```")[0].strip()
             else:
-                json_str = clean_raw
+                _json_str = clean_raw
                 
-            data = json.loads(json_str)
+            data = json.loads(extract_json(clean_raw))
+            if "action" in data and "type" not in data:
+                data["type"] = "tool_call"
+            if "action_input" in data and "arguments" not in data:
+                data["arguments"] = data.pop("action_input")
         except Exception as parse_err:
             print(f"Failed to parse LLM JSON output: {parse_err}")
             # Append error message to LLM and retry

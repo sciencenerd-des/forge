@@ -19,7 +19,10 @@ for _p in (str(_ROOT), str(_ROOT / "engine")):
 def _cmd_run(args: argparse.Namespace) -> int:
     """Run the autonomy loop (attached, or detached with --detached)."""
     import run_pge
-    project = args.project or run_pge.resolve_default_project()
+    if args.project and args.new_project:
+        raise SystemExit("--project and --new-project are mutually exclusive")
+    project = (run_pge.create_new_project(args.new_project) if args.new_project
+               else args.project or run_pge.resolve_default_project())
     if args.detached:
         import json
 
@@ -86,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
 
     pr = sub.add_parser("run", help="run the autonomy loop")
     pr.add_argument("--project", default=None, help="project UUID (default: resolve/create)")
+    pr.add_argument("--new-project", default=None, metavar="NAME", help="create a fresh isolated project/workspace")
     pr.add_argument("--goal", default=None, help="goal title (omit to resume the DB goal)")
     pr.add_argument("--desc", default=None, help="goal description")
     pr.add_argument("--detached", action="store_true", help="run detached (survives this shell)")

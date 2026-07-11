@@ -5,7 +5,7 @@ from src.state.schema import AgentState
 from forge_runtime.llm import llm
 
 from src.state.schema import Task, Goal
-from forge_runtime.llm import EVALUATOR_SCHEMA
+from forge_runtime.llm import EVALUATOR_SCHEMA, extract_json
 from app.database import SessionLocal
 from app.services import MemoryService
 from app.models import ForgeGoal, ForgeTask, ForgeMemoryItem
@@ -556,18 +556,18 @@ def evaluator_node(state: AgentState) -> Dict:
             clean_raw = clean_raw.split("</think>")[-1].strip()
             
         if "```json" in clean_raw:
-            json_str = clean_raw.split("```json")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```json")[1].split("```")[0].strip()
         elif "```" in clean_raw:
-            json_str = clean_raw.split("```")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```")[1].split("```")[0].strip()
         else:
             first_brace = clean_raw.find("{")
             last_brace = clean_raw.rfind("}")
             if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                json_str = clean_raw[first_brace:last_brace+1].strip()
+                _json_str = clean_raw[first_brace:last_brace+1].strip()
             else:
-                json_str = clean_raw
+                _json_str = clean_raw
             
-        data = json.loads(json_str)
+        data = json.loads(extract_json(clean_raw))
         decision = data.get("decision", "continue")
         task_completed = data.get("task_completed", False)
         missing_items = [m for m in (data.get("missing_items") or []) if isinstance(m, str) and m.strip()]

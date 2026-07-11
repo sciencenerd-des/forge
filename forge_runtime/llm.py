@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import Any
 
 from openai import OpenAI
@@ -31,6 +33,33 @@ EXECUTOR_SCHEMA = {"type": "json_schema", "json_schema": {"name": "executor_acti
     "arguments": {"type": "object"}, "progress_summary": {"type": "string"},
     "next_task_description": {"type": "string"}, "blocker": {"type": ["string", "null"]},
     "resume_instruction": {"type": "string"}}, "required": ["type"]}}}
+
+
+def extract_json(raw: str) -> str:
+    """Extract one JSON object from model prose, thinking tags, or fences."""
+    text = (raw or "").strip()
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[-1].strip()
+    text = text.removeprefix("json").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if "```" in text:
+            text = text.split("```", 1)[0].strip()
+    first, last = text.find("{"), text.rfind("}")
+    if first < 0 or last <= first:
+        raise ValueError("model response did not contain a JSON object")
+    return text[first:last + 1]
+
+
+def _schema_prompt(schema: dict[str, Any]) -> str:
+    body = schema.get("json_schema", {}).get("schema", schema)
+    name = schema.get("json_schema", {}).get("name", "response")
+    properties = ", ".join(body.get("properties", {}).keys())
+    required = ", ".join(body.get("required", []))
+    example = {key: ("tool_call" if key == "type" else "") for key in body.get("properties", {})}
+    return (f"Return exactly one JSON object named {name}. Keys: {properties}. "
+            f"Required keys: {required}. No markdown, prose, or thinking in the JSON response. "
+            f"Example shape: {json.dumps(example)}")
 
 
 def detect_model(base_url: str, fallback: str) -> str:
@@ -69,8 +98,31 @@ class LLM:
         return getattr(client_for(self.role), "_forge_model")
 
     def _create(self, messages: list[dict[str, Any]], schema: dict[str, Any] | None = None, max_tokens: int = 4096):
+        if forge_config.llm_dialect(self.role) == "ollama":
+            request_messages = list(messages)
+            if schema is not None:
+                request_messages.append({"role": "system", "content": _schema_prompt(schema)})
+            profile = forge_config.provider_for(self.role)
+            base_url = profile["base_url"].rstrip("/")
+            if base_url.endswith("/v1"):
+                base_url = base_url[:-3]
+            body: dict[str, Any] = {"model": self.model, "messages": request_messages,
+                                    "stream": False, "options": {"temperature": 0.1, "num_predict": max_tokens}}
+            if schema is not None:
+                body["format"] = "json"
+            payload = json.dumps(body).encode()
+            request = urllib.request.Request(f"{base_url}/api/chat", data=payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {profile['api_key']}"})
+            with urllib.request.urlopen(request, timeout=profile["timeout"]) as response:
+                result = json.load(response)
+            content = result.get("message", {}).get("content", "")
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": 0.1,
-                                  "max_tokens": max_tokens, "extra_body": {"reasoning_effort": "none"}}
+                                  "max_tokens": max_tokens}
+        reasoning_effort = os.getenv("FORGE_LLM_REASONING_EFFORT")
+        if reasoning_effort:
+            kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
         if schema is not None:
             kwargs["response_format"] = schema
         return client_for(self.role).chat.completions.create(**kwargs)
@@ -82,7 +134,8 @@ class LLM:
         return self.generate_chat([{"role": "user", "content": prompt}], schema)
 
     def generate_json(self, prompt: str, schema: dict[str, Any], max_tokens: int = 4096) -> dict[str, Any]:
-        return json.loads(self._create([{"role": "user", "content": prompt}], schema, max_tokens).choices[0].message.content or "{}")
+        raw = self._create([{"role": "user", "content": prompt}], schema, max_tokens).choices[0].message.content or ""
+        return json.loads(extract_json(raw))
 
     def reason(self, messages: list[dict[str, Any]], max_tokens: int = 700) -> str:
         return self.generate_chat(messages)[:2500]

@@ -2,7 +2,7 @@ import os
 import json
 from typing import List, Dict
 from src.state.schema import AgentState, Task, Goal
-from forge_runtime.llm import planner_llm, PLANNER_SCHEMA
+from forge_runtime.llm import planner_llm, PLANNER_SCHEMA, extract_json
 from app.database import SessionLocal
 from app.services import MemoryService
 from app.models import ForgeProject, ForgeGoal, ForgeTask
@@ -286,18 +286,18 @@ def planner_node(state: AgentState) -> Dict:
             clean_raw = clean_raw.split("</think>")[-1].strip()
             
         if "```json" in clean_raw:
-            json_str = clean_raw.split("```json")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```json")[1].split("```")[0].strip()
         elif "```" in clean_raw:
-            json_str = clean_raw.split("```")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```")[1].split("```")[0].strip()
         else:
             first_brace = clean_raw.find("{")
             last_brace = clean_raw.rfind("}")
             if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                json_str = clean_raw[first_brace:last_brace+1].strip()
+                _json_str = clean_raw[first_brace:last_brace+1].strip()
             else:
-                json_str = clean_raw
+                _json_str = clean_raw
             
-        data = json.loads(json_str)
+        data = json.loads(extract_json(clean_raw))
         new_tasks_data = data.get("new_tasks", [])
         
         # Save new tasks to the database

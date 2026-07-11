@@ -50,7 +50,7 @@ def _bootstrap_schema():
             inspector = __import__("sqlalchemy").inspect(conn)
             existing = set(inspector.get_table_names())
             for suffix in legacy_tables:
-                legacy, canonical = f"forge_{suffix}", f"forge_{suffix}"
+                legacy, canonical = f"hermes_{suffix}", f"forge_{suffix}"
                 if legacy in existing and canonical not in existing:
                     conn.execute(text(f'ALTER TABLE "{legacy}" RENAME TO "{canonical}"'))
                     existing.add(canonical)
@@ -66,8 +66,8 @@ def _bootstrap_schema():
             ):
                 conn.execute(text(
                     "DO $$ BEGIN "
-                    "IF to_regclass('public.forge_%s') IS NULL AND to_regclass('public.forge_%s') IS NOT NULL THEN "
-                    "EXECUTE 'CREATE VIEW public.forge_%s AS SELECT * FROM public.forge_%s'; END IF; END $$;"
+                    "IF to_regclass('public.hermes_%s') IS NULL AND to_regclass('public.forge_%s') IS NOT NULL THEN "
+                    "EXECUTE 'CREATE VIEW public.hermes_%s AS SELECT * FROM public.forge_%s'; END IF; END $$;"
                     % (suffix, suffix, suffix, suffix)
                 ))
             conn.commit()

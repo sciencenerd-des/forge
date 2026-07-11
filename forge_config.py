@@ -144,3 +144,15 @@ def provider_for(role: str = "general") -> dict:
         "api_key": os.getenv("FORGE_LLM_API_KEY", DEFAULT_API_KEY),
         "timeout": str(DEFAULT_TIMEOUT),
     }), "timeout": DEFAULT_TIMEOUT}
+
+
+def llm_dialect(role: str = "general") -> str:
+    """Return the wire dialect for a role's resolved provider."""
+    upper = role.upper()
+    forced = os.getenv(f"FORGE_{upper}_DIALECT") or os.getenv("FORGE_LLM_DIALECT")
+    if forced:
+        value = forced.strip().lower()
+        if value not in {"ollama", "openai"}:
+            raise ValueError(f"unsupported LLM dialect: {forced}")
+        return value
+    return "ollama" if ":11434" in provider_for(role)["base_url"] else "openai"
