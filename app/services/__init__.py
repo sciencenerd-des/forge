@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, false, func, literal_column, or_, select
+from sqlalchemy import func, literal_column
 from sqlalchemy.orm import Session
 
 import forge_config
@@ -12,6 +12,7 @@ import forge_config
 from ..database import Base, engine
 from ..models import (
     HermesCheckpoint,
+    HermesContextPackLog,
     HermesEvent,
     HermesFileChange,
     HermesGoal,
@@ -101,6 +102,21 @@ except Exception as _schema_exc:  # pragma: no cover
     _lg.getLogger(__name__).warning(
         'DB schema bootstrap skipped (%s): %s', type(_schema_exc).__name__, _schema_exc)
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _cached_reranker():
+    """Load the cross-encoder at most once per process (it used to be
+    constructed inside every search call — a multi-second load each time)."""
+    try:
+        from sentence_transformers import CrossEncoder
+        return CrossEncoder(os.getenv("FORGE_MEMORY_RERANK_MODEL",
+                                      "BAAI/bge-reranker-base"))
+    except Exception:
+        return None
+
+
 class MemoryService:
     def __init__(self, db: Session):
         self.db = db
@@ -108,19 +124,46 @@ class MemoryService:
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
         if not text or not text.strip():
             return None
+        profile = forge_config.embedding_provider()
+        if not profile["enabled"]:
+            return None
         import requests
-        url = "http://127.0.0.1:1234/v1/embeddings"
-        payload = {
-            "model": "text-embedding-nomic-embed-text-v1.5",
-            "input": text
-        }
         try:
-            res = requests.post(url, json=payload, timeout=10)
+            res = requests.post(
+                f"{profile['base_url']}/embeddings",
+                json={"model": profile["model"], "input": text},
+                headers={"Authorization": f"Bearer {profile['api_key']}"},
+                timeout=profile["timeout"],
+            )
             if res.status_code == 200:
                 return res.json()["data"][0]["embedding"]
         except Exception:
             pass
         return None
+
+    def backfill_embeddings(self, project_id: str, batch: int = 16) -> int:
+        """Heal NULL embeddings opportunistically (batch boundaries only —
+        never on the executor turn path). Circuit-breaks after the first
+        failed embedding so a dead endpoint costs one request, not ``batch``.
+        Returns the number of rows updated."""
+        if not forge_config.embedding_provider()["enabled"]:
+            return 0
+        rows = (self.db.query(HermesMemoryItem)
+                .filter(HermesMemoryItem.project_id == project_id,
+                        HermesMemoryItem.status == "active",
+                        HermesMemoryItem.embedding.is_(None))
+                .order_by(HermesMemoryItem.created_at.desc())
+                .limit(max(1, batch)).all())
+        updated = 0
+        for row in rows:
+            emb = self._generate_embedding(row.content)
+            if emb is None:
+                break  # endpoint down or content empty — stop probing
+            row.embedding = emb
+            updated += 1
+        if updated:
+            self.db.commit()
+        return updated
 
     def create_project(self, name: str, repo_path: str, description: str = "", project_id: Optional[str] = None) -> HermesProject:
         project = HermesProject(id=project_id, name=name, repo_path=repo_path, description=description)
@@ -282,7 +325,31 @@ class MemoryService:
         self.db.add(item)
         self.db.commit()
         self.db.refresh(item)
+        # Associations are deterministic and best-effort. A link failure must
+        # never make the durable memory write fail.
+        try:
+            from .memory_links import generate_links
+            generate_links(self.db, item)
+        except Exception:
+            self.db.rollback()
+            self.db.refresh(item)
         return item
+
+    def log_memory_recall(self, project_id: str, query: str,
+                          selected_memory_ids: List[str], task_id: str = None) -> None:
+        """Record agent-directed paging beside normal context-pack telemetry."""
+        try:
+            from forge_runtime.context_compactor import estimate_tokens
+            self.db.add(HermesContextPackLog(
+                project_id=project_id,
+                task_id=task_id,
+                query=(query or "")[:500],
+                selected_memory_ids=list(selected_memory_ids),
+                token_estimate=estimate_tokens(query or ""),
+            ))
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
 
     def record_decision(self, project_id: str, task_id: str = None, 
                          content: str = "", context: str = "") -> HermesMemoryItem:
@@ -403,9 +470,9 @@ class MemoryService:
         self.db.refresh(distilled)
         return distilled
 
-    def record_file_change(self, project_id: str, task_id: str = None, 
-                            file_path: str = "", change_summary: str = "", 
-                            reason: str = "") -> HermesFileChange:
+    def record_file_change(self, project_id: str, task_id: str = None,
+                            file_path: str = "", change_summary: str = "",
+                            reason: str = "", content_sha: str = "") -> HermesFileChange:
         change = HermesFileChange(
             project_id=project_id,
             task_id=task_id,
@@ -416,6 +483,25 @@ class MemoryService:
         self.db.add(change)
         self.db.commit()
         self.db.refresh(change)
+        try:
+            self.record_event(
+                project_id=project_id,
+                task_id=task_id,
+                event_type="file_write",
+                actor="executor",
+                content=f"Wrote {file_path}",
+                metadata={
+                    "path": file_path,
+                    "content_sha": content_sha,
+                    "idempotency_key": f"{task_id or ''}:{file_path}:{content_sha or change.id}",
+                },
+            )
+        except Exception:
+            # The materialized file-change evidence is already durable; an
+            # event-log outage must not turn a successful write into a failed
+            # executor action.
+            self.db.rollback()
+            self.db.refresh(change)
         return change
 
     def record_test_run(self, project_id: str, task_id: str = None, 
@@ -545,29 +631,24 @@ class MemoryService:
                 HermesTask.status == "active",
             ).order_by(HermesTask.updated_at.desc()).first()
 
-        now = _utcnow()
-        superseded_ids = select(HermesMemoryItem.supersedes_id).where(
-            HermesMemoryItem.supersedes_id.isnot(None))
-        memory_scope = false()
-        if goal_task_ids:
-            memory_scope = HermesMemoryItem.task_id.in_(goal_task_ids)
-        # Only explicit project constraints are global. Decisions, lessons,
-        # mistakes and blockers must be attached to a task in the active goal.
-        memory_scope = or_(
-            memory_scope,
-            and_(HermesMemoryItem.task_id.is_(None),
-                 HermesMemoryItem.memory_type == "constraint"),
+        # Task-aware retrieval: rank memories against the live goal/task text
+        # (vector -> full-text -> recency fallback chain) instead of blind
+        # importance/recency, under a hard character budget.
+        task_text = " ".join(
+            part for part in [
+                goal.title if goal else "",
+                goal.description if goal else "",
+                active_task.title if active_task else "",
+                active_task.description if active_task else "",
+            ]
+            if part
         )
-        memories = self.db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.project_id == project_id,
-            memory_scope,
-            HermesMemoryItem.status == "active",
-            or_(HermesMemoryItem.expires_at.is_(None), HermesMemoryItem.expires_at > now),
-            HermesMemoryItem.id.notin_(superseded_ids),
-        ).order_by(
-            HermesMemoryItem.importance.desc(),
-            HermesMemoryItem.created_at.desc()
-        ).limit(20).all()
+        from .memory_retrieval import select_memories
+        memories = select_memories(
+            self.db, project_id, goal_task_ids, task_text,
+            limit=20, char_budget=6000,
+            embed_query=self._generate_embedding,
+        )
 
         constraints = [m.content for m in memories if m.memory_type == "constraint"]
         decisions = [m.content for m in memories if m.memory_type == "decision"]
@@ -600,6 +681,14 @@ class MemoryService:
             "NON_NEGOTIABLE_CONSTRAINTS": constraints,
             "DECISIONS_ALREADY_MADE": decisions,
             "LESSONS_AND_MISTAKES": lessons,
+            # Keep the durable row ids alongside the rendered lesson text so
+            # the executor state can prove exactly which lessons were
+            # injected on this turn. The text remains backward-compatible for
+            # prompt consumers; ids are additive telemetry.
+            "SELECTED_LESSON_IDS": [
+                m.id for m in memories
+                if m.memory_type in ("lesson", "learning_distill")
+            ],
             "RELEVANT_FILES": [{"file_path": f.file_path, "summary": f.change_summary} for f in recent_files],
             "OPEN_BUGS_BLOCKERS_RISKS": blockers,
             "NEXT_BEST_ACTION": next_actions[0] if next_actions else "No specific next action recorded",
@@ -614,15 +703,7 @@ class MemoryService:
 
             pack["REPO_CONTEXT"] = build_repo_context_pack(
                 project.repo_path,
-                task_text=" ".join(
-                    part for part in [
-                        goal.title if goal else "",
-                        goal.description if goal else "",
-                        active_task.title if active_task else "",
-                        active_task.description if active_task else "",
-                    ]
-                    if part
-                ),
+                task_text=task_text,
             )
         except Exception as exc:
             pack["REPO_CONTEXT"] = {
@@ -632,6 +713,24 @@ class MemoryService:
                 "selected_files": [],
                 "invalidation_rules": [],
             }
+        # Pack telemetry: the hermes_context_pack_logs table existed but was
+        # never written; token sizes were invisible. Best-effort — a logging
+        # failure must never block the pack.
+        try:
+            from forge_runtime.context_compactor import estimate_tokens
+
+            from ..models import HermesContextPackLog
+            self.db.add(HermesContextPackLog(
+                project_id=project_id,
+                task_id=active_task.id if active_task else None,
+                query=(active_task.title if active_task else task_text)[:500],
+                selected_memory_ids=[m.id for m in memories],
+                token_estimate=estimate_tokens(json.dumps(pack, default=str)),
+            ))
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+
         from ..context_compression import compress_context_pack
         return compress_context_pack(
             self.db,
@@ -689,11 +788,17 @@ class MemoryService:
         return "distraction"
 
     def _rerank_results(self, query: str, items: List[Any], limit: int) -> List[Any]:
+        """Optional cross-encoder rerank. Opt-in via FORGE_MEMORY_RERANK — a
+        multi-hundred-MB model load should be a choice, not a surprise — and
+        the model is loaded once per process, not once per call."""
         if not items:
             return items
+        if os.getenv("FORGE_MEMORY_RERANK", "").lower() not in {"1", "true", "yes", "on"}:
+            return items[:limit]
+        model = _cached_reranker()
+        if model is None:
+            return items[:limit]
         try:
-            from sentence_transformers import CrossEncoder
-            model = CrossEncoder('BAAI/bge-reranker-base')
             pairs = [[query, item.content] for item in items]
             scores = model.predict(pairs)
             ranked = sorted(zip(items, scores), key=lambda x: x[1], reverse=True)

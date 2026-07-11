@@ -43,3 +43,4 @@ test-workspaces/
 # Generated marketing media (rebuild with docs/marketing/assets/render_campaign_video.sh)
 docs/marketing/assets/forge-campaign-30s.mp4
 docs/marketing/assets/forge-campaign-preview.gif
+AI_DOCS/

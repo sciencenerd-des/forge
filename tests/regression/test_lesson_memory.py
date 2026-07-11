@@ -22,6 +22,13 @@ def test_extraction_gated_until_second_occurrence():
     assert should_extract([e, e], fp)
 
 
+def test_extraction_requires_same_failure_fingerprint():
+    first = _event(1)
+    second = _event(2)
+    fp = fingerprint(first.failure_type, first.test_id, first.error_signature)
+    assert not should_extract([first, second], fp)
+
+
 def test_vacuous_extraction_rejected_too_short():
     llm = lambda ev: {"observation": "x", "prevention": "too short"}
     assert extract_lesson(_event(), llm) is None

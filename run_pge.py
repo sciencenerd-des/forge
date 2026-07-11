@@ -53,6 +53,102 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+_hygiene_consolidated = False  # consolidate at most once per run
+
+
+def run_batch_hygiene(project_id: str, batch: int) -> None:
+    """Best-effort memory maintenance at a batch boundary: heal NULL
+    embeddings, consolidate old fine-grained logs (once per run), and decay
+    stale durable lessons. A failure here is logged and swallowed — hygiene
+    must never cost a batch. Skipped entirely when pg_cron owns hygiene
+    in-database (durable substrate profile)."""
+    global _hygiene_consolidated
+    try:
+        db = SessionLocal()
+    except Exception as exc:
+        print(f"Batch hygiene skipped (no session): {exc}")
+        return
+    try:
+        try:  # pg_cron ownership check (durable substrate, Phase 6)
+            from sqlalchemy import text
+            if db.bind.dialect.name == "postgresql":
+                owned = db.execute(text(
+                    "SELECT count(*) FROM cron.job WHERE jobname LIKE 'forge_%'"
+                )).scalar()
+                if owned:
+                    return
+        except Exception:
+            db.rollback()  # cron schema absent — app-side hygiene proceeds
+
+        service = MemoryService(db)
+        try:
+            healed = service.backfill_embeddings(project_id)
+            if healed:
+                print(f"🧠 Backfilled {healed} memory embeddings.")
+        except Exception as exc:
+            print(f"Embedding backfill skipped: {exc}")
+
+        if not _hygiene_consolidated:
+            try:
+                service.consolidate_old_logs(project_id)
+                _hygiene_consolidated = True
+            except Exception as exc:
+                print(f"Log consolidation skipped: {exc}")
+
+        try:
+            from datetime import timedelta
+
+            from forge_runtime.lesson_store_db import FP_TAG_PREFIX, DbLessonStore
+            store = DbLessonStore(db, project_id)
+            stale_cutoff = _utcnow() - timedelta(days=1)
+            stale = [
+                tag[len(FP_TAG_PREFIX):]
+                for row in store._active_rows()
+                if (row.updated_at or row.created_at) and
+                   (row.updated_at or row.created_at) < stale_cutoff
+                for tag in (row.tags or []) if tag.startswith(FP_TAG_PREFIX)
+            ]
+            if stale:
+                store.mark_unmatched(stale)
+        except Exception as exc:
+            print(f"Lesson decay skipped: {exc}")
+
+        try:
+            from app.models import HermesCheckpoint
+            from app.services.memory_links import evolve_memories
+            evolve_memories(db, project_id)
+            checkpoint = (db.query(HermesCheckpoint)
+                          .filter(HermesCheckpoint.project_id == project_id)
+                          .order_by(HermesCheckpoint.created_at.desc())
+                          .first())
+            if checkpoint:
+                from forge_runtime.replay import diff_checkpoint, replay_state
+                divergences = diff_checkpoint(
+                    replay_state(db, project_id, checkpoint.goal_id), checkpoint)
+                for divergence in divergences[:8]:
+                    content = f"REPLAY DIVERGENCE: {divergence}"
+                    exists = db.query(HermesMemoryItem).filter(
+                        HermesMemoryItem.project_id == project_id,
+                        HermesMemoryItem.memory_type == "mistake",
+                        HermesMemoryItem.content == content,
+                        HermesMemoryItem.status == "active",
+                    ).first()
+                    if not exists:
+                        service.record_memory_item(
+                            project_id=project_id,
+                            memory_type="mistake",
+                            content=content,
+                            importance=5,
+                            tags=["replay-divergence"],
+                        )
+        except Exception as exc:
+            print(f"Replay audit skipped: {exc}")
+    except Exception as exc:
+        print(f"Batch hygiene skipped: {exc}")
+    finally:
+        db.close()
+
+
 def resolve_default_project() -> str:
     """Resolve (or create) the default project id — never a hardcoded UUID.
     Honors FORGE_DEFAULT_PROJECT; otherwise resolve-or-create a 'default'
@@ -324,6 +420,11 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
         if interval and batch % interval == 0:
             if prune_ollama_kv():
                 print(f"🧹 Ollama KV cache pruned (batch {batch}, every {interval}).")
+
+        # Memory hygiene at the batch boundary: embedding backfill, old-log
+        # consolidation (at most once per run), and durable-lesson decay.
+        # All best-effort — hygiene can never take a batch down with it.
+        run_batch_hygiene(project_id, batch)
 
     # Always release the KV cache when a run ends — sequential goal runs were
     # the exact pattern that accumulated memory pressure across the session.

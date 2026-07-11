@@ -143,3 +143,23 @@ def provider_for(role: str = "general") -> dict:
         "api_key": os.getenv(f"FORGE_{R}_API_KEY", DEFAULT_API_KEY),
         "timeout": DEFAULT_TIMEOUT,
     }
+
+
+def embedding_provider() -> dict:
+    """Embeddings profile, env-resolved like every other provider.
+
+    ``FORGE_EMBED_BASE_URL`` > ``FORGE_LLM_BASE_URL``/``LLM_BASE_URL`` >
+    built-in default — the memory service must never hardcode an endpoint
+    (a fixed 127.0.0.1:1234 already bit the steward once; see steward.py).
+    ``enabled`` gates all embedding traffic; disabling it must never block
+    memory writes.
+    """
+    return {
+        "enabled": os.getenv("FORGE_EMBED_ENABLED", "true").lower()
+        in {"1", "true", "yes", "on"},
+        "base_url": os.getenv("FORGE_EMBED_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
+        "model": os.getenv("FORGE_EMBED_MODEL",
+                           "text-embedding-nomic-embed-text-v1.5"),
+        "api_key": os.getenv("FORGE_EMBED_API_KEY", DEFAULT_API_KEY),
+        "timeout": float(os.getenv("FORGE_EMBED_TIMEOUT", "10")),
+    }

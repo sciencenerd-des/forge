@@ -34,6 +34,20 @@ def compress_context_pack(db, *, project_id: str, goal_id: str | None,
     bulk = {key: value for key, value in pack.items() if key not in PROTECTED_KEYS}
     source_hash = hashlib.sha256(_stable_json(bulk).encode("utf-8")).hexdigest()
 
+    # Size gate FIRST: a small pack (the common case early in a run) must not
+    # pay per-field Headroom LLM calls or a snapshot-table write. Previously
+    # only the local fallback had this gate.
+    threshold_chars = int(os.getenv(
+        "PGE_CONTEXT_COMPACT_THRESHOLD", "12000")) * 4  # ~4 chars/token
+    if len(_stable_json(bulk)) <= threshold_chars:
+        output = deepcopy(pack)
+        output["CONTEXT_COMPRESSION"] = {
+            "status": "not_needed",
+            "compressor": "size-gate",
+            "source_hash": source_hash,
+        }
+        return output
+
     try:
         import headroom  # noqa: F401 — optional heavy compressor; local fallback below
         from headroom import compress
