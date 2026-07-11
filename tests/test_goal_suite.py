@@ -10,11 +10,14 @@ def test_suite_defines_eight_goals():
 
 def test_suite_report_shape_for_stubbed_subprocess(monkeypatch, tmp_path):
     class Result:
+        pid = 99999
         returncode = 1
         stderr = "failed"
         stdout = ""
+        def communicate(self, timeout=None):
+            return self.stdout, self.stderr
 
-    monkeypatch.setattr("evals.goal_suite.subprocess.run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr("evals.goal_suite.subprocess.Popen", lambda *args, **kwargs: Result())
     monkeypatch.setattr("evals.goal_suite._verdict", lambda project, slug: {
         "slug": slug, "goal_status": "active", "file_changes": 0, "latest_test_status": None,
     })

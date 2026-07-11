@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -53,8 +54,16 @@ def run_suite(*, model: str, timeout: int, max_turns: int, output: Path,
         command = [sys.executable, "run_pge.py", "--new-project", project,
                    "--goal", goal, "--desc", goal]
         try:
-            completed = subprocess.run(command, cwd=Path(__file__).parents[1], env=env,
-                                       text=True, capture_output=True, timeout=timeout)
+            process = subprocess.Popen(command, cwd=Path(__file__).parents[1], env=env,
+                                       text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       start_new_session=True)
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                os.killpg(process.pid, signal.SIGTERM)
+                stdout, stderr = process.communicate()
+                raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from exc
+            completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
             status = "completed" if completed.returncode == 0 else "failed"
             error = completed.stderr[-4000:] if completed.returncode else None
         except subprocess.TimeoutExpired as exc:
