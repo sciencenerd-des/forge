@@ -1,4 +1,5 @@
 mod model;
+mod setup;
 mod store;
 mod tui;
 
@@ -48,12 +49,27 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ProviderCommand {
+    Setup(ProviderSetup),
     AddLocal(ProviderLocal),
     AddCloud(ProviderCloud),
     AddSubscription(ProviderSubscription),
     List,
     SetDefault { provider: Uuid },
     Login { provider: Uuid },
+}
+
+#[derive(Args)]
+struct ProviderSetup {
+    #[arg(long, default_value = "default")]
+    role: String,
+    #[arg(long, default_value = "http://localhost:1234/v1")]
+    base_url: String,
+    #[arg(long, default_value = "auto")]
+    model: String,
+    #[arg(long, default_value = "not-needed")]
+    api_key: String,
+    #[arg(long, default_value = "api_key")]
+    auth_mode: String,
 }
 
 #[derive(Args)]
@@ -240,6 +256,10 @@ fn main() -> Result<()> {
             )?,
         },
         Command::Provider { command } => match command {
+            ProviderCommand::Setup(args) => {
+                let path = setup::save_profile(&args.role, &args.base_url, &args.model, &args.api_key, &args.auth_mode)?;
+                print_value(cli.json, &serde_json::json!({"status": "saved", "path": path}))?;
+            }
             ProviderCommand::AddLocal(args) => add_provider(
                 &mut store,
                 ProviderProfile::new(

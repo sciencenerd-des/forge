@@ -2,13 +2,13 @@ import os
 import json
 from typing import Dict
 from src.state.schema import AgentState
-from hermes_tools import llm
+from forge_runtime.llm import llm
 
 from src.state.schema import Task, Goal
-from hermes_tools import EVALUATOR_SCHEMA
+from forge_runtime.llm import EVALUATOR_SCHEMA
 from app.database import SessionLocal
 from app.services import MemoryService
-from app.models import HermesGoal, HermesTask, HermesMemoryItem
+from app.models import ForgeGoal, ForgeTask, ForgeMemoryItem
 from src.runtime import active_goal_query, project_workspace
 from datetime import datetime, timezone
 
@@ -61,11 +61,11 @@ def evaluator_node(state: AgentState) -> Dict:
     # the queue without requiring future files/tests to exist already.
     db = SessionLocal()
     try:
-        remaining_planned = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == goal.id,
-            HermesTask.id != active_task.id,
-            HermesTask.status.in_(("active", "proposed")),
+        remaining_planned = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == goal.id,
+            ForgeTask.id != active_task.id,
+            ForgeTask.status.in_(("active", "proposed")),
         ).count()
         task_text = f"{active_task.title} {active_task.description}".lower()
         real_write = heartbeat and "TOOL SUCCEEDED: write_file" in heartbeat.progress_summary
@@ -79,10 +79,10 @@ def evaluator_node(state: AgentState) -> Dict:
                     "decision": "continue",
                     "last_eval": {"reason": str(completion_error), "missing_items": []},
                 }
-            queue_rows = db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id,
-            ).order_by(HermesTask.created_at).all()
+            queue_rows = db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id,
+            ).order_by(ForgeTask.created_at).all()
             queue = [Task(
                 id=t.id, title=t.title, description=t.description or "",
                 status=t.status, priority=t.priority,
@@ -271,10 +271,10 @@ def evaluator_node(state: AgentState) -> Dict:
         if repair_candidates:
             db = SessionLocal()
             try:
-                from app.models import HermesGoal as _HG
+                from app.models import ForgeGoal as _HG
                 _g = db.query(_HG).filter(_HG.project_id == project_id).first()
                 existing_titles = {t.title: t.status for t in
-                                   db.query(HermesTask).filter(HermesTask.project_id == project_id).all()}
+                                   db.query(ForgeTask).filter(ForgeTask.project_id == project_id).all()}
                 made = 0
                 for tr in repair_candidates[:3]:
                     title = f"Make audit test {tr['id']} pass"
@@ -285,9 +285,9 @@ def evaluator_node(state: AgentState) -> Dict:
                         # Resurrect: a retired repair task must come back while
                         # its test still fails, or contract repair dies after
                         # the first attempt-cap retirement (observed live).
-                        row = (db.query(HermesTask)
-                               .filter(HermesTask.project_id == project_id,
-                                       HermesTask.title == title).first())
+                        row = (db.query(ForgeTask)
+                               .filter(ForgeTask.project_id == project_id,
+                                       ForgeTask.title == title).first())
                         if row:
                             row.status = "proposed"
                             row.description = (
@@ -339,11 +339,11 @@ def evaluator_node(state: AgentState) -> Dict:
         if failing:
             db = SessionLocal()
             try:
-                existing = db.query(HermesMemoryItem).filter(
-                    HermesMemoryItem.project_id == project_id,
-                    HermesMemoryItem.task_id == active_task.id,
-                    HermesMemoryItem.memory_type == "mistake",
-                ).order_by(HermesMemoryItem.created_at.desc()).first()
+                existing = db.query(ForgeMemoryItem).filter(
+                    ForgeMemoryItem.project_id == project_id,
+                    ForgeMemoryItem.task_id == active_task.id,
+                    ForgeMemoryItem.memory_type == "mistake",
+                ).order_by(ForgeMemoryItem.created_at.desc()).first()
                 content = "FAILED VERIFICATION: " + "; ".join(
                     f"{tr['id']} `{tr['command']}` exit={tr['exit']} output={tr['output'][:160]}"
                     for tr in failing[:4])
@@ -393,14 +393,14 @@ def evaluator_node(state: AgentState) -> Dict:
             try:
                 MemoryService(db).complete_task(project_id, active_task.id)
             except Exception:
-                row = db.query(HermesTask).filter(HermesTask.id == active_task.id).first()
+                row = db.query(ForgeTask).filter(ForgeTask.id == active_task.id).first()
                 if row:
                     row.status = "completed"
                     row.completed_at = _utcnow()
                     db.commit()
-            db_tasks = db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id,
+            db_tasks = db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id,
             ).all()
             queue = [Task(id=t.id, title=t.title, description=t.description or "",
                           status=t.status, priority=t.priority,
@@ -451,18 +451,18 @@ def evaluator_node(state: AgentState) -> Dict:
     # Gather REAL evidence for the active task: recorded file changes (verified
     # against disk) and test runs. The evaluator judges THIS, not the
     # executor's self-report.
-    from app.models import HermesFileChange, HermesTestRun
+    from app.models import ForgeFileChange, ForgeTestRun
     db = SessionLocal()
     try:
         # Project-wide: contract items are usually satisfied by work done under
         # EARLIER tasks, so judging only the active task's evidence wrongly
         # reports "no evidence" for completed work.
-        fcs = (db.query(HermesFileChange)
-               .filter(HermesFileChange.project_id == project_id)
-               .order_by(HermesFileChange.created_at.desc()).limit(15).all())
-        trs = (db.query(HermesTestRun)
-               .filter(HermesTestRun.project_id == project_id)
-               .order_by(HermesTestRun.created_at.desc()).limit(15).all())
+        fcs = (db.query(ForgeFileChange)
+               .filter(ForgeFileChange.project_id == project_id)
+               .order_by(ForgeFileChange.created_at.desc()).limit(15).all())
+        trs = (db.query(ForgeTestRun)
+               .filter(ForgeTestRun.project_id == project_id)
+               .order_by(ForgeTestRun.created_at.desc()).limit(15).all())
         evidence_lines = []
         for fc in fcs:
             on_disk = os.path.exists(fc.file_path or "")
@@ -604,10 +604,10 @@ def evaluator_node(state: AgentState) -> Dict:
         # and control returns to the planner instead of ending.
         if decision == "complete" and missing_items and (goal.success_criteria or []):
             print(f"⚖️  Contract gate: {len(missing_items)} item(s) unmet {missing_items} — goal stays open.")
-            existing_titles = {t.title for t in db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id,
-                HermesTask.status != "completed").all()}
+            existing_titles = {t.title for t in db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id,
+                ForgeTask.status != "completed").all()}
             created = 0
             for mid in missing_items[:5]:
                 item_text = next((c for c in goal.success_criteria if c.startswith(f"[{mid}]")), mid)
@@ -636,14 +636,14 @@ def evaluator_node(state: AgentState) -> Dict:
                 service.complete_task(project_id, active_task.id)
             except Exception as db_err:
                 print(f"Could not perform verified complete_task: {db_err}. Doing fallback direct complete status update.")
-                db_task = db.query(HermesTask).filter(HermesTask.id == active_task.id).first()
+                db_task = db.query(ForgeTask).filter(ForgeTask.id == active_task.id).first()
                 if db_task:
                     db_task.status = "completed"
                     db_task.completed_at = _utcnow()
                     db.commit()
             
             # Retrieve updated active task with status="completed"
-            db_task = db.query(HermesTask).filter(HermesTask.id == active_task.id).first()
+            db_task = db.query(ForgeTask).filter(ForgeTask.id == active_task.id).first()
             if db_task:
                 updated_active_task = Task(
                     id=db_task.id,
@@ -655,9 +655,9 @@ def evaluator_node(state: AgentState) -> Dict:
                 )
         
         # Load up to date task queue from DB
-        db_tasks = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == goal.id,
+        db_tasks = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == goal.id,
         ).all()
         updated_queue = []
         for t in db_tasks:

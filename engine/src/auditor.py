@@ -6,7 +6,7 @@ planner and produces TWO artifacts, both strictly derived from the request:
 
 1. CHECKLIST  -> the executor's contract: subgoals broken into concrete tasks
                  (what must be built/changed). Persisted to
-                 ``HermesGoal.success_criteria`` and seeded into the task queue.
+                 ``ForgeGoal.success_criteria`` and seeded into the task queue.
 2. TEST LIST  -> the evaluator's contract: deterministic shell commands with
                  expected outputs. The evaluator RUNS these itself every cycle —
                  it does not trust the executor's self-report. All tests pass
@@ -38,20 +38,20 @@ AUDITOR_MODELS = [
 ]
 
 # Optional last cloud resort before the weak local fallback: Codex GPT-5.5
-# at low reasoning, called through the Hermes CLI (OAuth lives there).
+# at low reasoning, called through the Forge CLI (OAuth lives there).
 CODEX_FALLBACK = os.getenv("PGE_AUDITOR_CODEX", "1") not in ("0", "false", "")
 CODEX_MODEL = os.getenv("PGE_AUDITOR_CODEX_MODEL", "gpt-5.5")
 
 
 def _codex_chat(prompt: str, timeout: int = 300) -> str:
-    """Ask Codex via `hermes chat -q` (non-interactive). Returns raw text."""
+    """Ask the configured standalone Codex CLI without a Hermes dependency."""
     import subprocess
+    command = os.getenv("FORGE_CODEX_COMMAND", "codex")
     r = subprocess.run(
-        ["hermes", "chat", "-q", prompt, "-Q", "--provider", "openai-codex",
-         "-m", CODEX_MODEL, "--ignore-user-config"],
+        [command, "exec", prompt, "--model", CODEX_MODEL],
         capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
-        raise RuntimeError(f"hermes codex call failed: {(r.stderr or r.stdout)[:150]}")
+        raise RuntimeError(f"Forge Codex call failed: {(r.stderr or r.stdout)[:150]}")
     return r.stdout
 
 CONTRACT_SCHEMA = {
@@ -390,7 +390,7 @@ def generate_contract(title: str, description: str = "", user_prompt: str = "",
             print(f"🛡️  Codex auditor fallback unavailable ({str(e)[:90]}) — degrading to local")
 
     try:
-        from hermes_tools import llm
+        from forge_runtime.llm import llm
         raw = llm.generate(prompt, schema=CONTRACT_SCHEMA)
         c = _parse_contract(raw)
         if c["checklist"]:

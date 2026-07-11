@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
 from app.models import (
-    HermesMemoryItem,
+    ForgeMemoryItem,
 )
 from app.services import MemoryService
 
@@ -86,10 +86,10 @@ def test_enhancements():
         # Check that fine-grained logs are deleted and summary item is created
         assert consolidation_result["consolidated_tasks_count"] == 1
         
-        digest_item = db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.project_id == project_id,
-            HermesMemoryItem.task_id == task.id,
-            HermesMemoryItem.memory_type == "task_consolidation"
+        digest_item = db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.project_id == project_id,
+            ForgeMemoryItem.task_id == task.id,
+            ForgeMemoryItem.memory_type == "task_consolidation"
         ).first()
         assert digest_item is not None
         print("✅ Consolidated digest successfully created in database!")

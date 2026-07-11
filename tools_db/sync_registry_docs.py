@@ -1,13 +1,13 @@
-"""Sync the LIVE Hermes tool registry into tool_docs.db.
+"""Sync the LIVE Forge tool registry into tool_docs.db.
 
-Every tool Hermes can register (native, plugin, MCP) gets a row with its full
-schema documentation, under category ``hermes:<toolset>``. The curated entries
+Every tool Forge can register (native, plugin, MCP) gets a row with its full
+schema documentation, under category ``forge:<toolset>``. The curated entries
 (core/web/framework/...) written by build_tool_docs.py are left untouched and
 remain the lean always-loaded index; registry rows are the deep documentation
 pulled on demand via ``pge_get_tool_doc``.
 
 Run after adding toolsets/plugins/MCP servers:
-    ~/.hermes/hermes-agent/venv/bin/python3 tools_db/sync_registry_docs.py
+    ~/.forge/forge-agent/venv/bin/python3 tools_db/sync_registry_docs.py
 (The pge plugin's post_tool_call hook also captures tools dynamically the
 first time they are used, so unseen tools self-document at runtime.)
 """
@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(HERE, "tool_docs.db")
-HERMES_AGENT = os.path.expanduser("~/.hermes/hermes-agent")
+FORGE_AGENT = os.path.expanduser("~/.forge/forge-agent")
 
 
 def tool_row(entry):
@@ -30,13 +30,13 @@ def tool_row(entry):
         f"{desc}\n\nPARAMETERS (JSON schema):\n{json.dumps(params, indent=2)}"
     )
     when = desc.split(".")[0][:220] or f"Tool from toolset {entry.toolset}"
-    return (entry.name, f"hermes:{entry.toolset}", f"Hermes registry (toolset `{entry.toolset}`)",
+    return (entry.name, f"forge:{entry.toolset}", f"Forge registry (toolset `{entry.toolset}`)",
             when, full_doc)
 
 
 def main():
-    sys.path.insert(0, HERMES_AGENT)
-    os.chdir(HERMES_AGENT)
+    sys.path.insert(0, FORGE_AGENT)
+    os.chdir(FORGE_AGENT)
     import model_tools  # noqa: F401  (importing registers every native tool)
     from tools.registry import registry
 
@@ -59,7 +59,7 @@ def main():
             (name, cat, loc, when, doc, now))
     con.commit()
     n = cur.execute("SELECT COUNT(*) FROM tools").fetchone()[0]
-    nh = cur.execute("SELECT COUNT(*) FROM tools WHERE category LIKE 'hermes:%'").fetchone()[0]
+    nh = cur.execute("SELECT COUNT(*) FROM tools WHERE category LIKE 'forge:%'").fetchone()[0]
     con.close()
     print(f"synced {len(rows)} registry tools -> tool_docs.db (total rows {n}, registry rows {nh})")
 

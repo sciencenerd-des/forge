@@ -11,17 +11,17 @@ import forge_config
 
 from ..database import Base, engine
 from ..models import (
-    HermesCheckpoint,
-    HermesEvent,
-    HermesFileChange,
-    HermesGoal,
-    HermesMemoryItem,
-    HermesMessage,
-    HermesProject,
-    HermesRuntimeMetadata,
-    HermesSession,
-    HermesTask,
-    HermesTestRun,
+    ForgeCheckpoint,
+    ForgeEvent,
+    ForgeFileChange,
+    ForgeGoal,
+    ForgeMemoryItem,
+    ForgeMessage,
+    ForgeProject,
+    ForgeRuntimeMetadata,
+    ForgeSession,
+    ForgeTask,
+    ForgeTestRun,
 )
 
 
@@ -42,49 +42,76 @@ def _bootstrap_schema():
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             conn.commit()
+            legacy_tables = (
+                "projects", "goals", "tasks", "events", "memory_items", "file_changes",
+                "test_runs", "checkpoints", "context_pack_logs", "context_compression_snapshots",
+                "runtime_metadata",
+            )
+            inspector = __import__("sqlalchemy").inspect(conn)
+            existing = set(inspector.get_table_names())
+            for suffix in legacy_tables:
+                legacy, canonical = f"forge_{suffix}", f"forge_{suffix}"
+                if legacy in existing and canonical not in existing:
+                    conn.execute(text(f'ALTER TABLE "{legacy}" RENAME TO "{canonical}"'))
+                    existing.add(canonical)
+            conn.commit()
     # 2) Create the base tables.
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "postgresql":
+        with engine.connect() as conn:
+            for suffix in (
+                "projects", "goals", "tasks", "events", "memory_items", "file_changes",
+                "test_runs", "checkpoints", "context_pack_logs", "context_compression_snapshots",
+                "runtime_metadata",
+            ):
+                conn.execute(text(
+                    "DO $$ BEGIN "
+                    "IF to_regclass('public.forge_%s') IS NULL AND to_regclass('public.forge_%s') IS NOT NULL THEN "
+                    "EXECUTE 'CREATE VIEW public.forge_%s AS SELECT * FROM public.forge_%s'; END IF; END $$;"
+                    % (suffix, suffix, suffix, suffix)
+                ))
+            conn.commit()
     # 3) Idempotent column/constraint migrations on the now-existing tables.
     if engine.dialect.name == "postgresql":
         with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE hermes_goals ADD COLUMN IF NOT EXISTS embedding vector(768);"))
-            conn.execute(text("ALTER TABLE hermes_tasks ADD COLUMN IF NOT EXISTS embedding vector(768);"))
-            conn.execute(text("ALTER TABLE hermes_memory_items ADD COLUMN IF NOT EXISTS embedding vector(768);"))
-            conn.execute(text("ALTER TABLE hermes_tasks ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;"))
-            conn.execute(text("ALTER TABLE hermes_tasks ADD COLUMN IF NOT EXISTS no_progress_count integer NOT NULL DEFAULT 0;"))
-            conn.execute(text("ALTER TABLE hermes_tasks ADD COLUMN IF NOT EXISTS evidence_baseline_at timestamp;"))
-            conn.execute(text("ALTER TABLE hermes_tasks ADD COLUMN IF NOT EXISTS last_progress_at timestamp;"))
+            conn.execute(text("ALTER TABLE forge_goals ADD COLUMN IF NOT EXISTS embedding vector(768);"))
+            conn.execute(text("ALTER TABLE forge_tasks ADD COLUMN IF NOT EXISTS embedding vector(768);"))
+            conn.execute(text("ALTER TABLE forge_memory_items ADD COLUMN IF NOT EXISTS embedding vector(768);"))
+            conn.execute(text("ALTER TABLE forge_tasks ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE forge_tasks ADD COLUMN IF NOT EXISTS no_progress_count integer NOT NULL DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE forge_tasks ADD COLUMN IF NOT EXISTS evidence_baseline_at timestamp;"))
+            conn.execute(text("ALTER TABLE forge_tasks ADD COLUMN IF NOT EXISTS last_progress_at timestamp;"))
             conn.commit()
     if engine.dialect.name == "postgresql":
         with engine.connect() as conn:
             conn.execute(text("""
                 DO $$ BEGIN
                     IF EXISTS (SELECT 1 FROM pg_constraint
-                               WHERE conname = 'hermes_context_compression_snapshots_project_id_fkey'
+                               WHERE conname = 'forge_context_compression_snapshots_project_id_fkey'
                                  AND confdeltype <> 'c') THEN
-                        ALTER TABLE hermes_context_compression_snapshots
-                            DROP CONSTRAINT hermes_context_compression_snapshots_project_id_fkey;
-                        ALTER TABLE hermes_context_compression_snapshots
-                            ADD CONSTRAINT hermes_context_compression_snapshots_project_id_fkey
-                            FOREIGN KEY (project_id) REFERENCES hermes_projects(id) ON DELETE CASCADE;
+                        ALTER TABLE forge_context_compression_snapshots
+                            DROP CONSTRAINT forge_context_compression_snapshots_project_id_fkey;
+                        ALTER TABLE forge_context_compression_snapshots
+                            ADD CONSTRAINT forge_context_compression_snapshots_project_id_fkey
+                            FOREIGN KEY (project_id) REFERENCES forge_projects(id) ON DELETE CASCADE;
                     END IF;
                     IF EXISTS (SELECT 1 FROM pg_constraint
-                               WHERE conname = 'hermes_context_compression_snapshots_goal_id_fkey'
+                               WHERE conname = 'forge_context_compression_snapshots_goal_id_fkey'
                                  AND confdeltype <> 'n') THEN
-                        ALTER TABLE hermes_context_compression_snapshots
-                            DROP CONSTRAINT hermes_context_compression_snapshots_goal_id_fkey;
-                        ALTER TABLE hermes_context_compression_snapshots
-                            ADD CONSTRAINT hermes_context_compression_snapshots_goal_id_fkey
-                            FOREIGN KEY (goal_id) REFERENCES hermes_goals(id) ON DELETE SET NULL;
+                        ALTER TABLE forge_context_compression_snapshots
+                            DROP CONSTRAINT forge_context_compression_snapshots_goal_id_fkey;
+                        ALTER TABLE forge_context_compression_snapshots
+                            ADD CONSTRAINT forge_context_compression_snapshots_goal_id_fkey
+                            FOREIGN KEY (goal_id) REFERENCES forge_goals(id) ON DELETE SET NULL;
                     END IF;
                     IF EXISTS (SELECT 1 FROM pg_constraint
-                               WHERE conname = 'hermes_context_compression_snapshots_task_id_fkey'
+                               WHERE conname = 'forge_context_compression_snapshots_task_id_fkey'
                                  AND confdeltype <> 'n') THEN
-                        ALTER TABLE hermes_context_compression_snapshots
-                            DROP CONSTRAINT hermes_context_compression_snapshots_task_id_fkey;
-                        ALTER TABLE hermes_context_compression_snapshots
-                            ADD CONSTRAINT hermes_context_compression_snapshots_task_id_fkey
-                            FOREIGN KEY (task_id) REFERENCES hermes_tasks(id) ON DELETE SET NULL;
+                        ALTER TABLE forge_context_compression_snapshots
+                            DROP CONSTRAINT forge_context_compression_snapshots_task_id_fkey;
+                        ALTER TABLE forge_context_compression_snapshots
+                            ADD CONSTRAINT forge_context_compression_snapshots_task_id_fkey
+                            FOREIGN KEY (task_id) REFERENCES forge_tasks(id) ON DELETE SET NULL;
                     END IF;
                 END $$;
             """))
@@ -122,17 +149,17 @@ class MemoryService:
             pass
         return None
 
-    def create_project(self, name: str, repo_path: str, description: str = "", project_id: Optional[str] = None) -> HermesProject:
-        project = HermesProject(id=project_id, name=name, repo_path=repo_path, description=description)
+    def create_project(self, name: str, repo_path: str, description: str = "", project_id: Optional[str] = None) -> ForgeProject:
+        project = ForgeProject(id=project_id, name=name, repo_path=repo_path, description=description)
         self.db.add(project)
         self.db.commit()
         self.db.refresh(project)
         return project
 
     def create_goal(self, project_id: str, title: str, description: str = "", 
-                    success_criteria: List[str] = None, priority: int = 3) -> HermesGoal:
+                    success_criteria: List[str] = None, priority: int = 3) -> ForgeGoal:
         emb = self._generate_embedding(f"{title} {description or ''}")
-        goal = HermesGoal(
+        goal = ForgeGoal(
             project_id=project_id,
             title=title,
             description=description,
@@ -148,9 +175,9 @@ class MemoryService:
     def create_task(self, project_id: str, goal_id: str, title: str, 
                      description: str = "", status: str = "proposed",
                      priority: int = 3, acceptance_criteria: List[str] = None,
-                     verification_required: bool = True) -> HermesTask:
+                     verification_required: bool = True) -> ForgeTask:
         emb = self._generate_embedding(f"{title} {description or ''}")
-        task = HermesTask(
+        task = ForgeTask(
             project_id=project_id,
             goal_id=goal_id,
             title=title,
@@ -167,8 +194,8 @@ class MemoryService:
         return task
 
     def set_active_task(self, project_id: str, task_id: str):
-        task = self.db.query(HermesTask).filter(
-            HermesTask.id == task_id, HermesTask.project_id == project_id).first()
+        task = self.db.query(ForgeTask).filter(
+            ForgeTask.id == task_id, ForgeTask.project_id == project_id).first()
         if task:
             task.status = "active"
             if task.evidence_baseline_at is None:
@@ -178,22 +205,22 @@ class MemoryService:
             return task
         return None
 
-    def record_task_attempt(self, project_id: str, task_id: str, made_progress: Optional[bool] = None) -> HermesTask:
-        task = self.db.query(HermesTask).filter(
-            HermesTask.id == task_id, HermesTask.project_id == project_id).first()
+    def record_task_attempt(self, project_id: str, task_id: str, made_progress: Optional[bool] = None) -> ForgeTask:
+        task = self.db.query(ForgeTask).filter(
+            ForgeTask.id == task_id, ForgeTask.project_id == project_id).first()
         if not task:
             raise ValueError("Task not found.")
         if made_progress is None:
             progress_floor = task.last_progress_at or task.evidence_baseline_at or task.created_at
             made_progress = (
-                self.db.query(HermesFileChange).filter(
-                    HermesFileChange.task_id == task_id,
-                    HermesFileChange.created_at >= progress_floor,
+                self.db.query(ForgeFileChange).filter(
+                    ForgeFileChange.task_id == task_id,
+                    ForgeFileChange.created_at >= progress_floor,
                 ).first() is not None
-                or self.db.query(HermesTestRun).filter(
-                    HermesTestRun.task_id == task_id,
-                    HermesTestRun.status == "success",
-                    HermesTestRun.created_at >= progress_floor,
+                or self.db.query(ForgeTestRun).filter(
+                    ForgeTestRun.task_id == task_id,
+                    ForgeTestRun.status == "success",
+                    ForgeTestRun.created_at >= progress_floor,
                 ).first() is not None
             )
         task.attempt_count = (task.attempt_count or 0) + 1
@@ -206,23 +233,23 @@ class MemoryService:
         self.db.refresh(task)
         return task
 
-    def complete_task(self, project_id: str, task_id: str) -> HermesTask:
-        task = self.db.query(HermesTask).filter(HermesTask.id == task_id, HermesTask.project_id == project_id).first()
+    def complete_task(self, project_id: str, task_id: str) -> ForgeTask:
+        task = self.db.query(ForgeTask).filter(ForgeTask.id == task_id, ForgeTask.project_id == project_id).first()
         if not task:
             raise ValueError("Task not found.")
             
         if task.verification_required:
             # Check for associated successful test runs or file changes
             baseline = task.evidence_baseline_at or task.created_at
-            has_success_test = self.db.query(HermesTestRun).filter(
-                HermesTestRun.task_id == task_id, 
-                HermesTestRun.status == "success",
-                HermesTestRun.created_at >= baseline,
+            has_success_test = self.db.query(ForgeTestRun).filter(
+                ForgeTestRun.task_id == task_id,
+                ForgeTestRun.status == "success",
+                ForgeTestRun.created_at >= baseline,
             ).first() is not None
             
-            has_file_change = self.db.query(HermesFileChange).filter(
-                HermesFileChange.task_id == task_id,
-                HermesFileChange.created_at >= baseline,
+            has_file_change = self.db.query(ForgeFileChange).filter(
+                ForgeFileChange.task_id == task_id,
+                ForgeFileChange.created_at >= baseline,
             ).first() is not None
             
             if not (has_success_test or has_file_change):
@@ -245,9 +272,9 @@ class MemoryService:
         return task
 
     def record_event(self, project_id: str, task_id: str = None, 
-                      event_type: str = "", actor: str = "hermes", 
-                      content: str = "", metadata: Dict[str, Any] = None) -> HermesEvent:
-        event = HermesEvent(
+                      event_type: str = "", actor: str = "forge",
+                      content: str = "", metadata: Dict[str, Any] = None) -> ForgeEvent:
+        event = ForgeEvent(
             project_id=project_id,
             task_id=task_id,
             event_type=event_type,
@@ -264,9 +291,9 @@ class MemoryService:
                             source_event_id: str = None, memory_type: str = "", 
                             content: str = "", confidence: float = 0.8, 
                             importance: int = 3, tags: List[str] = None,
-                            file_path: str = None, supersedes_id: str = None) -> HermesMemoryItem:
+                            file_path: str = None, supersedes_id: str = None) -> ForgeMemoryItem:
         emb = self._generate_embedding(content)
-        item = HermesMemoryItem(
+        item = ForgeMemoryItem(
             project_id=project_id,
             task_id=task_id,
             source_event_id=source_event_id,
@@ -285,7 +312,7 @@ class MemoryService:
         return item
 
     def record_decision(self, project_id: str, task_id: str = None, 
-                         content: str = "", context: str = "") -> HermesMemoryItem:
+                         content: str = "", context: str = "") -> ForgeMemoryItem:
         event = self.record_event(project_id, task_id, "decision", content=f"Decision: {content}")
         return self.record_memory_item(
             project_id=project_id,
@@ -296,7 +323,7 @@ class MemoryService:
             tags=["decision"]
         )
 
-    def record_constraint(self, project_id: str, content: str) -> HermesMemoryItem:
+    def record_constraint(self, project_id: str, content: str) -> ForgeMemoryItem:
         return self.record_memory_item(
             project_id=project_id,
             memory_type="constraint",
@@ -307,7 +334,7 @@ class MemoryService:
 
     def record_learning_stage(self, project_id: str, task_id: str, stage: str,
                               summary: str, evidence: Dict[str, Any],
-                              rule: str = "") -> HermesMemoryItem:
+                              rule: str = "") -> ForgeMemoryItem:
         """Persist one auditable Fail->Investigate->Verify->Distill learning step."""
         allowed = {"fail", "investigate", "verify", "distill"}
         if stage not in allowed:
@@ -330,7 +357,7 @@ class MemoryService:
         )
 
     def record_learning_failure(self, project_id: str, task_id: str,
-                                failed_tests: List[Dict[str, Any]]) -> HermesMemoryItem:
+                                failed_tests: List[Dict[str, Any]]) -> ForgeMemoryItem:
         """Record observed failure and diagnosis without making either reusable."""
         evidence = {"failed_tests": failed_tests[:4], "source": "independent_evaluator"}
         failure = self.record_learning_stage(
@@ -342,14 +369,14 @@ class MemoryService:
         return failure
 
     def promote_verified_learning(self, project_id: str, task_id: str,
-                                  passing_tests: List[Dict[str, Any]]) -> Optional[HermesMemoryItem]:
+                                  passing_tests: List[Dict[str, Any]]) -> Optional[ForgeMemoryItem]:
         """Promote a prior failure only after the same independent checks pass."""
-        prior = self.db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.project_id == project_id,
-            HermesMemoryItem.task_id == task_id,
-            HermesMemoryItem.memory_type == "learning_fail",
-            HermesMemoryItem.status == "active",
-        ).order_by(HermesMemoryItem.created_at.desc()).first()
+        prior = self.db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.project_id == project_id,
+            ForgeMemoryItem.task_id == task_id,
+            ForgeMemoryItem.memory_type == "learning_fail",
+            ForgeMemoryItem.status == "active",
+        ).order_by(ForgeMemoryItem.created_at.desc()).first()
         if prior is None:
             return None
         try:
@@ -372,12 +399,12 @@ class MemoryService:
             json.dumps({"failed_ids": sorted(failed_ids), "rule": rule}, sort_keys=True).encode()
         ).hexdigest()[:16]
         tag = f"fingerprint:{fingerprint}"
-        candidates = self.db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.project_id == project_id,
-            HermesMemoryItem.task_id == task_id,
-            HermesMemoryItem.memory_type == "learning_distill",
-            HermesMemoryItem.status == "active",
-        ).order_by(HermesMemoryItem.created_at.desc()).all()
+        candidates = self.db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.project_id == project_id,
+            ForgeMemoryItem.task_id == task_id,
+            ForgeMemoryItem.memory_type == "learning_distill",
+            ForgeMemoryItem.status == "active",
+        ).order_by(ForgeMemoryItem.created_at.desc()).all()
         existing = next((item for item in candidates if tag in (item.tags or [])), None)
         if existing:
             return existing
@@ -405,8 +432,8 @@ class MemoryService:
 
     def record_file_change(self, project_id: str, task_id: str = None, 
                             file_path: str = "", change_summary: str = "", 
-                            reason: str = "") -> HermesFileChange:
-        change = HermesFileChange(
+                            reason: str = "") -> ForgeFileChange:
+        change = ForgeFileChange(
             project_id=project_id,
             task_id=task_id,
             file_path=file_path,
@@ -420,8 +447,8 @@ class MemoryService:
 
     def record_test_run(self, project_id: str, task_id: str = None, 
                          command: str = "", status: str = "", 
-                         output_summary: str = "", failure_summary: str = "") -> HermesTestRun:
-        run = HermesTestRun(
+                         output_summary: str = "", failure_summary: str = "") -> ForgeTestRun:
+        run = ForgeTestRun(
             project_id=project_id,
             task_id=task_id,
             command=command,
@@ -438,8 +465,8 @@ class MemoryService:
                            task_id: str = None, summary: str = "", 
                            current_state: Dict[str, Any] = None, 
                            next_actions: List[str] = None, 
-                           open_risks: List[str] = None) -> HermesCheckpoint:
-        checkpoint = HermesCheckpoint(
+                           open_risks: List[str] = None) -> ForgeCheckpoint:
+        checkpoint = ForgeCheckpoint(
             project_id=project_id,
             goal_id=goal_id,
             task_id=task_id,
@@ -457,7 +484,7 @@ class MemoryService:
         import sqlite3
         
         if not state_db_path:
-            state_db_path = os.getenv("HERMES_STATE_DB_PATH", forge_config.state_db_path())
+            state_db_path = os.getenv("FORGE_STATE_DB_PATH", forge_config.state_db_path())
             
         if not os.path.exists(state_db_path):
             return {"status": "error", "message": f"state.db not found at {state_db_path}"}
@@ -469,14 +496,14 @@ class MemoryService:
             
             sqlite_cursor.execute("SELECT * FROM sessions")
             source_sessions = sqlite_cursor.fetchall()
-            session_columns = {column.name for column in HermesSession.__table__.columns}
+            session_columns = {column.name for column in ForgeSession.__table__.columns}
             synced_sessions = 0
             updated_sessions = 0
             for source_row in source_sessions:
                 values = {k: v for k, v in dict(source_row).items() if k in session_columns}
-                existing = self.db.get(HermesSession, values["id"])
+                existing = self.db.get(ForgeSession, values["id"])
                 if existing is None:
-                    self.db.add(HermesSession(**values))
+                    self.db.add(ForgeSession(**values))
                     synced_sessions += 1
                 else:
                     for key, value in values.items():
@@ -484,16 +511,16 @@ class MemoryService:
                             setattr(existing, key, value)
                     updated_sessions += 1
 
-            existing_message_ids = {row[0] for row in self.db.query(HermesMessage.id).all()}
+            existing_message_ids = {row[0] for row in self.db.query(ForgeMessage.id).all()}
             sqlite_cursor.execute("SELECT * FROM messages ORDER BY id")
             source_messages = sqlite_cursor.fetchall()
-            message_columns = {column.name for column in HermesMessage.__table__.columns}
+            message_columns = {column.name for column in ForgeMessage.__table__.columns}
             synced_messages = 0
             for source_row in source_messages:
                 values = {k: v for k, v in dict(source_row).items() if k in message_columns}
                 if values["id"] in existing_message_ids:
                     continue
-                self.db.add(HermesMessage(**values))
+                self.db.add(ForgeMessage(**values))
                 synced_messages += 1
 
             sqlite_cursor.execute("SELECT version FROM schema_version LIMIT 1")
@@ -502,11 +529,11 @@ class MemoryService:
             sqlite_cursor.execute("SELECT key, value FROM state_meta")
             metadata.update({row[0]: row[1] for row in sqlite_cursor.fetchall()})
             for key, value in metadata.items():
-                existing = self.db.get(HermesRuntimeMetadata, key)
+                existing = self.db.get(ForgeRuntimeMetadata, key)
                 if existing:
                     existing.value = value
                 else:
-                    self.db.add(HermesRuntimeMetadata(key=key, value=value))
+                    self.db.add(ForgeRuntimeMetadata(key=key, value=value))
 
             self.db.commit()
             sqlite_conn.close()
@@ -524,49 +551,49 @@ class MemoryService:
 
     def build_context_pack(self, project_id: str, state_db_path: Optional[str] = None) -> Dict[str, Any]:
         """Build context only from durable records scoped to the active goal."""
-        project = self.db.query(HermesProject).filter(HermesProject.id == project_id).first()
+        project = self.db.query(ForgeProject).filter(ForgeProject.id == project_id).first()
         if not project:
             return {"error": "Project not found"}
 
-        goals = self.db.query(HermesGoal).filter(HermesGoal.project_id == project_id)
-        goal = (goals.filter(HermesGoal.status != "completed")
-                .order_by(HermesGoal.created_at.desc()).first()
-                or goals.order_by(HermesGoal.created_at.desc()).first())
+        goals = self.db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id)
+        goal = (goals.filter(ForgeGoal.status != "completed")
+                .order_by(ForgeGoal.created_at.desc()).first()
+                or goals.order_by(ForgeGoal.created_at.desc()).first())
         active_task = None
         goal_task_ids = []
         if goal:
-            goal_task_ids = [row[0] for row in self.db.query(HermesTask.id).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id,
+            goal_task_ids = [row[0] for row in self.db.query(ForgeTask.id).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id,
             ).all()]
-            active_task = self.db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id,
-                HermesTask.status == "active",
-            ).order_by(HermesTask.updated_at.desc()).first()
+            active_task = self.db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id,
+                ForgeTask.status == "active",
+            ).order_by(ForgeTask.updated_at.desc()).first()
 
         now = _utcnow()
-        superseded_ids = select(HermesMemoryItem.supersedes_id).where(
-            HermesMemoryItem.supersedes_id.isnot(None))
+        superseded_ids = select(ForgeMemoryItem.supersedes_id).where(
+            ForgeMemoryItem.supersedes_id.isnot(None))
         memory_scope = false()
         if goal_task_ids:
-            memory_scope = HermesMemoryItem.task_id.in_(goal_task_ids)
+            memory_scope = ForgeMemoryItem.task_id.in_(goal_task_ids)
         # Only explicit project constraints are global. Decisions, lessons,
         # mistakes and blockers must be attached to a task in the active goal.
         memory_scope = or_(
             memory_scope,
-            and_(HermesMemoryItem.task_id.is_(None),
-                 HermesMemoryItem.memory_type == "constraint"),
+            and_(ForgeMemoryItem.task_id.is_(None),
+                 ForgeMemoryItem.memory_type == "constraint"),
         )
-        memories = self.db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.project_id == project_id,
+        memories = self.db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.project_id == project_id,
             memory_scope,
-            HermesMemoryItem.status == "active",
-            or_(HermesMemoryItem.expires_at.is_(None), HermesMemoryItem.expires_at > now),
-            HermesMemoryItem.id.notin_(superseded_ids),
+            ForgeMemoryItem.status == "active",
+            or_(ForgeMemoryItem.expires_at.is_(None), ForgeMemoryItem.expires_at > now),
+            ForgeMemoryItem.id.notin_(superseded_ids),
         ).order_by(
-            HermesMemoryItem.importance.desc(),
-            HermesMemoryItem.created_at.desc()
+            ForgeMemoryItem.importance.desc(),
+            ForgeMemoryItem.created_at.desc()
         ).limit(20).all()
 
         constraints = [m.content for m in memories if m.memory_type == "constraint"]
@@ -580,10 +607,10 @@ class MemoryService:
         
         recent_files = []
         if goal_task_ids:
-            recent_files = self.db.query(HermesFileChange).filter(
-                HermesFileChange.project_id == project_id,
-                HermesFileChange.task_id.in_(goal_task_ids),
-            ).order_by(HermesFileChange.created_at.desc()).limit(8).all()
+            recent_files = self.db.query(ForgeFileChange).filter(
+                ForgeFileChange.project_id == project_id,
+                ForgeFileChange.task_id.in_(goal_task_ids),
+            ).order_by(ForgeFileChange.created_at.desc()).limit(8).all()
 
         pack = {
             "PROJECT": {
@@ -643,17 +670,17 @@ class MemoryService:
 
 
     def classify_task_alignment(self, project_id: str, user_request: str) -> str:
-        goals = self.db.query(HermesGoal).filter(HermesGoal.project_id == project_id)
-        goal = (goals.filter(HermesGoal.status != "completed")
-                .order_by(HermesGoal.created_at.desc()).first()
-                or goals.order_by(HermesGoal.created_at.desc()).first())
+        goals = self.db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id)
+        goal = (goals.filter(ForgeGoal.status != "completed")
+                .order_by(ForgeGoal.created_at.desc()).first()
+                or goals.order_by(ForgeGoal.created_at.desc()).first())
         active_task = None
         if goal:
-            active_task = self.db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id,
-                HermesTask.status == "active",
-            ).order_by(HermesTask.updated_at.desc()).first()
+            active_task = self.db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id,
+                ForgeTask.status == "active",
+            ).order_by(ForgeTask.updated_at.desc()).first()
         if not active_task:
             return "clarification"
         
@@ -701,25 +728,25 @@ class MemoryService:
         except Exception:
             return items[:limit]
 
-    def search_memory(self, project_id: str, query: str, memory_type: Optional[str] = None, limit: int = 10) -> List[HermesMemoryItem]:
-        db_query = self.db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.project_id == project_id
+    def search_memory(self, project_id: str, query: str, memory_type: Optional[str] = None, limit: int = 10) -> List[ForgeMemoryItem]:
+        db_query = self.db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.project_id == project_id
         )
         if memory_type:
-            db_query = db_query.filter(HermesMemoryItem.memory_type == memory_type)
+            db_query = db_query.filter(ForgeMemoryItem.memory_type == memory_type)
             
         if self.db.bind.dialect.name == "postgresql":
             query_emb = self._generate_embedding(query)
             if query_emb:
-                db_query = db_query.order_by(HermesMemoryItem.embedding.op('<=>')(query_emb))
+                db_query = db_query.order_by(ForgeMemoryItem.embedding.op('<=>')(query_emb))
                 results = db_query.limit(limit * 2).all()  # fetch more for reranking
                 return self._rerank_results(query, results, limit)
             
         if self.db.bind.dialect.name == "sqlite":
-            db_query = db_query.filter(HermesMemoryItem.content.ilike(f"%{query}%"))
+            db_query = db_query.filter(ForgeMemoryItem.content.ilike(f"%{query}%"))
         else:
             db_query = db_query.filter(
-                func.to_tsvector(literal_column("'english'"), HermesMemoryItem.content).op('@@')(
+                func.to_tsvector(literal_column("'english'"), ForgeMemoryItem.content).op('@@')(
                     func.plainto_tsquery(literal_column("'english'"), query)
                 )
             )
@@ -727,17 +754,17 @@ class MemoryService:
         results = db_query.limit(limit * 2).all()
         return self._rerank_results(query, results, limit)
 
-    def search_events(self, project_id: str, query: str, limit: int = 10) -> List[HermesEvent]:
-        db_query = self.db.query(HermesEvent).filter(
-            HermesEvent.project_id == project_id
+    def search_events(self, project_id: str, query: str, limit: int = 10) -> List[ForgeEvent]:
+        db_query = self.db.query(ForgeEvent).filter(
+            ForgeEvent.project_id == project_id
         )
         
         # Detect dialect and perform full-text search
         if self.db.bind.dialect.name == "sqlite":
-            db_query = db_query.filter(HermesEvent.content.ilike(f"%{query}%"))
+            db_query = db_query.filter(ForgeEvent.content.ilike(f"%{query}%"))
         else:
             db_query = db_query.filter(
-                func.to_tsvector(literal_column("'english'"), HermesEvent.content).op('@@')(
+                func.to_tsvector(literal_column("'english'"), ForgeEvent.content).op('@@')(
                     func.plainto_tsquery(literal_column("'english'"), query)
                 )
             )
@@ -749,35 +776,35 @@ class MemoryService:
         from datetime import timedelta
         cutoff_date = _utcnow() - timedelta(days=days_threshold)
         
-        old_completed_tasks = self.db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.status == "completed",
-            HermesTask.completed_at < cutoff_date
+        old_completed_tasks = self.db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.status == "completed",
+            ForgeTask.completed_at < cutoff_date
         ).all()
         
         consolidated_count = 0
         for task in old_completed_tasks:
-            existing_digest = self.db.query(HermesMemoryItem).filter(
-                HermesMemoryItem.project_id == project_id,
-                HermesMemoryItem.task_id == task.id,
-                HermesMemoryItem.memory_type == "task_consolidation"
+            existing_digest = self.db.query(ForgeMemoryItem).filter(
+                ForgeMemoryItem.project_id == project_id,
+                ForgeMemoryItem.task_id == task.id,
+                ForgeMemoryItem.memory_type == "task_consolidation"
             ).first()
             if existing_digest:
                 continue
                 
-            events = self.db.query(HermesEvent).filter(
-                HermesEvent.project_id == project_id,
-                HermesEvent.task_id == task.id
-            ).order_by(HermesEvent.created_at.asc()).all()
+            events = self.db.query(ForgeEvent).filter(
+                ForgeEvent.project_id == project_id,
+                ForgeEvent.task_id == task.id
+            ).order_by(ForgeEvent.created_at.asc()).all()
             
-            file_changes = self.db.query(HermesFileChange).filter(
-                HermesFileChange.project_id == project_id,
-                HermesFileChange.task_id == task.id
+            file_changes = self.db.query(ForgeFileChange).filter(
+                ForgeFileChange.project_id == project_id,
+                ForgeFileChange.task_id == task.id
             ).all()
             
-            test_runs = self.db.query(HermesTestRun).filter(
-                HermesTestRun.project_id == project_id,
-                HermesTestRun.task_id == task.id
+            test_runs = self.db.query(ForgeTestRun).filter(
+                ForgeTestRun.project_id == project_id,
+                ForgeTestRun.task_id == task.id
             ).all()
             
             if not events and not file_changes and not test_runs:
@@ -820,9 +847,9 @@ class MemoryService:
             for ev in events:
                 self.db.delete(ev)
                 
-            checkpoints = self.db.query(HermesCheckpoint).filter(
-                HermesCheckpoint.project_id == project_id,
-                HermesCheckpoint.task_id == task.id
+            checkpoints = self.db.query(ForgeCheckpoint).filter(
+                ForgeCheckpoint.project_id == project_id,
+                ForgeCheckpoint.task_id == task.id
             ).all()
             for cp in checkpoints:
                 self.db.delete(cp)

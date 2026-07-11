@@ -11,7 +11,7 @@ import os
 from copy import deepcopy
 from typing import Any
 
-from .models import HermesContextCompressionSnapshot
+from .models import ForgeContextCompressionSnapshot
 
 PROTECTED_KEYS = {
     "PROJECT",
@@ -39,13 +39,13 @@ def compress_context_pack(db, *, project_id: str, goal_id: str | None,
         from headroom import compress
 
         version = f"{getattr(headroom, '__version__', 'unknown')}:pge-fields-v2"
-        existing = db.query(HermesContextCompressionSnapshot).filter(
-            HermesContextCompressionSnapshot.project_id == project_id,
-            HermesContextCompressionSnapshot.goal_id == goal_id,
-            HermesContextCompressionSnapshot.task_id == task_id,
-            HermesContextCompressionSnapshot.source_hash == source_hash,
-            HermesContextCompressionSnapshot.compressor_version == version,
-        ).order_by(HermesContextCompressionSnapshot.created_at.desc()).first()
+        existing = db.query(ForgeContextCompressionSnapshot).filter(
+            ForgeContextCompressionSnapshot.project_id == project_id,
+            ForgeContextCompressionSnapshot.goal_id == goal_id,
+            ForgeContextCompressionSnapshot.task_id == task_id,
+            ForgeContextCompressionSnapshot.source_hash == source_hash,
+            ForgeContextCompressionSnapshot.compressor_version == version,
+        ).order_by(ForgeContextCompressionSnapshot.created_at.desc()).first()
         if existing:
             compressed_bulk = existing.compressed_context
             snapshot = existing
@@ -86,7 +86,7 @@ def compress_context_pack(db, *, project_id: str, goal_id: str | None,
                 tokens_saved += result.tokens_saved
                 transforms.extend(result.transforms_applied)
 
-            snapshot = HermesContextCompressionSnapshot(
+            snapshot = ForgeContextCompressionSnapshot(
                 project_id=project_id,
                 goal_id=goal_id,
                 task_id=task_id,

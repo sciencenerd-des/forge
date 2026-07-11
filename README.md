@@ -1,5 +1,17 @@
 # Forge
 
+## Provider setup and A2A
+
+Run `forge serve` to start the control plane. If `FORGE_CONTROL_TOKEN` is not
+set, Forge generates a per-installation token in `$FORGE_HOME/control-token`
+with mode `0600` and prints it once. Provider profiles can be managed through
+the Web Settings view or the `/providers` API; saved profiles live in
+`$FORGE_HOME/providers.json` and API responses always mask keys.
+
+Forge also exposes a project-scoped A2A adapter. See [docs/A2A.md](docs/A2A.md)
+for the Agent Card, JSON-RPC methods, authorization rules, and a working curl
+example.
+
 [![CI](https://github.com/sciencenerd-des/forge/actions/workflows/ci.yml/badge.svg)](https://github.com/sciencenerd-des/forge/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)

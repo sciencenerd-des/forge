@@ -32,6 +32,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    "a2a-sdk>=1.0,<1.1",
 ]
 
 [project.optional-dependencies]
@@ -52,7 +53,7 @@ py-modules = ["forge_config", "forge_cli", "run_pge", "pge_launcher", "models", 
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*", "control_plane*", "forge_runtime*"]
+include = ["app*", "control_plane*", "forge_runtime*", "forge_a2a*"]
 
 [tool.ruff]
 line-length = 100

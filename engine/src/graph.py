@@ -8,7 +8,7 @@ from src.nodes.planner_node import planner_node
 from src.nodes.executor_node import executor_node
 from src.nodes.evaluator_node import evaluator_node
 from src.nodes.auditor_node import auditor_node
-from hermes_tools import mcp_hermes_memory_create_checkpoint
+from forge_runtime.llm import mcp_forge_memory_create_checkpoint
 
 # ---------------------------------------------------------------------------
 # Loop-control limits (env-overridable). These are what stop the runaway
@@ -31,7 +31,7 @@ def _checkpoint(state: AgentState, updated: Dict, label: str):
     if not project_id:
         return  # no project context — nothing to checkpoint against
     try:
-        mcp_hermes_memory_create_checkpoint(
+        mcp_forge_memory_create_checkpoint(
             project_id=project_id,
             summary=label,
             current_state_json=json.dumps(merged, default=str),

@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from forge_runtime.credentials import resolve
+
 # ---------------------------------------------------------------------------
 # Home + filesystem layout
 # ---------------------------------------------------------------------------
@@ -95,20 +97,20 @@ def default_project_id() -> str | None:
 def ensure_default_project(db, name: str = "default") -> str:
     """Return the default project's id, creating one on first run so the loop
     never depends on a specific user's UUID. Honors ``FORGE_DEFAULT_PROJECT``."""
-    from app.models import HermesProject
+    from app.models import ForgeProject
     pinned = default_project_id()
     if pinned:
-        row = db.query(HermesProject).filter(HermesProject.id == pinned).first()
+        row = db.query(ForgeProject).filter(ForgeProject.id == pinned).first()
         if row:
             return row.id
-    row = (db.query(HermesProject)
-           .filter(HermesProject.name == name)
-           .order_by(HermesProject.created_at.asc()).first())
+    row = (db.query(ForgeProject)
+           .filter(ForgeProject.name == name)
+           .order_by(ForgeProject.created_at.asc()).first())
     if row:
         return row.id
     repo = str(workspaces_root() / name)
     Path(repo).mkdir(parents=True, exist_ok=True)
-    proj = HermesProject(id=pinned, name=name, repo_path=repo,
+    proj = ForgeProject(id=pinned, name=name, repo_path=repo,
                          description="Default Forge project (auto-created).")
     db.add(proj)
     db.commit()
@@ -119,10 +121,10 @@ def ensure_default_project(db, name: str = "default") -> str:
 # Model providers (generic OpenAI-compatible — LM Studio / Ollama / vLLM / cloud)
 # ---------------------------------------------------------------------------
 
-DEFAULT_BASE_URL = os.getenv("FORGE_LLM_BASE_URL", os.getenv("LLM_BASE_URL", "http://localhost:1234/v1"))
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "google/gemma-4-12b-qat")
-DEFAULT_API_KEY = os.getenv("FORGE_LLM_API_KEY", "not-needed")
-DEFAULT_TIMEOUT = float(os.getenv("FORGE_LLM_TIMEOUT", "300"))
+DEFAULT_BASE_URL = "http://localhost:1234/v1"
+DEFAULT_MODEL = "google/gemma-4-12b-qat"
+DEFAULT_API_KEY = "not-needed"
+DEFAULT_TIMEOUT = 300.0
 
 # Roles whose model can be routed independently (a coding-specialist on the
 # executor/planner, a general model on the rest, for example).
@@ -136,10 +138,9 @@ def provider_for(role: str = "general") -> dict:
     ``PGE_EXECUTOR_MODEL`` > ``LLM_MODEL`` > built-in default; and
     ``FORGE_EXECUTOR_BASE_URL`` > ``FORGE_LLM_BASE_URL`` > built-in default.
     """
-    R = role.upper()
-    return {
-        "model": os.getenv(f"PGE_{R}_MODEL", DEFAULT_MODEL),
-        "base_url": os.getenv(f"FORGE_{R}_BASE_URL", DEFAULT_BASE_URL),
-        "api_key": os.getenv(f"FORGE_{R}_API_KEY", DEFAULT_API_KEY),
-        "timeout": DEFAULT_TIMEOUT,
-    }
+    return {**resolve(role, {
+        "model": os.getenv("LLM_MODEL", DEFAULT_MODEL),
+        "base_url": os.getenv("FORGE_LLM_BASE_URL", os.getenv("LLM_BASE_URL", DEFAULT_BASE_URL)),
+        "api_key": os.getenv("FORGE_LLM_API_KEY", DEFAULT_API_KEY),
+        "timeout": str(DEFAULT_TIMEOUT),
+    }), "timeout": DEFAULT_TIMEOUT}

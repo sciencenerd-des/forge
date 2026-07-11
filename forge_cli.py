@@ -33,11 +33,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _cmd_serve(args: argparse.Namespace) -> int:
     """Serve the control-plane API behind the web console."""
     import uvicorn
+
+    from forge_runtime.auth import load_or_create_control_token
+
+    token, created = load_or_create_control_token()
+    if created:
+        print(f"Forge control token (save this securely): {token}", flush=True)
+
     uvicorn.run("control_plane.api:app",
                 host=os.getenv("FORGE_CONTROL_HOST", "127.0.0.1"),
                 port=int(os.getenv("FORGE_CONTROL_PORT", "8787")),
                 reload=args.reload)
     return 0
+
+
+def _cmd_a2a(args: argparse.Namespace) -> int:
+    """Serve the control plane with the A2A adapter enabled."""
+    return _cmd_serve(args)
 
 
 def _cmd_config(_args: argparse.Namespace) -> int:
@@ -82,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
     ps = sub.add_parser("serve", help="serve the control-plane API")
     ps.add_argument("--reload", action="store_true", help="auto-reload (dev)")
     ps.set_defaults(func=_cmd_serve)
+
+    pa = sub.add_parser("a2a", help="serve the control plane with A2A routes")
+    pa.add_argument("--reload", action="store_true", help="auto-reload (dev)")
+    pa.set_defaults(func=_cmd_a2a)
 
     sub.add_parser("config", help="print resolved configuration").set_defaults(func=_cmd_config)
 

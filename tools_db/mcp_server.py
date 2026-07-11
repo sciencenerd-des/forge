@@ -18,14 +18,14 @@ from app.services import MemoryService
 parent_env = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
 load_dotenv(parent_env)
 
-mcp = FastMCP("Hermes Memory")
+mcp = FastMCP("Forge Memory")
 
 @mcp.tool()
 def create_project(name: str, repo_path: str, description: str = "") -> str:
     """Create a new project in the memory system.
     
     Args:
-        name: Name of the project (e.g. 'Hermes Core')
+        name: Name of the project (e.g. 'Forge Core')
         repo_path: Local absolute path to the repository
         description: Optional description of the project
     """
@@ -154,7 +154,7 @@ def complete_task(project_id: str, task_id: str) -> str:
 
 @mcp.tool()
 def record_event(project_id: str, task_id: Optional[str] = None, 
-                 event_type: str = "", actor: str = "hermes", 
+                 event_type: str = "", actor: str = "forge",
                  content: str = "", metadata_json: str = "{}") -> str:
     """Record a process event or action log.
     
@@ -162,7 +162,7 @@ def record_event(project_id: str, task_id: Optional[str] = None,
         project_id: The UUID of the project
         task_id: Optional UUID of the active task
         event_type: Type of event (e.g. 'checkpoint', 'test_run', 'file_modified')
-        actor: Entity performing the action (e.g. 'hermes', 'user', 'system')
+        actor: Entity performing the action (e.g. 'forge', 'user', 'system')
         content: Description/content of the event
         metadata_json: JSON string of metadata key-values
     """
@@ -328,7 +328,7 @@ def build_context_pack(project_id: str) -> str:
     db = SessionLocal()
     try:
         service = MemoryService(db)
-        state_db_path = os.getenv("HERMES_STATE_DB_PATH", forge_config.state_db_path())
+        state_db_path = os.getenv("FORGE_STATE_DB_PATH", forge_config.state_db_path())
         pack = service.build_context_pack(project_id, state_db_path=state_db_path)
         return json.dumps(pack, indent=2)
     except Exception as e:
@@ -429,11 +429,11 @@ def run_autonomy_loop(project_id: str) -> str:
     from src.graph import app
     from src.state.schema import Goal
 
-    from app.models import HermesGoal
+    from app.models import ForgeGoal
     
     db = SessionLocal()
     try:
-        db_goal = db.query(HermesGoal).filter(HermesGoal.project_id == project_id).first()
+        db_goal = db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id).first()
         if not db_goal:
             return json.dumps({
                 "status": "error",

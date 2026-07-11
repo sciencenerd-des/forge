@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Activity, Bot, Box, BrainCircuit, Clock3,
   Database, FileCode2, ListChecks, OctagonX,
-  Radio, Search, Settings2, ShieldCheck, TerminalSquare, Server, Check, X, FolderGit2,
+  Radio, Search, Settings2, ShieldCheck, TerminalSquare, Server, Check, X, FolderGit2, KeyRound,
 } from 'lucide-react'
 import './App.css'
+import Settings from './pages/Settings'
 import {
   ControlPlaneClient,
   type Approval, type ProjectSummary, type RuntimeConfig, type RuntimeRun, type RuntimeSystem,
@@ -12,7 +13,7 @@ import {
 
 type RunStatus = 'running' | 'paused' | 'completed' | 'failed'
 type NodeStatus = 'completed' | 'active' | 'waiting'
-type View = 'Runs' | 'Projects' | 'Approvals' | 'Config'
+type View = 'Runs' | 'Projects' | 'Approvals' | 'Config' | 'Settings'
 
 interface RunEvent { id: number; time: string; source: string; kind: 'info' | 'success' | 'warning'; message: string }
 
@@ -126,6 +127,7 @@ function App() {
     { label: 'Projects', icon: Box, badge: projects.length || undefined },
     { label: 'Approvals', icon: ShieldCheck, badge: approvals.length || undefined },
     { label: 'Config', icon: Settings2 },
+    { label: 'Settings', icon: KeyRound },
   ]
   const runLive = runtimeSystem?.gateway.status === 'running' || (liveRun?.pid != null)
 
@@ -170,6 +172,7 @@ function App() {
           {view === 'Projects' && <ProjectsView projects={projects} />}
           {view === 'Approvals' && <ApprovalsView approvals={approvals} onDecide={decide} />}
           {view === 'Config' && <ConfigView config={config} />}
+          {view === 'Settings' && <Settings />}
         </main>
         {confirmStop && liveRun ? (
           <div className="modal-backdrop" role="presentation" onMouseDown={() => setConfirmStop(false)}>

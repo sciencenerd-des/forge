@@ -35,11 +35,16 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
       LLM_MODEL: ${LLM_MODEL:-google/gemma-4-12b-qat}
       FORGE_LLM_API_KEY: ${FORGE_LLM_API_KEY:-not-needed}
-      FORGE_CONTROL_TOKEN: ${FORGE_CONTROL_TOKEN:-forge-local-control}
+      # Optional. If unset, Forge generates and persists a token in the
+      # forge_home volume and prints it in the control-plane logs once.
+      FORGE_CONTROL_TOKEN: ${FORGE_CONTROL_TOKEN:-}
+      FORGE_HOME: /home/forge/.forge
     ports:
       - "127.0.0.1:8787:8787"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - forge_home:/home/forge/.forge
 
   # One-shot service for running the loop: `docker compose run --rm forge forge run ...`
   forge:
@@ -61,3 +66,4 @@ services:
 
 volumes:
   forge_pgdata:
+  forge_home:

@@ -11,6 +11,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from forge_runtime.auth import load_or_create_control_token
+
 from .database import SessionLocal, create_schema
 from .models import ApprovalRecord, RunEventRecord, RunRecord
 from .runtime_snapshot import (
@@ -51,6 +53,9 @@ from .workers import execute_external_action, run_browser_worker_once
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_schema()
+    # Resolve this once per process so every protected route uses the same
+    # installation credential, including when no environment override exists.
+    load_or_create_control_token()
     yield
 
 
@@ -66,9 +71,10 @@ def get_db():
 
 
 def require_control_token(authorization: str | None = Header(default=None)) -> None:
-    expected = os.getenv("FORGE_CONTROL_TOKEN")
-    if not expected:
-        raise HTTPException(503, "FORGE_CONTROL_TOKEN is not configured")
+    try:
+        expected, _ = load_or_create_control_token()
+    except RuntimeError as exc:
+        raise HTTPException(503, "control-plane credential is unavailable") from exc
     scheme, _, supplied = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
         raise HTTPException(401, "invalid control-plane credential", headers={"WWW-Authenticate": "Bearer"})
@@ -283,3 +289,11 @@ def browser_actions_execute(session_id: str, db: Session = Depends(get_db)) -> d
         return serialize_model(action) if action else None
     except Exception as error:
         raise translate_errors(error) from error
+
+
+from forge_a2a.server import router as a2a_router
+
+from .providers_api import router as providers_router
+
+app.include_router(providers_router)
+app.include_router(a2a_router)

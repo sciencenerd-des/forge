@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from src.state.schema import AgentState, Heartbeat
-from hermes_tools import executor_llm, EXECUTOR_SCHEMA
+from forge_runtime.llm import executor_llm, EXECUTOR_SCHEMA
 from app.database import SessionLocal
 from app.services import MemoryService
 from src.runtime import project_workspace
@@ -16,11 +16,11 @@ from forge_runtime.tools import ToolContext, ToolRequest, default_registry
 def record_tool_msg(tool_name: str, content: str, session_id: str | None = None):
     """Mirror a tool result only when the caller owns an explicit session.
 
-    PGE runs are project-scoped, while Hermes gateway sessions are user
+    PGE runs are project-scoped, while Forge gateway sessions are user
     conversations. Selecting the newest global session conflates unrelated
     projects and injects autonomous tool output into an active chat.
     """
-    session_id = session_id or os.getenv("HERMES_SESSION_ID")
+    session_id = session_id or os.getenv("FORGE_SESSION_ID")
     if not session_id:
         return
     db_path = forge_config.state_db_path()
@@ -168,7 +168,7 @@ def executor_node(state: AgentState) -> Dict:
     finally:
         db_workspace.close()
     
-    # Fetch only project-scoped durable state. Interactive Hermes history is
+    # Fetch only project-scoped durable state. Interactive Forge history is
     # deliberately excluded from the autonomy prompt.
     db = SessionLocal()
     try:

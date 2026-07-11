@@ -1,7 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://forge.dev/contracts/provider-profile.schema.json",
-  "title": "Forge provider profile",
+  "title": "Forge provider profile or provider store",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["version", "profiles"],
+      "properties": {
+        "version": { "const": 1 },
+        "profiles": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/roleProfile" }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
   "type": "object",
   "required": ["id", "name", "model", "kind", "created_at"],
   "properties": {
@@ -33,4 +47,19 @@
     }
   },
   "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "roleProfile": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "base_url": { "type": "string", "format": "uri" },
+        "model": { "type": "string", "minLength": 1 },
+        "api_key": { "type": "string" },
+        "auth_mode": { "type": "string", "enum": ["api_key", "none", "oauth", "subscription"] }
+      },
+      "additionalProperties": false
+    }
+  }
 }
