@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Dict
 from src.state.schema import AgentState
-from hermes_tools import evaluator_llm
+from hermes_tools import REFLECTION_SCHEMA, evaluator_llm
 
 from src.state.schema import Task, Goal
 from hermes_tools import EVALUATOR_SCHEMA
@@ -525,6 +525,85 @@ def evaluator_node(state: AgentState) -> Dict:
                         importance=5, tags=["auto", "verification-failure"],
                     )
                     service.record_learning_failure(project_id, active_task.id, failing)
+                # Durable lesson extraction: on the SECOND-plus occurrence of
+                # the same failure fingerprint, distill observation+prevention
+                # deterministically and upsert (bump, never duplicate) so the
+                # next run starts already knowing this failure mode.
+                try:
+                    from forge_runtime.lessons import (
+                        FailureEvent,
+                        extract_lesson,
+                        fingerprint,
+                        should_extract,
+                    )
+                    from forge_runtime.lesson_store_db import DbLessonStore
+                    from forge_runtime.steering import Lesson
+                    import json as _json
+                    store = DbLessonStore(db, project_id)
+                    for tr in failing[:4]:
+                        sig = (tr.get("output") or "")[:160]
+                        event = FailureEvent(
+                            task_id=active_task.id,
+                            failure_type="verification",
+                            test_id=tr["id"],
+                            error_signature=sig,
+                        )
+                        fp = fingerprint(event.failure_type, event.test_id, event.error_signature)
+                        # Reconstruct exact failure events from durable
+                        # learning_fail evidence. Counting by test id alone
+                        # incorrectly triggered reflection when unrelated
+                        # errors happened in the same test.
+                        observed_events = []
+                        prior_rows = db.query(HermesMemoryItem).filter(
+                            HermesMemoryItem.project_id == project_id,
+                            HermesMemoryItem.memory_type == "learning_fail",
+                        ).all()
+                        for row in prior_rows:
+                            try:
+                                evidence = _json.loads(row.content).get("evidence", {})
+                                for failed in evidence.get("failed_tests", []):
+                                    candidate = FailureEvent(
+                                        task_id=active_task.id,
+                                        failure_type="verification",
+                                        test_id=str(failed.get("id", "")),
+                                        error_signature=(failed.get("output") or "")[:160],
+                                    )
+                                    observed_events.append(candidate)
+                            except (TypeError, ValueError, AttributeError, _json.JSONDecodeError):
+                                continue
+                        if not should_extract(observed_events, fp):
+                            continue  # extract only on recurrence (bounds cost)
+                        def _extract(_event):
+                            prompt = (
+                                "In two sentences, explain why this coding attempt failed "
+                                "and what the next attempt should do differently. Do not "
+                                "restate the error.\n"
+                                f"Test: {_event.test_id}\nCommand: {tr['command']}\n"
+                                f"Failure output: {_event.error_signature}\n"
+                                f"Last executor actions: {(state.get('last_actions') or [])[-4:]}"
+                            )
+                            return evaluator_llm.generate_json(prompt, REFLECTION_SCHEMA, max_tokens=300)
+
+                        lesson = None
+                        try:
+                            lesson = extract_lesson(event, _extract, evidence_ids=(tr["id"],))
+                        except Exception:
+                            lesson = None
+                        if lesson is None:
+                            # The shipped template is the deterministic,
+                            # never-blocking fallback when the model is down or
+                            # returns a vacuous reflection.
+                            lesson = Lesson(
+                                fingerprint=fp,
+                                task_id=active_task.id,
+                                failure_type="verification",
+                                observation=f"Test {tr['id']} `{tr['command']}` keeps failing.",
+                                prevention=f"Before claiming done, run `{tr['command']}` and fix this exact failure first.",
+                                evidence_ids=(tr["id"],),
+                            )
+                        store.upsert(lesson)
+                except Exception as lesson_err:
+                    print(f"Lesson extraction skipped: {lesson_err}")
             except Exception as memory_err:
                 print(f"Could not persist verification mistake: {memory_err}")
             finally:

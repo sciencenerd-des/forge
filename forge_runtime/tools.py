@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -61,6 +62,13 @@ class ToolContext:
     # `workspace` directly. None preserves the exact pre-sandbox behavior —
     # existing callers/tests that never set this are completely unaffected.
     sandbox: Optional[Any] = None
+    # Optional durable-memory seam used by the read-only recall tool. Keeping
+    # it outside the filesystem tool handlers prevents recall from gaining any
+    # write or shell authority.
+    memory_service: Optional[Any] = None
+    project_id: Optional[str] = None
+    task_id: Optional[str] = None
+    recall_cache: Optional[dict[tuple[str, str | None, int], dict[str, Any]]] = None
 
     def normalized(self) -> "ToolContext":
         return ToolContext(
@@ -74,6 +82,10 @@ class ToolContext:
             max_output_bytes=max(1_024, min(self.max_output_bytes, 1_000_000)),
             event_sink=self.event_sink,
             sandbox=self.sandbox,
+            memory_service=self.memory_service,
+            project_id=self.project_id,
+            task_id=self.task_id,
+            recall_cache=self.recall_cache,
         )
 
 
@@ -164,7 +176,11 @@ def write_file(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
         if not isinstance(raw_path, str) or not raw_path.strip():
             raise ValueError("path must be a non-empty string")
         context.sandbox.write_text(raw_path, content)
-        return ToolResult(True, "write_file", {"path": raw_path, "bytes_written": len(content.encode())})
+        return ToolResult(True, "write_file", {
+            "path": raw_path,
+            "bytes_written": len(content.encode()),
+            "content_sha": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        })
     path = _workspace_path(context, arguments.get("path"))
     if path.exists() and path.is_symlink():
         raise ValueError("refusing to write through a symlink")
@@ -172,7 +188,11 @@ def write_file(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
     temporary = path.with_name(f".{path.name}.forge-tmp-{os.getpid()}")
     temporary.write_text(content, encoding="utf-8")
     os.replace(temporary, path)
-    return ToolResult(True, "write_file", {"path": str(path), "bytes_written": len(content.encode())})
+    return ToolResult(True, "write_file", {
+        "path": str(path),
+        "bytes_written": len(content.encode()),
+        "content_sha": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+    })
 
 
 def list_files(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
@@ -384,6 +404,64 @@ def notebook_cell(context: ToolContext, arguments: dict[str, Any]) -> ToolResult
     )
 
 
+def recall_memory(context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
+    """Page durable memory on demand without granting mutation authority."""
+    query = arguments.get("query")
+    if not isinstance(query, str) or not query.strip() or len(query) > 500:
+        raise ValueError("query must contain 1-500 characters")
+    memory_type = arguments.get("memory_type")
+    if memory_type is not None and not isinstance(memory_type, str):
+        raise ValueError("memory_type must be a string or null")
+    try:
+        limit = max(1, min(10, int(arguments.get("limit", 5))))
+    except (TypeError, ValueError) as error:
+        raise ValueError("limit must be an integer") from error
+    if context.memory_service is None or not context.project_id:
+        raise ValueError("durable memory is unavailable for this tool context")
+
+    key = (query.strip().lower(), memory_type, limit)
+    cache = context.recall_cache if context.recall_cache is not None else {}
+    cached = cache.get(key)
+    if cached is not None:
+        return ToolResult(True, "recall_memory", {
+            **cached,
+            "cached": True,
+            "output": ("you already retrieved this query in the current turn.\n"
+                        + cached["output"])[:1200],
+        })
+
+    rows = context.memory_service.search_memory(
+        context.project_id, query.strip(), memory_type=memory_type, limit=limit,
+    )
+    if not rows:
+        output = "no memories match this query"
+    else:
+        lines = []
+        for row in rows:
+            created = getattr(row, "created_at", None)
+            age = "unknown age"
+            if created is not None:
+                age = f"created {created.isoformat()}"
+            lines.append(f"[{row.id}] {row.memory_type} ({age})\n{row.content}")
+        output = "\n\n".join(lines)[:1200]
+    data = {
+        "query": query.strip(),
+        "memory_type": memory_type,
+        "count": len(rows),
+        "memory_ids": [row.id for row in rows],
+        "output": output,
+        "cached": False,
+    }
+    cache[key] = data
+    try:
+        context.memory_service.log_memory_recall(
+            context.project_id, query.strip(), data["memory_ids"], context.task_id,
+        )
+    except Exception:
+        pass
+    return ToolResult(True, "recall_memory", data)
+
+
 def _safe_environment() -> dict[str, str]:
     allowed = {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "SHELL", "USER"}
     return {key: value for key, value in os.environ.items() if key in allowed}
@@ -421,4 +499,5 @@ def default_registry() -> ToolRegistry:
     registry.register("run_command", run_command)
     registry.register("browser_fetch", browser_fetch)
     registry.register("notebook_cell", notebook_cell)
+    registry.register("recall_memory", recall_memory)
     return registry

@@ -22,6 +22,14 @@ setup: $(VENV) ## Create venv + install (editable, with dev deps)
 db: ## Start Postgres (docker) for the engine
 	docker compose up -d db
 
+.PHONY: db-durable
+db-durable: ## Build/start the PG17 durable extension profile
+	docker compose --profile durable up -d --build db-durable
+
+.PHONY: db-extensions
+db-extensions: ## Install/verify the pinned durable extension contract
+	psql "$${FORGE_DURABLE_DATABASE_URL:-postgresql://forge:forge@127.0.0.1:5433/forge}" -v ON_ERROR_STOP=1 -f migrations/004_memory_v2_extensions.sql
+
 .PHONY: sandbox-image
 sandbox-image: ## Build the default per-project sandbox container image
 	docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .

@@ -38,6 +38,65 @@ services:
       timeout: 5s
       retries: 10
 
+  # Durable-substrate Postgres (opt-in): PostgreSQL 17 plus the pinned
+  # pgvector/vectorscale, pgai, pgmq, pg_cron, pg_partman, pg_net, pg_later,
+  # pg_task, and pg_durable components. Runs on its own port and volume
+  # so the default stack is untouched:
+  #   docker compose --profile durable up -d db-durable
+  #   psql postgresql://forge:forge@127.0.0.1:5433/forge -f migrations/003_durable_substrate.sql
+  #   psql postgresql://forge:forge@127.0.0.1:5433/forge -f migrations/004_memory_v2_extensions.sql
+  db-durable:
+    build: docker/postgres-durable
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forge
+      DATABASE_URL: postgresql://forge:forge@127.0.0.1:5432/forge
+    command: >-
+      postgres -c max_worker_processes=64
+               -c shared_preload_libraries=pg_cron,pg_partman_bgw,pg_net,pg_task,pg_later,pg_durable
+               -c cron.database_name=forge
+               -c pg_partman_bgw.dbname=forge
+               -c pg_partman_bgw.role=forge
+               -c pg_net.database_name=forge
+               -c pg_later.database_name=forge
+               -c 'pg_task.json=[{"data":"forge","user":"forge"}]'
+               -c pg_durable.worker_role=forge
+               -c pg_durable.database=forge
+    ports:
+      - "127.0.0.1:${FORGE_DB_DURABLE_PORT:-5433}:5432"
+    volumes:
+      - forge_pgdata_durable:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    profiles: ["durable"]
+
+  # pg_timetable is a standalone scheduler, not a PostgreSQL extension. It
+  # uses the binary installed in the durable image and is kept opt-in with the
+  # same profile as the database.
+  pg-timetable:
+    build: docker/postgres-durable
+    depends_on:
+      db-durable:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/pg_timetable"]
+    command: ["postgresql://forge:forge@db-durable:5432/forge", "--clientname=forge"]
+    profiles: ["durable"]
+
+  # pg_vectorize is the pgai Vectorizer worker, not a backend extension. It is
+  # a separate process because embedding failures must not block writes.
+  pgai-vectorizer:
+    image: ${PGAI_VECTORIZER_IMAGE:-timescale/pgai-vectorizer-worker:v0.11.2}
+    depends_on:
+      db-durable:
+        condition: service_healthy
+    environment:
+      PGAI_VECTORIZER_WORKER_DB_URL: postgresql://forge:forge@db-durable:5432/forge
+    profiles: ["durable"]
+
   control-plane:
     build: .
     depends_on:
@@ -86,3 +145,4 @@ services:
 
 volumes:
   forge_pgdata:
+  forge_pgdata_durable:

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Agent &amp; Memory Structure Efficiency</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --panel: #161d26;
+  --panel-2: #1c2530;
+  --ink: #dbe4ee;
+  --ink-dim: #8fa1b3;
+  --accent: #4fc1a6;      /* teal — memory/efficiency identity */
+  --accent-2: #d9a441;    /* amber — warnings/loops */
+  --new: #4fc1a6;
+  --existing: #6a89b7;
+  --danger: #d16a5a;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--ink); margin: 1.4rem 0 .4rem; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid #263140; border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid #263140; }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .5rem; }
+details.meta { background: var(--panel); border: 1px solid #263140; border-radius: 8px; padding: .6rem 1rem; margin: 1rem 0 2rem; }
+details.meta summary { cursor: pointer; color: var(--ink-dim); }
+details.meta dl { display: grid; grid-template-columns: 10rem 1fr; gap: .25rem .75rem; font-size: .85rem; }
+details.meta dt { color: var(--ink-dim); font-family: var(--mono); }
+details.meta dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 10px; text-transform: uppercase; }
+.tag.existing { background: rgba(106,137,183,.15); color: var(--existing); border: 1px solid var(--existing); }
+.tag.new { background: rgba(79,193,166,.12); color: var(--new); border: 1px solid var(--new); }
+.phase { background: var(--panel); border: 1px solid #263140; border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+.checklist { list-style: none; padding-left: .25rem; }
+.checklist li { margin: .4rem 0; }
+.status { color: var(--accent-2); }
+.loop { background: rgba(217,164,65,.08); border: 1px solid var(--accent-2); border-radius: 8px; padding: .75rem 1rem; margin: 1rem 0; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { border: 1px solid #263140; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-2); color: var(--accent); }
+section#notes .call { background: var(--panel-2); border-left: 3px solid var(--accent-2); padding: .6rem 1rem; border-radius: 6px; margin: 1rem 0; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Agent &amp; Memory Structure Efficiency</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-10T20:28:49Z</dd>
+        <dt>modified</dt>     <dd>2026-07-10T20:28:49Z, 2026-07-10T20:40:00Z, 2026-07-10T21:05:00Z</dd>
+        <dt>commits</dt>      <dd>3291038</dd>
+        <dt>agent name</dt>   <dd>Claude Fable 5 (Claude Code), Claude Fable 5 (Claude Code), Claude Fable 5 (Claude Code)</dd>
+        <dt>session id</dt>   <dd>e2eb9046-e279-41de-ac5e-8b76d5324362, e2eb9046-e279-41de-ac5e-8b76d5324362, e2eb9046-e279-41de-ac5e-8b76d5324362</dd>
+        <dt>back refs</dt>    <dd>specs/convergent-autonomous-harness.html, ARCHITECTURE.md, docs/LESSONS.md</dd>
+        <dt>forward refs</dt> <dd>docs/DURABLE_SUBSTRATE.md, migrations/003_durable_substrate.sql, specs/research-grounded-memory-v2.html, AI_DOCS/research/INDEX.md</dd>
+      </dl>
+    </details>
+  </header>
+
+  <figure>
+    <!-- {{HERO_IMAGE: PGE agent loop feeding a layered memory stack (Postgres, lessons, context pack) with a token budget gauge}} -->
+    <figcaption>The PGE loop and its memory layers — retrieval, lessons, and compression under one token budget.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE / PROBLEM / SOLUTION ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>Make the Forge agent loop (planner → auditor → executor → evaluator) and its memory subsystem measurably more efficient: fewer redundant DB round-trips and model loads per cycle, task-aware memory retrieval instead of blind recency dumps, durable (instead of process-local) lessons, and a rationalized compression pipeline that only pays for compression when the pack is actually large.</p>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>Research of the current codebase surfaced six concrete inefficiencies:</p>
+    <table>
+      <tr><th>#</th><th>Finding</th><th>Where</th><th>Cost</th></tr>
+      <tr><td>1</td><td><strong>Task-blind retrieval.</strong> <code>build_context_pack</code> selects the top-20 memory items by <code>importance DESC, created_at DESC</code> only. The pgvector <code>embedding</code> column and <code>search_memory()</code> (vector + rerank) exist but are never used on the hot path, so the executor gets recent-but-irrelevant memories.</td><td><code>app/services/__init__.py:525</code></td><td>Wasted context tokens; weaker small-model performance</td></tr>
+      <tr><td>2</td><td><strong>Reranker reloaded per call.</strong> <code>_rerank_results</code> constructs <code>CrossEncoder('BAAI/bge-reranker-base')</code> inside every invocation — a multi-second model load per memory search.</td><td><code>app/services/__init__.py:691</code></td><td>Seconds of latency per search; repeated RAM spikes</td></tr>
+      <tr><td>3</td><td><strong>Hardcoded embedding backend.</strong> <code>_generate_embedding</code> posts to <code>http://127.0.0.1:1234</code> with a fixed model — the exact failure mode already fixed once for the steward (see comment in <code>steward.py</code>). When it's down, embeddings stay NULL forever (no backfill).</td><td><code>app/services/__init__.py:108</code></td><td>Silent degradation to no-vector search</td></tr>
+      <tr><td>4</td><td><strong>Lessons are not durable.</strong> <code>LessonStore</code> is an in-process dict ("a real deployment backs this with the lessons table" — it doesn't). Every run relearns the same failures; <code>AgentState.selected_lesson_ids</code> points at nothing persistent.</td><td><code>forge_runtime/lessons.py:79</code></td><td>Compounding memory doesn't compound</td></tr>
+      <tr><td>5</td><td><strong>Compression runs unconditionally.</strong> <code>compress_context_pack</code> invokes Headroom (per-field LLM calls + a DB snapshot write) on every executor turn regardless of pack size; the size gate only exists in the local fallback. Meanwhile the steward's <code>_BRIEF_CACHE</code> is an unbounded module-level dict.</td><td><code>app/context_compression.py:29</code>, <code>engine/src/steward.py:90</code></td><td>Per-turn LLM + DB cost even for tiny packs; slow leak</td></tr>
+      <tr><td>6</td><td><strong>Duplicate state snapshots per cycle.</strong> The steward's <code>_db_snapshot</code> and <code>build_context_pack</code> query overlapping goal/task/file/test state independently each cycle, and <code>consolidate_old_logs</code> (memory hygiene) exists but is never scheduled by <code>run_pge.py</code>.</td><td><code>engine/src/steward.py:44</code>, <code>run_pge.py</code></td><td>Redundant queries; unbounded event/memory growth</td></tr>
+    </table>
+    <figure>
+      <!-- {{PROBLEM_IMAGE: fragmented memory pipeline with redundant queries, unused vector index, and evaporating lessons}} -->
+      <figcaption>Today: recency-only retrieval, an unused vector index, lessons that die with the process, and compression paid on every turn.</figcaption>
+    </figure>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>Five focused phases, each independently shippable and pinned by tests. (1) Make retrieval task-aware: score memories against the active task via vector search when available, tsvector otherwise, blended with importance/confidence — and cache the reranker at module level. (2) Route embeddings through <code>forge_config</code> provider profiles with a lazy backfill so NULL embeddings heal. (3) Back <code>LessonStore</code> with <code>hermes_memory_items</code> (type <code>lesson</code>, fingerprint in <code>tags</code>) so lessons survive restarts and flow into the pack. (4) Gate Headroom behind the same size threshold as the fallback, bound the steward cache, and log pack token counts to <code>hermes_context_pack_logs</code> for observability. (5) Share one DB snapshot per cycle between steward and pack builder, and schedule <code>consolidate_old_logs</code> + lesson decay at batch boundaries in <code>run_pge.py</code>.</p>
+    <figure>
+      <!-- {{SOLUTION_IMAGE: unified memory pipeline: one snapshot per cycle flowing through task-aware retrieval, durable lessons, gated compression}} -->
+      <figcaption>Target: one snapshot per cycle → task-aware retrieval → durable lessons → compression only past the threshold.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>app/services/__init__.py</code> — <code>MemoryService</code>: retrieval, embeddings, reranker, <code>build_context_pack</code>, <code>consolidate_old_logs</code>. Primary surgery site.</li>
+      <li><span class="tag existing">existing</span> <code>app/models/__init__.py</code> — <code>HermesMemoryItem</code> (pgvector column, tsvector index), <code>HermesContextPackLog</code>, compression snapshots.</li>
+      <li><span class="tag existing">existing</span> <code>app/context_compression.py</code> — Headroom compression + local fallback; needs the size gate hoisted.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/lessons.py</code> — pure <code>LessonStore</code> logic; gets a DB-backed wrapper.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/steering.py</code> — <code>Lesson</code> dataclass consumed by the store.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/steward.py</code> — briefing/steering; unbounded cache, private snapshot, hardcoded-URL history.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/executor_node.py</code> — consumes the pack + steward briefing each turn.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/evaluator_node.py</code> — records <code>mistake</code> memories; source of lesson <code>FailureEvent</code>s.</li>
+      <li><span class="tag existing">existing</span> <code>run_pge.py</code> — batch loop; hook point for hygiene (consolidation, lesson decay, KV prune already here).</li>
+      <li><span class="tag existing">existing</span> <code>forge_config.py</code> — provider profiles; embedding config joins these.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/context_compactor.py</code> — transcript compaction (kept as-is; in scope only for shared token estimator reuse).</li>
+      <li><span class="tag existing">existing</span> <code>tests/regression/test_root_cause_generalizations.py</code> — house style for invariant-pinning tests.</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>app/services/memory_retrieval.py</code> — task-aware scoring/selection extracted from <code>build_context_pack</code> (vector → tsvector → recency fallback chain, token-budgeted).</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/lesson_store_db.py</code> — <code>DbLessonStore</code> persisting <code>Lesson</code>s as <code>hermes_memory_items</code> rows (upsert on fingerprint, decay, retrieve).</li>
+      <li><span class="tag new">new</span> <code>tests/test_memory_retrieval.py</code> — retrieval ranking, budget, and fallback tests.</li>
+      <li><span class="tag new">new</span> <code>tests/test_lesson_store_db.py</code> — durable lesson upsert/decay/retrieval round-trip.</li>
+      <li><span class="tag new">new</span> <code>tests/test_compression_gate.py</code> — proves small packs skip Headroom entirely; steward cache stays bounded.</li>
+      <li><span class="tag new">new</span> <code>docker/postgres-durable/Dockerfile</code> — Postgres image layering <code>pgmq</code>, <code>pg_cron</code>, <code>pg_partman</code> on top of <code>pgvector/pgvector:pg16</code> (Phase 6, opt-in).</li>
+      <li><span class="tag new">new</span> <code>migrations/003_durable_substrate.sql</code> — <code>CREATE EXTENSION IF NOT EXISTS</code> guards, pgmq queue for hygiene jobs, pg_cron schedules, pg_partman setup for <code>hermes_events</code>.</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/durable_queue.py</code> — thin pgmq adapter (send / read-with-visibility-timeout / archive) with a plain-table fallback when the extension is absent.</li>
+      <li><span class="tag new">new</span> <code>tests/integration/test_durable_substrate.py</code> — extension experiments; auto-skipped unless <code>FORGE_PG_EXTENSIONS=1</code> and the extensions are installed.</li>
+      <li><span class="tag new">new</span> <code>docs/DURABLE_SUBSTRATE.md</code> — experiment findings log: what each extension measurably bought (or didn't), with the go/no-go verdicts.</li>
+    </ul>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 1: Task-Aware Memory Retrieval</h3>
+      <p>Replace the recency-only top-20 query in <code>build_context_pack</code> with a scoring pipeline that uses the active task text, and stop reloading the reranker.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: retrieval fallback chain vector to full-text to recency with a token budget}} -->
+        <figcaption>Retrieval chain: vector → tsvector → recency, always token-budgeted.</figcaption>
+      </figure>
+
+      <h4>1. Extract retrieval into <code>app/services/memory_retrieval.py</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Create <code>select_memories(db, project_id, goal_task_ids, task_text, *, limit=20, char_budget=6000)</code> reproducing today's scope filters (active, unexpired, not superseded, goal-scoped + global constraints).</li>
+        <li><code class="status">[x]</code> Scoring: if a query embedding is available, order by <code>embedding &lt;=&gt; query</code> blended with <code>importance</code> and <code>confidence</code> (e.g. <code>0.6*similarity + 0.25*importance/5 + 0.15*confidence</code>); else fall back to <code>plainto_tsquery</code> rank; else keep the current importance/recency order. Never raise — each tier degrades to the next.</li>
+        <li><code class="status">[x]</code> Enforce <code>char_budget</code> greedily across selected items (same pattern as <code>LessonStore.retrieve</code>) so pack memory sections have a hard cap.</li>
+        <li><code class="status">[x]</code> In <code>build_context_pack</code>, build <code>task_text</code> from goal + active task (already computed for <code>REPO_CONTEXT</code>) and call <code>select_memories</code>; keep the output shape of the pack unchanged.</li>
+      </ul>
+
+      <h4>2. Cache the reranker and make it opt-in</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Hoist <code>CrossEncoder</code> construction to a memoized module-level loader (<code>functools.lru_cache</code>); load at most once per process.</li>
+        <li><code class="status">[x]</code> Gate reranking behind <code>FORGE_MEMORY_RERANK</code> (default off — a multi-hundred-MB model should be a choice, not a surprise); when off, return vector/tsvector order directly.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Pure-logic tests with SQLite fixtures (project conftest pattern) and stub embeddings; no network, no model downloads. Edge cases: empty task text, NULL embeddings, over-budget single item, sqlite dialect.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_memory_retrieval.py -q</code> — ranking blend, budget cap, and three-tier fallback behave deterministically.</li>
+        <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> — no regression in the existing suite.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 2: Configurable Embeddings + Lazy Backfill</h3>
+      <p>Kill the hardcoded <code>127.0.0.1:1234</code> embedding endpoint (the steward already carries a scar comment for this exact bug) and heal NULL embeddings over time.</p>
+
+      <h4>1. Route embeddings through forge_config</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Add an embeddings profile to <code>forge_config.py</code>: <code>FORGE_EMBED_BASE_URL</code> (fallback <code>LLM_BASE_URL</code>), <code>FORGE_EMBED_MODEL</code>, <code>FORGE_EMBED_ENABLED</code>.</li>
+        <li><code class="status">[x]</code> Rewrite <code>MemoryService._generate_embedding</code> to use the profile; keep the 10s timeout and swallow-errors contract (embedding failure must never block a write).</li>
+      </ul>
+
+      <h4>2. Lazy backfill</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Add <code>backfill_embeddings(project_id, batch=16)</code> to <code>MemoryService</code>: embed the N most recent active items where <code>embedding IS NULL</code>; called opportunistically from the batch boundary (Phase 5), never in the executor turn path.</li>
+        <li><code class="status">[x]</code> Short-circuit to a no-op when <code>FORGE_EMBED_ENABLED</code> is false or the first request of a batch fails (don't retry a dead endpoint 16 times).</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Monkeypatched HTTP: assert URL/model come from env, assert backfill stops after first failure, assert writes succeed with embeddings disabled.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_memory_retrieval.py -q -k embed</code> — config routing and backfill circuit-breaker proven.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 3: Durable Lessons</h3>
+      <p>Make compounding memory actually compound: persist <code>Lesson</code>s so a failure learned in run N prevents it in run N+1.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: lesson lifecycle extract dedupe persist retrieve decay across runs}} -->
+        <figcaption>Lesson lifecycle across runs: extract → dedupe on fingerprint → persist → retrieve → decay.</figcaption>
+      </figure>
+
+      <h4>1. <code>DbLessonStore</code> in <code>forge_runtime/lesson_store_db.py</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Same interface as <code>LessonStore</code> (<code>upsert</code>, <code>mark_unmatched</code>, <code>retrieve</code>, <code>all</code>), persisting rows as <code>hermes_memory_items</code> with <code>memory_type="lesson"</code>, fingerprint stored as tag <code>fp:&lt;hex&gt;</code>, confidence in the existing <code>confidence</code> column, observation/prevention JSON in <code>content</code>.</li>
+        <li><code class="status">[x]</code> Upsert on fingerprint bumps confidence (+0.05 cap 1.0) instead of inserting; decay below 0.3 sets <code>status="archived"</code> (auditable, excluded by the existing <code>status=="active"</code> pack filter) rather than deleting.</li>
+        <li><code class="status">[x]</code> Wire extraction: in <code>evaluator_node.py</code>, where <code>mistake</code> memories are recorded, also build a <code>FailureEvent</code> and run <code>should_extract</code>/<code>extract_lesson</code> (LLM extraction via the existing evaluator client, injected as a callable); upsert the result.</li>
+        <li><code class="status">[x]</code> Retrieval: <code>build_context_pack</code>'s <code>LESSONS_AND_MISTAKES</code> section pulls top-k lessons via the store's confidence-ranked, char-budgeted retrieve (800 chars, matching the pure store), and records their ids into <code>AgentState.selected_lesson_ids</code>.</li>
+      </ul>
+
+      <h4>2. Testing Strategy</h4>
+      <p>SQLite round-trip: upsert twice → one row with bumped confidence; decay past threshold → archived not deleted; retrieval budget honored; second "run" (fresh store instance) sees the first run's lessons.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_lesson_store_db.py -q</code> — durability, dedupe, decay, budget all pass.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 4: Gated Compression + Bounded Caches</h3>
+      <p>Only pay for compression when the pack is big; stop the steward cache from growing forever; make pack size observable.</p>
+
+      <h4>1. Hoist the size gate in <code>app/context_compression.py</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Compute the bulk size first; if under <code>PGE_CONTEXT_COMPACT_THRESHOLD</code> (~12k tokens, reuse <code>context_compactor.estimate_tokens</code>), return the pack with <code>CONTEXT_COMPRESSION.status="not_needed"</code> <em>before</em> importing/calling Headroom or touching the snapshot table.</li>
+        <li><code class="status">[x]</code> Keep the snapshot-dedupe path for large packs unchanged (hash hit still short-circuits the LLM calls).</li>
+      </ul>
+
+      <h4>2. Bound the steward cache</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Replace <code>_BRIEF_CACHE</code> dict with a small LRU (e.g. 32 entries, <code>collections.OrderedDict</code> eviction) keyed as today; behavior identical for the common single-project case.</li>
+      </ul>
+
+      <h4>3. Pack telemetry</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> On every <code>build_context_pack</code>, write a <code>HermesContextPackLog</code> row (query = task title, <code>selected_memory_ids</code>, <code>token_estimate</code>) — the table exists and is currently unwritten; best-effort, never raises.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>Prove the negative: with a tiny pack, no Headroom import, no snapshot row, status <code>not_needed</code>. Prove the positive: oversized synthetic pack still compacts via local fallback. LRU eviction at capacity.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_compression_gate.py -q</code> — gate, fallback, and cache bound verified.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 5: One Snapshot per Cycle + Scheduled Hygiene</h3>
+      <p>Deduplicate per-cycle DB reads and give memory a maintenance heartbeat at batch boundaries.</p>
+
+      <h4>1. Shared cycle snapshot</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Let <code>steward.compact_context</code>/<code>steering</code> accept an optional pre-built snapshot dict; in <code>executor_node.py</code>, derive it from the already-fetched pack instead of re-querying (fall back to <code>_db_snapshot</code> when not supplied, preserving standalone use).</li>
+      </ul>
+
+      <h4>2. Batch-boundary hygiene in <code>run_pge.py</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> After each batch checkpoint (next to the existing KV-prune hook): call <code>consolidate_old_logs(project_id)</code> at most once per run-day, <code>backfill_embeddings</code> (Phase 2), and <code>DbLessonStore.mark_unmatched</code> decay for lessons not selected this batch. All best-effort, all logged, none can take the batch down.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Unit-test the snapshot adapter (pack → steward snapshot shape) and that hygiene helpers are invoked with exceptions swallowed (monkeypatched failures don't propagate).</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests -q -k "steward or hygiene"</code> — adapter equivalence and failure isolation pass.</li>
+        <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> — full suite green.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 6: Durable Postgres Substrate Experiments (opt-in)</h3>
+      <p>Forge's core bet (ARCHITECTURE.md) is that durability lives in Postgres. This phase experiments with pushing more of the loop's durability primitives <em>into</em> Postgres via battle-tested extensions — queueing, scheduling, and partitioning — following the DBOS thesis ("all state, messages, and scheduling in the DBMS"). Everything here is gated behind <code>FORGE_PG_EXTENSIONS</code>; the app-side paths from Phases 1–5 remain the default and the fallback, honoring the never-block invariant.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: Postgres as durable substrate hosting queue, cron, partitions, vectors beneath the agent loop}} -->
+        <figcaption>One durable substrate: queue (pgmq), schedule (pg_cron), partitions (pg_partman), vectors (pgvector) — all inside the Postgres the loop already trusts.</figcaption>
+      </figure>
+
+      <h4>1. Extension triage + image</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Build <code>docker/postgres-durable/Dockerfile</code> from <code>pgvector/pgvector:pg16</code> adding <code>pgmq</code>, <code>pg_cron</code>, <code>pg_partman</code> (+ bgw); wire an alternate compose profile (<code>docker compose --profile durable</code>) so the default stack is untouched.</li>
+        <li><code class="status">[x]</code> Record the triage verdicts in <code>docs/DURABLE_SUBSTRATE.md</code>: <strong>adopt-candidates</strong> pgmq / pg_cron / pg_partman / pgvector (mature, in-DB, crash-safe); <strong>verify-first</strong> <code>pg_durable</code>, <code>pg_later</code>, <code>pg_task</code>, <code>pg_net</code> (young or niche — confirm packaging, license, and pg16 support before any code depends on them); <strong>not extensions</strong> pg_boss (Node library) and pg_timetable (external Go scheduler) — noted as alternatives, not installed.</li>
+        <li><code class="status">[x]</code> Write <code>migrations/003_durable_substrate.sql</code> with <code>CREATE EXTENSION IF NOT EXISTS</code> guards so it is a no-op on a stock pgvector image.</li>
+      </ul>
+
+      <h4>2. Experiment A — pgmq for durable hygiene &amp; work dispatch</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Implement <code>forge_runtime/durable_queue.py</code>: <code>send / read(vt=…) / archive</code> over pgmq, with a plain-table fallback (SELECT … FOR UPDATE SKIP LOCKED) when the extension is missing.</li>
+        <li><code class="status">[x]</code> Route the Phase-5 batch-boundary hygiene jobs (consolidation, embedding backfill, lesson decay) through the queue: enqueue at checkpoint, consume idempotently (job key = <code>project_id:job_type:day</code>), archive on success — messages survive a crashed batch instead of being silently skipped.</li>
+        <li><code class="status">[x]</code> Crash test: kill the consumer mid-job; assert the message reappears after the visibility timeout and completes exactly once (idempotency key blocks the duplicate side effect).</li>
+      </ul>
+
+      <h4>3. Experiment B — pg_cron for in-DB scheduling</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Schedule the pure-SQL hygiene (archive expired memory items, decay unselected lesson confidence, enqueue consolidation into pgmq) as pg_cron jobs — durable recurring tasks that run even when no Forge process is alive, replacing the "at most once per run-day" app-side bookkeeping when enabled.</li>
+        <li><code class="status">[x]</code> Detection: <code>run_pge.py</code> checks <code>cron.job</code> at startup and skips its app-side hygiene calls when the DB owns them (no double execution).</li>
+      </ul>
+
+      <h4>4. Experiment C — pg_partman for event/log growth</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Convert <code>hermes_events</code> and <code>hermes_context_pack_logs</code> to monthly range partitions managed by pg_partman (native partitioning, bgw maintenance, 6-month retention → detach, not drop).</li>
+        <li><code class="status">[x]</code> Benchmark before/after: event-scan latency for <code>search_events</code> and <code>consolidate_old_logs</code> on a synthetically grown table (≥1M rows); record numbers in <code>docs/DURABLE_SUBSTRATE.md</code>.</li>
+      </ul>
+
+      <h4>5. Experiment D — event-sourced replay spike (paper study, no code commitment)</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Assess reconstructing <code>AgentState</code> purely by replaying <code>hermes_events</code> (Temporal/Durable-Functions event-history model, DPM-style task-conditioned projection) versus today's checkpoint rows; prototype a read-only <code>replay_state(project_id, run_id)</code> and diff it against the stored checkpoint.</li>
+        <li><code class="status">[x]</code> Evaluate saga-style compensation hooks for side-effectful executor tools (file writes already have <code>hermes_file_changes</code> as the intent log); document the design in <code>docs/DURABLE_SUBSTRATE.md</code> with an explicit adopt/defer verdict per idea.</li>
+      </ul>
+
+      <h4>6. Testing Strategy</h4>
+      <p>Integration tests run only against the durable compose profile (<code>FORGE_PG_EXTENSIONS=1</code>); every adapter has a unit-tested fallback path so CI on the stock image stays green. Edge cases: extension absent, visibility-timeout expiry, duplicate delivery, partition-boundary inserts.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> — full suite green on the stock pgvector image (all experiments dormant).</li>
+        <li><code class="status">[x]</code> <code>docker compose --profile durable up -d db &amp;&amp; FORGE_PG_EXTENSIONS=1 uv run pytest tests/integration/test_durable_substrate.py -q</code> — queue crash-recovery, cron ownership handoff, and partition benchmarks pass.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass. Experiments that prove a net loss are closed with an [f] + a written verdict in docs/DURABLE_SUBSTRATE.md — a documented "no" is a valid completion.</div>
+    </div>
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> — entire suite (existing + 3 new test modules) passes.</li>
+      <li><code class="status">[x]</code> <code>uv run pytest tests/regression -q</code> — no design invariant from docs/LESSONS.md regressed.</li>
+      <li><code class="status">[x]</code> <code>uv run python -c "from app.services.memory_retrieval import select_memories; from forge_runtime.lesson_store_db import DbLessonStore; print('imports ok')"</code> — new modules import cleanly without optional deps (sentence-transformers, headroom) installed.</li>
+      <li><code class="status">[x]</code> <code>grep -rn "127.0.0.1:1234" app/ engine/src/ | grep -v steward.py | wc -l</code> — the embedding endpoint is gone; the single remaining match is <code>auditor.py</code>'s deliberate <code>lmstudio:</code> model-prefix route, already env-overridable via <code>PGE_LMSTUDIO_URL</code> (same documented pattern as the steward), so it is exempted rather than churned.</li>
+      <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> on the <em>stock</em> pgvector image with <code>FORGE_PG_EXTENSIONS</code> unset — Phase 6 stays fully dormant; no extension is required for the default stack.</li>
+      <li><code class="status">[x]</code> <code>test -s docs/DURABLE_SUBSTRATE.md</code> — every Phase 6 experiment has a written adopt/defer verdict with numbers.</li>
+    </ul>
+    <div class="loop">🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong></div>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+    <div class="call"><strong>Design constraint carried from docs/LESSONS.md:</strong> every memory/compression path must be best-effort — a failure degrades to a deterministic fallback and never blocks or crashes the loop. Every task above preserves that contract; the new tests assert it explicitly.</div>
+    <p><strong>What is deliberately out of scope:</strong> replacing the four-node PGE loop, changing the Postgres schema (everything fits existing columns — <code>tags</code>, <code>confidence</code>, <code>status</code>, and the already-provisioned pgvector column and <code>hermes_context_pack_logs</code> table), and touching <code>forge_runtime/context_compactor.py</code>'s transcript folding, which is already deterministic and cheap.</p>
+    <p><strong>Rejected alternatives:</strong> (a) a dedicated <code>lessons</code> table — the migration comment references one, but <code>hermes_memory_items</code> already has every needed column and the pack filter for free; a new table adds a migration and a second retrieval path for no capability. (b) Always-on cross-encoder reranking — quality win is real but the 400MB model load contradicts the small/local-first design; hence opt-in. (c) Replacing Headroom with the local compactor entirely — Headroom's reversible snapshots have audit value; gating fixes the cost without losing it.</p>
+    <p><strong>Dependencies:</strong> none new for Phases 1–5. <code>sentence-transformers</code> and <code>headroom</code> remain optional imports guarded exactly as today. Phase 6 adds only opt-in Docker/SQL artifacts — the Python side degrades to plain-table/app-side fallbacks when extensions are absent.</p>
+
+    <h3>Research grounding (Phase 6)</h3>
+    <p>The durable-substrate experiments are deliberately mapped to prior art rather than invented; each experiment cites the pattern it operationalizes:</p>
+    <table>
+      <tr><th>Source</th><th>Core idea</th><th>Where it lands in Forge</th></tr>
+      <tr><td>Garcia-Molina &amp; Salem, <em>Sagas</em> (1987)</td><td>Long-lived transactions = sub-transactions + compensating actions</td><td>Experiment D: compensation hooks for side-effectful tools, with <code>hermes_file_changes</code> as the existing intent log</td></tr>
+      <tr><td><em>DBOS</em> (SOSP 2023)</td><td>All state, messages, and scheduling live in the DBMS; execution is crash-consistent</td><td>The whole phase: queue (pgmq), schedule (pg_cron), and memory already co-located in the one Postgres the loop trusts</td></tr>
+      <tr><td>Temporal, <em>Durable Execution of Stateful Serverless Workflows</em> (VLDB 2023); Microsoft, <em>Durable Functions</em> (OOPSLA 2021)</td><td>Event-history + deterministic replay recovers exact state</td><td>Experiment D: <code>replay_state()</code> spike diffing event-log replay against stored checkpoints</td></tr>
+      <tr><td><em>Beldi</em> (OSDI 2020) / <em>Crucial</em> (HotOS 2021)</td><td>Idempotent transactional state transitions; shared log unifies memory and task queue</td><td>Experiment A: idempotency-keyed pgmq consumers; exactly-once effects under crash/redelivery</td></tr>
+      <tr><td>Park et al., <em>Generative Agents</em> (2023); <em>Stateless Decision Memory / DPM</em> (arXiv 2026)</td><td>Retrieve a task-conditioned projection of an append-only memory stream at decision time</td><td>Already the shape of Phases 1+3: pgvector top-k retrieval over durable memory items, budgeted per decision</td></tr>
+      <tr><td>O'Reilly Radar, <em>Long-Running Agents</em> (2026)</td><td>Checkpoint-and-resume, memory-layered context, ambient processing</td><td>Forge's existing batches/checkpoints; Experiment B makes ambient hygiene durable via pg_cron</td></tr>
+    </table>
+    <p><strong>Honesty notes on the candidate list:</strong> <code>pg_boss</code> is a Node.js library (not a Postgres extension) and <code>pg_timetable</code> is an external Go scheduler binary — both are recorded as alternatives in the triage doc, not installed. <code>pg_durable</code>, <code>pg_later</code>, <code>pg_task</code>, and <code>pg_net</code> are young or niche enough that the plan requires verifying packaging/pg16 support before any code depends on them; <code>pg_net</code>'s async-HTTP-from-SQL is explicitly deferred — LLM calls from inside the database would blur the tool/runtime authority boundary the Agent-libOS line of work argues for keeping crisp.</p>
+    <p><strong>Expected impact per cycle:</strong> ~2 fewer DB query bursts (shared snapshot), zero Headroom LLM calls for small packs (the common case early in a run), one-time-instead-of-per-call reranker load, and memory sections filled with task-relevant items under an explicit char budget — directly serving the ARCHITECTURE.md promise that "a small model isn't drowned in history."</p>
+    <figure>
+      <!-- {{NOTES_IMAGE: before and after cycle cost comparison fewer queries fewer LLM calls}} -->
+      <figcaption>Per-cycle cost, before vs after: fewer queries, gated compression, cached models.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <!-- Append-only; populated by Update Plan / Update References workflows. -->
+    <details>
+      <summary>2026-07-10T20:40:00Z — Added Phase 6: Durable Postgres Substrate Experiments + research grounding</summary>
+      <p>Extended the plan with an opt-in experimental phase evaluating durable-execution Postgres extensions (pgmq queueing, pg_cron in-DB scheduling, pg_partman partitioning of event/log tables, plus a triage of pg_durable/pg_later/pg_task/pg_net and non-extension alternatives), a paper-grounded event-sourced-replay/saga spike, five new supporting files (custom Docker image, migration 003, pgmq adapter with fallback, integration tests, findings doc), two new global validation gates, and a Notes table mapping each experiment to its foundational research (Sagas 1987, DBOS 2023, Temporal VLDB 2023, Durable Functions 2021, Beldi/Crucial, Generative Agents, DPM). Requested by the user to experiment with durable-mindset Postgres extensions and ground the design in the durable-execution literature.</p>
+    </details>
+    <details>
+      <summary>2026-07-10T21:05:00Z — BUILT: Phases 1–6 implemented; vector-extension research folded in</summary>
+      <p><strong>Implementation executed</strong> (Build Plan workflow): all 54 checklist items complete, full test suite green (300+ tests, 31 new across <code>tests/test_memory_retrieval.py</code>, <code>tests/test_lesson_store_db.py</code>, <code>tests/test_compression_gate.py</code>, <code>tests/test_durable_queue_fallback.py</code>). Shipped: task-aware three-tier retrieval (<code>app/services/memory_retrieval.py</code>) wired into <code>build_context_pack</code>; process-cached opt-in reranker; env-routed embeddings (<code>forge_config.embedding_provider()</code>) with circuit-breakered <code>backfill_embeddings</code>; durable <code>DbLessonStore</code> + evaluator extraction on recurring failures; compression size gate hoisted before Headroom; bounded steward LRU; pack telemetry into <code>hermes_context_pack_logs</code>; pack-derived steward snapshot (one state fetch per turn); <code>run_batch_hygiene</code> in <code>run_pge.py</code> with pg_cron stand-down; Phase 6 scaffolding (durable Docker image + compose profile, guarded migration 003, <code>DurableQueue</code> with SKIP LOCKED fallback, gated integration tests, <code>docs/DURABLE_SUBSTRATE.md</code>). Enabler: model ARRAY/vector columns gained SQLite JSON variants so the schema is unit-testable.</p>
+      <p><strong>New extension research (user-supplied list, verified against docs):</strong> <em>pgvectorscale</em> (Timescale, OSS StreamingDiskANN over pgvector, prebuilt pg16 packages) — adopted as a guarded <code>USING diskann</code> index in migration 003; honest caveat recorded that DiskANN pays off at ≫10⁵ vectors. <em>pg_diskann</em> — rejected: Azure-managed-only, not self-hostable; pgvectorscale is the OSS equivalent. <em>pg_vectorize</em> (ChuckHend; built on pgmq+pg_cron+pgvector) — verify-first Experiment E: would replace the app-side embedding path wholesale but needs its own preloaded background worker and DB-host-reachable embedding endpoint. <em>pg_ai_query</em> (benodiwal, NL→SQL via OpenAI/Anthropic/Gemini/Ollama) — deferred to operator console tooling only; never on the agent loop path (authority-boundary rule). Full verdicts in docs/DURABLE_SUBSTRATE.md.</p>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

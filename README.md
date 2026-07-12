@@ -44,6 +44,26 @@ docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .  # one-time:
 forge run --goal "Build a Python snake game with tests"
 ```
 
+The opt-in PG17 durable extension profile is separate from the default PG16
+database. Build and verify it only when you need the requested database
+workers:
+
+```bash
+make db-durable
+# first let Forge create its tables, then install and verify every component
+make db-extensions
+docker compose --profile durable up -d pg-timetable pgai-vectorizer
+# optional live contract check (requires the durable profile and psycopg)
+FORGE_PG_EXTENSIONS=1 FORGE_DURABLE_DATABASE_URL=postgresql://forge:forge@127.0.0.1:5433/forge \
+  uv run pytest tests/integration -q
+```
+
+The names map as follows: `pg_diskann` is Timescale `vectorscale`,
+`pg_ai_query` is pgai's `ai` extension, and `pg_vectorize`/`pg_timetable` are
+separate worker services rather than PostgreSQL extensions. See
+[`docs/DURABLE_SUBSTRATE.md`](docs/DURABLE_SUBSTRATE.md) and
+[`migrations/004_memory_v2_extensions.sql`](migrations/004_memory_v2_extensions.sql).
+
 Every tool call above runs inside a per-project **sandbox container** by default —
 non-root, every capability dropped, files on a Docker-managed volume with no path
 back to your host filesystem (see [Sandbox](#sandbox--observability) below). No

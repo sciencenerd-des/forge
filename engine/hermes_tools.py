@@ -95,6 +95,23 @@ EVALUATOR_SCHEMA = {
     },
 }
 
+REFLECTION_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "failure_reflection",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "observation": {"type": "string"},
+                "prevention": {"type": "string"},
+            },
+            "required": ["observation", "prevention"],
+        },
+    },
+}
+
 # Executor emits EITHER a tool_call OR a heartbeat. A single permissive object
 # (strict disabled) lets the model fill the relevant fields while still being
 # guaranteed to return a valid JSON object.
@@ -126,6 +143,7 @@ EXECUTOR_SCHEMA = {
                         "build",
                         "lint",
                         "audit_deps",
+                        "recall_memory",
                         "web_search",
                     ],
                 },

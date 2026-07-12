@@ -303,6 +303,7 @@ def executor_node(state: AgentState) -> Dict:
     runtime_tool_state = context_pack.get("RUNTIME_TOOL_STATE", {})
     repo_context = context_pack.get("REPO_CONTEXT", {})
     compression = context_pack.get("CONTEXT_COMPRESSION", {})
+    selected_lesson_ids = list(context_pack.get("SELECTED_LESSON_IDS", []) or [])
     if compression.get("snapshot_id"):
         print("Headroom context: "
               f"{compression.get('tokens_before', 0)} -> {compression.get('tokens_after', 0)} "
@@ -340,8 +341,10 @@ def executor_node(state: AgentState) -> Dict:
     # Compact context from the steward (small local model filters DB state
     # down to what THIS task needs — raw dumps bloated prompts with stale data).
     try:
-        from src.steward import compact_context
-        steward_brief = compact_context(project_id, active_task.title) or "(no briefing)"
+        from src.steward import compact_context, snapshot_from_pack
+        steward_brief = compact_context(
+            project_id, active_task.title,
+            snapshot=snapshot_from_pack(context_pack)) or "(no briefing)"
     except Exception:
         steward_brief = "(steward unavailable)"
 
@@ -411,6 +414,7 @@ CORE (use these for almost everything):
 - build(timeout_seconds=300): build/compile the project with the correct stack-specific command (cargo build, cmake configure+build, npm run build, python py_compile). Use before run_tests when the stack needs a build step (C++, Rust) or when you just want to check the code compiles.
 - lint(fix=false, timeout_seconds=120): run the project's linter/formatter (ruff, eslint, clippy, clang-format) and optionally auto-fix (fix=true). Never fails the turn if the linter isn't configured for this project — reports that instead.
 - audit_deps(timeout_seconds=180): scan installed dependencies for known vulnerabilities (pip-audit, npm audit, cargo-audit). Run once before declaring the goal done if the goal involves third-party packages.
+- recall_memory(query, memory_type=null, limit=5): page durable project memory on demand. This is read-only and capped at 1200 characters; repeat queries in one turn are cached.
 - bash(command, timeout_seconds=120): real shell — pipes, &&, redirects, globs. `python`/`pip`/`python3` resolve to the project .venv. Use for anything run_tests/build/lint/audit_deps don't cover: git, ad-hoc file ops, one-off inspection.
 - grep(pattern, path="."): regex content search across files.
 - glob(pattern): find files by pattern, e.g. "**/*.py".
@@ -463,6 +467,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
     max_iterations = int(os.getenv("PGE_MAX_EXECUTOR_ITERATIONS", "4"))
     tools_executed = []
     turn_action_sigs = []
+    recall_cache = {}
     from forge_runtime.context_compactor import compact_messages
     for iteration in range(max_iterations):
         print(f"--- Executor Turn {iteration + 1} ---")
@@ -576,14 +581,16 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                     resume_instruction=(data.get("resume_instruction", "") or "")[:300]
                 )
                 return {"heartbeat": heartbeat,
-                        "last_actions": list(turn_action_sigs)}
+                        "last_actions": list(turn_action_sigs),
+                        "selected_lesson_ids": selected_lesson_ids}
             except Exception as e:
                 print(f"Error constructing heartbeat schema: {e}")
                 return {"heartbeat": Heartbeat(
                     progress_summary=f"FAILED: heartbeat malformed ({e})",
                     next_task_description="Retry the task",
                     blocker=None,
-                    resume_instruction="Emit a valid heartbeat JSON")}
+                    resume_instruction="Emit a valid heartbeat JSON"),
+                        "selected_lesson_ids": selected_lesson_ids}
 
         elif msg_type == "tool_call":
             tool_name = data.get("name")
@@ -702,7 +709,8 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                                             project_id=project_id, task_id=active_task.id,
                                             file_path=_wr.data["path"],
                                             change_summary=f"Edited {Path(_wr.data['path']).name}",
-                                            reason="surgical edit")
+                                            reason="surgical edit",
+                                            content_sha=_wr.data.get("content_sha", ""))
                                     finally:
                                         _dbx.close()
                     elif tool_name == "multi_edit":
@@ -744,7 +752,8 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                                             project_id=project_id, task_id=active_task.id,
                                             file_path=_wr.data["path"],
                                             change_summary=f"Multi-edited {Path(_wr.data['path']).name} ({len(_edits)} edits)",
-                                            reason="batch surgical edit")
+                                            reason="batch surgical edit",
+                                            content_sha=_wr.data.get("content_sha", ""))
                                     finally:
                                         _dbx.close()
 
@@ -935,11 +944,37 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                             allow_network=bool(allowed_hosts),
                             allowed_hosts=allowed_hosts,
                             sandbox=sandbox,
+                            project_id=project_id if tool_name == "recall_memory" else None,
+                            task_id=active_task.id if tool_name == "recall_memory" else None,
+                            recall_cache=recall_cache if tool_name == "recall_memory" else None,
                         )
-                        result = default_registry().execute(
-                            context,
-                            ToolRequest(tool_name, args, call_id=f"{state.get('current_run_id', '')}:{iteration}"),
-                        )
+                        if tool_name == "recall_memory":
+                            # Keep the read-only memory session scoped to the
+                            # dispatch and close it even when the model sends
+                            # malformed arguments.
+                            recall_db = SessionLocal()
+                            try:
+                                context = ToolContext(
+                                    workspace=Path(workspace),
+                                    allow_write=False,
+                                    allow_shell=False,
+                                    sandbox=sandbox,
+                                    memory_service=MemoryService(recall_db),
+                                    project_id=project_id,
+                                    task_id=active_task.id,
+                                    recall_cache=recall_cache,
+                                )
+                                result = default_registry().execute(
+                                    context,
+                                    ToolRequest(tool_name, args, call_id=f"{state.get('current_run_id', '')}:{iteration}"),
+                                )
+                            finally:
+                                recall_db.close()
+                        else:
+                            result = default_registry().execute(
+                                context,
+                                ToolRequest(tool_name, args, call_id=f"{state.get('current_run_id', '')}:{iteration}"),
+                            )
                         tool_result = json.dumps(result.to_dict())
                         record_tool_msg(tool_name, tool_result[:200])
 
@@ -953,6 +988,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                                     file_path=result.data["path"],
                                     change_summary=f"Wrote {Path(result.data['path']).name}",
                                     reason="Task execution",
+                                    content_sha=result.data.get("content_sha", ""),
                                 )
                             elif tool_name == "run_command":
                                 service.record_test_run(
