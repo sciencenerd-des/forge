@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Forge Rust CLI/TUI — Cycle 2: Contract Integrity, Session Completion, Evidence Work</title>
+<style>
+:root {
+  --bg: #101214;
+  --panel: #17191d;
+  --panel-2: #1d2025;
+  --ink: #e8e6e1;
+  --ink-dim: #9a978f;
+  --accent: #e8a33d;        /* forge amber */
+  --accent-2: #7fb4a2;      /* verdigris */
+  --danger: #d47069;
+  --new: #7fb4a2;
+  --existing: #8a9bb8;
+  --pi: #b48ead;            /* pi harness violet */
+  --rust: #dea584;          /* rust ochre */
+  --border: #2a2d33;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -0.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--accent-2); margin-top: 1.5rem; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .12em .4em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent-2); }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .6rem; }
+details.meta, #amendments details {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: .6rem 1rem; margin: .8rem 0;
+}
+details summary { cursor: pointer; color: var(--accent-2); font-weight: 600; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem 1rem; margin: .8rem 0 0; }
+dt { color: var(--ink-dim); font-family: var(--mono); font-size: .8rem; }
+dd { margin: 0; font-family: var(--mono); font-size: .8rem; word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 999px; margin-right: .4em; text-transform: uppercase; letter-spacing: .05em; }
+.tag.new { background: rgba(127,180,162,.15); color: var(--new); border: 1px solid var(--new); }
+.tag.existing { background: rgba(138,155,184,.12); color: var(--existing); border: 1px solid var(--existing); }
+.tag.pi { background: rgba(180,142,173,.15); color: var(--pi); border: 1px solid var(--pi); }
+.tag.rust { background: rgba(222,165,132,.15); color: var(--rust); border: 1px solid var(--rust); }
+.phase { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.4rem 1.4rem; margin: 1.6rem 0; }
+.phase h3 { margin-top: .4rem; }
+ul.checklist { list-style: none; padding-left: .2rem; }
+ul.checklist li { margin: .35rem 0; }
+.status { color: var(--accent); }
+.loop { background: rgba(232,163,61,.08); border: 1px solid rgba(232,163,61,.35); border-radius: 8px; padding: .7rem 1rem; margin-top: 1rem; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-2); color: var(--accent-2); font-weight: 600; }
+tr:nth-child(even) td { background: var(--panel); }
+.callout { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent-2); border-radius: 8px; padding: .8rem 1.2rem; margin: 1.2rem 0; }
+kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: .1em .45em; }
+.done { color: var(--accent-2); }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Forge Rust CLI/TUI — Cycle 2: Contract Integrity, Session Completion, Evidence Work</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-12T11:32:48Z</dd>
+        <dt>modified</dt>     <dd>2026-07-12T11:32:48Z, 2026-07-12T18:18:41Z</dd>
+        <dt>commits</dt>      <dd>8ab70de (branch: feat/rust-tui-pi-harness, PR #6)</dd>
+        <dt>agent name</dt>   <dd>claude-fable-5, claude-fable-5</dd>
+        <dt>session id</dt>   <dd>5b3d94f7-98f3-46ee-823a-ba3a7f32f7a5, 5b3d94f7-98f3-46ee-823a-ba3a7f32f7a5</dd>
+        <dt>back refs</dt>    <dd>specs/forge-rust-tui-pi-harness.html, https://github.com/sciencenerd-des/forge/pull/6, docs/RUST_CLI.md</dd>
+        <dt>forward refs</dt> <dd>docs/PI_TOOL_BENCHMARK.md (Phase 5 verdict: NO-GO for forge-tools as a latency project)</dd>
+      </dl>
+    </details>
+  </header>
+
+  <!-- Hero image — synced to the :root visual identity. Replace with <img> once generated. -->
+  <figure>
+    <!-- {{HERO_IMAGE: a dark terminal with a session footer strip (model, cost, context %) lighting up, a fixture document flowing from a Python cylinder into a rust gear, and a small stopwatch over a violet pi glyph; words shown: "cycle 2", "fixtures", "session", "benchmark"}} -->
+    <figcaption>Cycle 2: make the contract self-verifying, finish the Pi session experience, and gather the evidence that decides the backlog.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE / PROBLEM / SOLUTION ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>
+      Close the gaps that survived the Cycle-1 implementation review of
+      <a href="https://github.com/sciencenerd-des/forge/pull/6">PR #6</a>: (1)&nbsp;make the control-plane
+      contract fixtures <em>generated by the real FastAPI handlers</em> instead of hand-typed twins,
+      (2)&nbsp;complete the Pi session experience (stats footer, session picker, steer/follow-up, multi-line
+      editor, verified spawn flags, dialog timeouts), (3)&nbsp;polish the operator seams that still behave
+      inconsistently (watch-mode offline fallback, promote-to-goal project awareness, a flood test that drives
+      the real event loop), and (4)&nbsp;run the <strong>evidence work</strong> the Cycle-1 plan deferred — a
+      Pi built-in tool latency benchmark that decides the <code>forge-tools</code> RFC, and the small A2A
+      client that was always post-MVP.
+    </p>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>
+      Cycle 1 shipped a green, well-tested MVP, but four classes of debt remain. <strong>Contract:</strong>
+      <code>tests/contract/test_fixture_export.py</code> builds its samples as hand-written literal dicts and
+      asserts the committed files equal those same dicts — the Python side can drift from
+      <code>runtime_snapshot.py</code> or the Pydantic schemas and every test stays green (the
+      <code>RuntimeRunSnapshot</code> response_model added in Cycle&nbsp;1 covers only one of eight fixture
+      shapes). <strong>Session:</strong> the TUI always spawns <code>pi --no-session</code> and ignores
+      provider/model flags; there is no session stats footer, no session picker (<code>switch_session</code>/
+      <code>fork</code> are typed in <code>PiCommand</code> but unreachable from any UI), <kbd>esc</kbd> can
+      only abort (no steer/follow-up), the editor is a single-line <code>String</code>, dialog
+      <code>timeout</code>s are never auto-resolved, and <code>forge session --resume</code> passes a flag
+      that is not in Pi 0.80.2's documented session-flag set (<code>--session/--fork/--no-session</code>) —
+      it may fail at spawn. <strong>Operator:</strong> <code>run list --watch</code> hard-errors where the
+      non-watch path falls back offline; promote-to-goal cannot pick a project and only learns about an
+      already-running project <em>after</em> posting; the flood test exercises toy channels, not the real
+      event loop. <strong>Evidence:</strong> the <code>forge-tools</code> backlog decision is blocked on a
+      benchmark nobody has run, and the A2A client remains unimplemented.
+    </p>
+    <figure>
+      <!-- {{PROBLEM_IMAGE: two mirrored document icons labeled as identical twins with a crack between them and a drifting FastAPI cylinder behind, beside a terminal missing its footer strip; words shown: "hand-written twins", "no stats footer"}} -->
+      <figcaption>The fixture file and the fixture test agree with each other — not with the API. And the session UI still lacks its lifecycle controls.</figcaption>
+    </figure>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>
+      Five bounded phases, ordered by risk. First make the contract self-verifying: serialize fixtures through
+      FastAPI's <code>TestClient</code> with dependency overrides (real routing, real Pydantic response models,
+      real auth middleware) so a handler change breaks the Python test <em>before</em> the Rust decoding test.
+      Second, harden the <code>forge-pi</code> protocol layer: per-command timeouts, dialog timeout
+      auto-resolve, CLI auto-cancel, and a spawn-flag matrix verified against pinned Pi 0.80.2 in the existing
+      <code>rust-pi-compat</code> CI job. Third, finish session mode: <code>get_session_stats</code> footer,
+      <kbd>ctrl+r</kbd> session picker over <code>~/.pi/agent/sessions</code>, an <kbd>esc</kbd> menu
+      (abort / steer / follow-up), and a <code>tui-textarea</code> multi-line editor. Fourth, operator polish:
+      consistent offline fallback, project-aware promotion, and a flood test that drives the real
+      <code>event_loop</code> with a <code>TestBackend</code>. Fifth, the evidence work: a scripted Pi
+      tool-latency benchmark whose measured numbers become the go/no-go input for the <code>forge-tools</code>
+      RFC, plus the small A2A JSON-RPC client (<code>forge a2a send|get|cancel</code>). Phases 1–2 are
+      independent of 3–4 and each phase ships alone.
+    </p>
+    <figure>
+      <!-- {{SOLUTION_IMAGE: five stepped amber blocks ascending left to right labeled by icon only (document-check, shield-clock, terminal-footer, banner, stopwatch), the last block feeding a fork in the road; words shown: "fixtures", "protocol", "session", "operator", "evidence"}} -->
+      <figcaption>Five independent phases; the last one produces the data that decides the forge-tools fork in the road.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>tests/contract/test_fixture_export.py</code> — the hand-written <code>_samples()</code> to be replaced with TestClient-generated payloads.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/api.py</code> + <code>schemas.py</code> — gain response_models for the remaining fixture shapes (events, approvals, run-start/stop, providers) so serialization is enforced, not described.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/runtime_snapshot.py</code>, <code>pge_launcher.py</code> — the functions the fixture test will drive through dependency overrides/stubs.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/crates/forge-pi/src/process.rs</code> — per-command timeouts, dialog timeout auto-resolve plumbing.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/crates/forge-pi/src/protocol.rs</code> — add <code>GetEntries</code>/dialog-timeout fields as needed; spawn-flag builder.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/session.rs</code> — <code>SessionEngine</code>, CLI dialog auto-cancel, spawn-flag mapping (<code>--resume</code> fix).</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/tui.rs</code> — session footer, picker, esc menu, editor swap, promote project picker, real flood test.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/main.rs</code> — <code>run list --watch</code> fallback, <code>forge a2a</code> subcommand, session flag plumbing into the TUI.</li>
+      <li><span class="tag existing">existing</span> <code>.github/workflows/ci.yml</code> — extend <code>rust-pi-compat</code> with the spawn-flag matrix; bump deprecated Node-20 action versions.</li>
+      <li><span class="tag existing">existing</span> <code>docs/A2A.md</code> — the JSON-RPC contract for the new client.</li>
+      <li><span class="tag existing">existing</span> <code>docs/RUST_CLI.md</code>, <code>specs/forge-rust-tui-pi-harness.html</code> — docs and parent plan to update (keymap, benchmark table, amendments).</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>tests/contract/conftest.py</code> — FastAPI TestClient factory with dependency overrides (auth bypass token, stubbed <code>runtime_snapshot</code>/<code>pge_launcher</code>/DB session) so handlers run for real without Postgres.</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-api/src/a2a.rs</code> — minimal A2A JSON-RPC client (<code>message/send</code>, <code>tasks/get</code>, <code>tasks/cancel</code>, agent-card fetch).</li>
+      <li><span class="tag new">new</span> <code>experimental/forge-cli/src/tui/editor.rs</code> <em>(or inline module)</em> — <code>tui-textarea</code> wrapper shared by prompt, promote, and dialog editors.</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-pi/benches/… or scripts/pi_tool_bench.sh</code> — scripted Pi built-in tool latency benchmark (read/grep/edit round-trips via RPC on this repo).</li>
+      <li><span class="tag new">new</span> <code>docs/PI_TOOL_BENCHMARK.md</code> — measured numbers + the explicit forge-tools go/no-go recommendation.</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-pi/tests/fixtures/*-0.80.2.jsonl</code> — recorded transcripts for the newly exercised commands (<code>get_session_stats</code>, <code>switch_session</code>, <code>steer</code>).</li>
+    </ul>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 1: Handler-Generated Contract Fixtures</h3>
+      <p>Eliminate the hand-written-twin failure mode: fixtures must pass through the real FastAPI stack so contract drift fails loudly on the Python side first.</p>
+
+      <h4>1. Response models &amp; TestClient harness</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Add Pydantic response models for the fixture shapes that still lack one — <code>RunEventOut</code>, <code>ApprovalOut</code>, <code>RunStartResult</code>, <code>StopRunResult</code>, provider list/profile — and attach them as <code>response_model=</code> on the corresponding routes in <code>control_plane/api.py</code> (mirroring the Cycle-1 <code>RuntimeRunSnapshot</code> precedent).</li>
+        <li><code class="status">[x]</code> <code>tests/contract/conftest.py</code>: build a <code>TestClient(app)</code> with dependency overrides — a fixed bearer token for <code>require_control_token</code>, stubbed <code>load_run_state</code>/<code>launch_pge</code>, an in-memory or stub DB session for the durable routes — seeded with the same stable IDs the current fixtures use so git diffs stay meaningful.</li>
+        <li><code class="status">[x]</code> Rewrite <code>test_fixture_export.py</code>: each fixture becomes <code>client.get(...)/post(...)</code> response JSON (status asserted), serialized canonically; keep <code>FORGE_UPDATE_CONTRACT_FIXTURES=1</code> refresh flow and the OpenAPI export. Error fixtures come from real 401/404/409 responses, not literals.</li>
+      </ul>
+
+      <h4>2. Testing Strategy</h4>
+      <p>The proof is a mutation: temporarily rename a field in <code>runtime_snapshot.py</code> and confirm the Python test fails before reverting. Edge cases: auth-rejected request produces the 401 fixture; stubbed stop conflict produces the 409 fixture.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/contract -q</code> — green with regenerated fixtures identical (or intentionally diffed) to the committed ones.</li>
+        <li><code class="status">[x]</code> Mutation check: field rename in <code>runtime_snapshot.py</code> → <code>pytest tests/contract</code> fails → revert.</li>
+        <li><code class="status">[x]</code> <code>cd experimental &amp;&amp; cargo test -p forge-api</code> — Rust decoding still passes against the regenerated fixtures.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 2: Pi Protocol Hardening</h3>
+      <p>Make <code>forge-pi</code> honest about time and flags: nothing can hang, nothing spawns with an unverified flag, and unattended dialogs resolve themselves.</p>
+
+      <h4>1. Timeouts &amp; dialogs</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Replace the flat 15&nbsp;s response timeout in <code>PiClient::send</code> with per-command budgets (a <code>PiCommand::timeout()</code> method): long for <code>compact</code>/<code>switch_session</code> (120&nbsp;s), short for state queries (15&nbsp;s); expose an override for tests.</li>
+        <li><code class="status">[x]</code> Dialog timeout auto-resolve: when <code>extension_ui_request</code> carries <code>timeout</code>, arm a tokio timer in <code>PiClient</code>; if the host hasn't answered when it fires, send <code>cancelled: true</code> (or the request's default) and emit a <code>DialogTimedOut</code> event so the UI can drop the modal.</li>
+        <li><code class="status">[x]</code> <code>forge session</code> (plain CLI mode): auto-respond <code>cancelled: true</code> to dialog methods immediately instead of leaving Pi blocked, keeping the printed hint.</li>
+      </ul>
+
+      <h4>2. Spawn-flag verification against Pi 0.80.2</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Audit every flag <code>forge</code> passes to <code>pi</code> (<code>--provider</code>, <code>--model</code>, <code>--resume</code>, <code>--fork</code>, <code>--no-session</code>) against <code>pi --help</code> on the pinned version; replace <code>--resume</code> with the documented <code>--session &lt;path&gt;</code> mapping (picker supplies the path) or drop it with a clear CLI error.</li>
+        <li><code class="status">[x]</code> Centralize flag construction in one <code>SpawnOptions → Vec&lt;String&gt;</code> builder (used by CLI and TUI, which currently hardcodes <code>--no-session</code>) with unit tests per combination.</li>
+        <li><code class="status">[x]</code> Extend the <code>rust-pi-compat</code> CI job with an <code>#[ignore]</code>-gated test that spawns Pi once per supported flag combination and asserts a successful <code>get_state</code>; record new fixture transcripts (<code>get_session_stats</code>, <code>steer</code>, <code>switch_session</code>) into <code>tests/fixtures/</code>.</li>
+        <li><code class="status">[x]</code> Bump the Node-20-deprecated action versions in <code>ci.yml</code> (<code>actions/checkout</code>, <code>setup-node</code>, <code>setup-python</code>) to clear the annotations.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Fake-Pi tests (shell-agnostic positional-arg pattern from Cycle&nbsp;1) for timeout expiry, dialog auto-resolve firing and being pre-empted by a host answer, and CLI auto-cancel. Edge cases: timeout racing a late response (response wins, timer disarmed), zero/absent <code>timeout</code> field (no timer), compact exceeding the old 15&nbsp;s budget.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>cargo test -p forge-pi</code> — timeout matrix, dialog auto-resolve, and flag-builder tests pass offline.</li>
+        <li><code class="status">[x]</code> <code>cargo test -p forge-pi -- --ignored</code> — (pinned Pi installed) spawn-flag matrix and new transcript recordings pass.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 3: Session Mode Completion</h3>
+      <p>The remaining Cycle-1 Phase-3 checklist, now unblocked by verified flags: lifecycle visibility and control for real day-to-day sessions.</p>
+
+      <figure>
+        <!-- {{PHASE3_IMAGE: minimal dark session TUI wireframe with a highlighted footer strip showing model, thinking, context percent and cost, a centered session-picker modal listing three sessions, and an esc menu with three choices; words shown: "stats", "ctrl+r picker", "esc: abort/steer/follow-up"}} -->
+        <figcaption>Session mode grows its footer, its picker, and a real esc menu — the last mile of the Pi experience.</figcaption>
+      </figure>
+
+      <h4>1. Visibility</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Stats footer: after each <code>agent_settled</code> (and on session open), issue <code>get_session_stats</code> and render model · thinking level · context&nbsp;% · cost in the session footer; stale values dim until refreshed.</li>
+        <li><code class="status">[x]</code> Multi-line editor: replace the <code>String</code> editor with <code>tui-textarea</code> (workspace dep) behind a thin wrapper used by prompt, promote, and dialog inputs — <kbd>enter</kbd> sends, <kbd>alt+enter</kbd> inserts a newline; preserve the Cycle-1 "q types, ctrl+q quits" behavior and its regression test.</li>
+      </ul>
+
+      <h4>2. Control</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <kbd>esc</kbd> menu during streaming: modal with abort / steer (send now) / follow-up (queue) — steer and follow-up take the current editor text via <code>PiCommand::Steer</code>/<code>FollowUp</code>; plain <kbd>esc</kbd> when idle keeps closing overlays.</li>
+        <li><code class="status">[x]</code> <kbd>ctrl+r</kbd> session picker: list JSONL sessions for the cwd from <code>~/.pi/agent/sessions</code> (name, age, entry count), <kbd>enter</kbd> → <code>switch_session</code>, <kbd>f</kbd> → <code>fork</code>; the TUI stops hardcoding <code>--no-session</code> and accepts the same <code>SpawnOptions</code> as <code>forge session</code> (plumb <code>forge tui --provider/--model/--session</code>).</li>
+        <li><code class="status">[x]</code> Promote-to-goal project awareness: the confirmation editor gains a project selector fed by <code>runtime_projects()</code> and shows an inline warning when the chosen project already has a live run (from the current snapshot list) <em>before</em> the post; keep the existing started/already-running result reporting.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>TestBackend snapshots for footer, picker, esc menu, and project-aware promote states, driven by replayed fixture events; unit tests for the session-directory lister against a temp tree. Edge cases: stats query failing (footer shows “stats unavailable”, session unaffected), empty session directory, fork of the active session, promote when the snapshot list is stale/offline (warning says so).</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>cargo test -p forge-cli</code> — new snapshot and state-machine tests pass.</li>
+        <li><code class="status">[x]</code> <code>cargo run -p forge-cli -- session</code> — live: open, check footer numbers, steer once, follow-up once, <kbd>ctrl+r</kbd> resume a prior session, promote with an explicit project.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 4: Operator Consistency &amp; Real Flood Test</h3>
+      <p>Small, sharp fixes that make the operator surface behave identically everywhere, plus the latency proof the plan originally promised.</p>
+
+      <h4>1. Consistency fixes</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>forge run list --watch</code>: on control-plane failure, fall back to the offline manifest with <code>source:"offline-manifest"</code> (same as non-watch) and keep polling for recovery instead of exiting with an error; a recovered connection switches the source back and says so.</li>
+        <li><code class="status">[x]</code> Surface <code>event_stream</code> reconnect state in the TUI detail pane (a dim “reconnecting…” line) so silent stream gaps are visible.</li>
+      </ul>
+
+      <h4>2. Real flood test</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Refactor <code>event_loop</code> to accept a generic terminal (already <code>DefaultTerminal</code>-typed — parameterize over the backend) so tests can drive it with <code>TestBackend</code>.</li>
+        <li><code class="status">[x]</code> New integration test: run the real <code>event_loop</code> with a task pumping 1,000 <code>Bulk::Stream</code> batches/s for 5&nbsp;s while injecting timed <code>Priority::Key</code> events; assert p99 key-to-state latency &lt; 50&nbsp;ms and that the scrollback cap holds — replacing the toy-channel test's guarantees (keep the toy test as a fast smoke).</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>The flood test is the deliverable; consistency fixes get unit coverage. Edge cases: control plane flapping (down→up→down) during <code>--watch</code>, stream reconnect during selection change.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>cargo test -p forge-cli</code> — flood integration test and watch-fallback tests pass.</li>
+        <li><code class="status">[x]</code> Manual: <code>forge run list --watch</code> while stopping/starting <code>forge serve</code> — output alternates sources without the process dying.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 5: Evidence Work — Pi Tool Benchmark &amp; A2A Client</h3>
+      <p>Produce the data that unblocks the deferred backlog decisions, and land the one post-MVP item that was always cheap.</p>
+
+      <h4>1. Pi built-in tool latency benchmark</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Scripted benchmark (Rust <code>#[ignore]</code> test or <code>scripts/pi_tool_bench.sh</code> driving <code>pi --mode rpc</code>): time N=30 round-trips each of <code>read</code> (large file), <code>grep</code> (repo-wide pattern), <code>edit</code> (surgical replace), and <code>bash</code> (no-op) on this repository with a local model, measuring <em>tool_execution_start→end</em> so model latency is excluded.</li>
+        <li><code class="status">[x]</code> Record medians/p95 plus end-to-end share of turn time in <code>docs/PI_TOOL_BENCHMARK.md</code>, ending with an explicit go/no-go recommendation for the <code>forge-tools</code> RFC against the parent plan's criterion (“only if tool execution is a measured bottleneck”); append the verdict to the parent plan's Amendments.</li>
+      </ul>
+
+      <h4>2. A2A client</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>forge-api::a2a</code>: agent-card fetch (<code>/.well-known/agent-card.json</code>, unauthenticated) and bearer JSON-RPC calls <code>message/send</code> (requires <code>metadata.project_id</code>), <code>tasks/get</code>, <code>tasks/cancel</code>, per <code>docs/A2A.md</code>; typed request/response structs with fixtures added to the Phase-1 contract harness.</li>
+        <li><code class="status">[x]</code> CLI: <code>forge a2a send --project ID "goal"</code>, <code>forge a2a get TASK_ID</code>, <code>forge a2a cancel TASK_ID</code>, honoring the global <code>--json</code> flag.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>A2A gets fixture-decode + transport tests like every other endpoint; the benchmark is validated by running it twice and confirming stable medians (&lt;20% variance). Edge cases: A2A request without project_id (typed 4xx error surfaced cleanly), agent-card fetch without a token.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>cargo test -p forge-api</code> — A2A fixture and transport tests pass.</li>
+        <li><code class="status">[x]</code> <code>uv run pytest tests/contract -q</code> — A2A fixtures regenerate cleanly from the real adapter routes.</li>
+        <li><code class="status">[x]</code> Benchmark executed twice with results recorded in <code>docs/PI_TOOL_BENCHMARK.md</code> and the go/no-go verdict written.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[x]</code> <code>uv run pytest tests/contract -q</code> — handler-generated fixtures (incl. A2A) are green and current.</li>
+      <li><code class="status">[x]</code> <code>cd experimental &amp;&amp; cargo fmt --all -- --check &amp;&amp; cargo clippy --workspace --all-targets -- -D warnings &amp;&amp; cargo test --workspace</code> — whole workspace clean offline, without Pi installed.</li>
+      <li><code class="status">[x]</code> <code>cargo test -p forge-pi -- --ignored</code> — (pinned Pi) flag matrix + new transcripts pass; mirrored by the <code>rust-pi-compat</code> CI job.</li>
+      <li><code class="status">[x]</code> <code>cargo test -p forge-cli --test flood</code> — real-event-loop flood: p99 input latency &lt; 50 ms.</li>
+      <li><code class="status">[x]</code> <code>./target/release/forge run list --watch --json</code> — survives a control-plane restart, alternating <code>source</code> values.</li>
+      <li><code class="status">[x]</code> <code>./target/release/forge a2a send --project PROJECT_ID "validation goal" --json</code> — creates an A2A task against a running <code>forge a2a</code> server.</li>
+      <li><code class="status">[x]</code> <code>docs/PI_TOOL_BENCHMARK.md</code> exists with two consistent runs and an explicit forge-tools go/no-go verdict.</li>
+      <li><code class="status">[x]</code> CI run on the PR is fully green with no Node-20 deprecation annotations.</li>
+    </ul>
+    <div class="loop">
+      🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong>
+    </div>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+
+    <h3>What Cycle 1 already closed (do not re-plan)</h3>
+    <p>The implementation review of PR #6 found ten issues; seven were fixed before the merge commit and are pinned by tests:</p>
+    <table>
+      <thead><tr><th>Review finding</th><th>Status in <code>8ab70de</code></th></tr></thead>
+      <tbody>
+        <tr><td>“q” unusable in the session editor</td><td class="done">Fixed — <kbd>ctrl+q</kbd> quits, <code>session_prompt_accepts_q_and_uses_ctrl_q_to_quit</code></td></tr>
+        <tr><td>Fire-and-forget extension methods opened blocking dialogs</td><td class="done">Fixed — <code>notify</code> et al. routed to status, tested</td></tr>
+        <tr><td><code>Bulk::Stream</code> batches dropped on a capacity-1 channel</td><td class="done">Fixed — dedicated <code>stream_tx</code> channel (cap 64)</td></tr>
+        <tr><td><code>PiCommand</code>/typed protocol unused</td><td class="done">Fixed — <code>PiClient::send(PiCommand)</code></td></tr>
+        <tr><td>Dead <code>model.rs</code>/<code>store.rs</code> + orphaned deps</td><td class="done">Deleted</td></tr>
+        <tr><td>Promote ignored <code>started</code>/<code>already_running</code></td><td class="done">Fixed — distinct result messages</td></tr>
+        <tr><td>Text deltas shredded one-per-line; select options unrendered</td><td class="done">Fixed — coalescing + options row, tested</td></tr>
+      </tbody>
+    </table>
+    <p>The three that remain — hand-written fixtures, session lifecycle UX, weak flood test — are Phases 1, 3, and 4 of this plan; the review's smaller notes (per-command timeouts, <code>--resume</code> doubt, watch fallback, CLI dialog auto-cancel) are Phases 2 and 4.</p>
+
+    <h3>Design decisions</h3>
+    <ul>
+      <li><strong>TestClient over raw serializer calls</strong> for fixtures: driving the HTTP layer exercises response_model coercion, auth dependency, and status codes in one pass — the closest thing to the wire the Rust client actually reads. Dependency overrides keep Postgres out of the loop; the stable fixture IDs are seeded into the stubs so diffs stay reviewable.</li>
+      <li><strong><code>--resume</code> resolution:</strong> Pi 0.80.2 documents <code>--session &lt;path&gt;</code>/<code>--fork</code>/<code>--no-session</code>; “resume most recent” is a picker concern, not a spawn flag. <code>forge session --resume</code> becomes “open the picker preselecting the newest session for this cwd”, implemented via <code>--session</code>. If <code>pi --help</code> on the pinned binary shows a native resume flag, prefer it and record that in the flag-matrix test.</li>
+      <li><strong>Benchmark measures tool execution, not model latency:</strong> using <code>tool_execution_start/end</code> event timestamps isolates the thing forge-tools could actually improve. If the median tool round-trip is a few ms against seconds of model time, the RFC is a clean no-go and the backlog entry gets closed with data rather than opinion.</li>
+      <li><strong>Editor swap risk:</strong> <code>tui-textarea</code> owns key handling; the wrapper must forward only editing keys and keep mode-level shortcuts (tab, ctrl+*) at the app layer, preserving every existing key-handling test unchanged.</li>
+      <li><strong>Phase independence:</strong> 1–2 touch no TUI code; 3–4 touch no Python. Two PRs (1+2, 3+4+5) is the natural split if review bandwidth is tight.</li>
+    </ul>
+
+    <h3>Dependencies</h3>
+    <ul>
+      <li>Rust: <code>tui-textarea</code> (workspace dep, forge-cli only). No new Python deps — <code>TestClient</code> ships with FastAPI/starlette already in the project.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Image slots:</strong> the four <code>{{...IMAGE}}</code> placeholders are left as annotated comments —
+      <code>OPENAI_API_KEY</code> is not available in this environment. Run the planf3 <em>Image Generation → Create</em>
+      sub-workflow to fill them (output to <code>specs/forge-rust-tui-cycle2/</code>).
+    </div>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <details>
+      <summary>2026-07-12T18:18:41Z — Plan executed end to end; forge-tools decided NO-GO</summary>
+      <p>
+        All five phases built and validated in one pass. Phase 1: fixtures are now generated through a
+        FastAPI <code>TestClient</code> with dependency overrides and response models on every fixture route;
+        a schema mutation (field rename in <code>RuntimeRunSnapshot</code>) was verified to fail the suite.
+        Phase 2: per-command timeouts, dialog timeout auto-resolve, CLI dialog auto-cancel, a validated
+        <code>SpawnOptions</code> flag builder (Pi 0.80.2's real flags are <code>--continue/--session/--fork/
+        --no-session</code>; interactive <code>--resume</code> is not passed to RPC), a live flag-matrix test,
+        recorded <code>get_session_stats</code>/<code>steer</code> transcripts, and CI action bumps.
+        Phase 3: stats footer, <kbd>ctrl+r</kbd> session picker (switch + fork-by-respawn), esc
+        abort/steer/follow-up menu, <code>tui-textarea</code> editor, and a three-stage project-aware promote
+        with an active-run warning. Phase 4: watch-mode offline fallback with recovery, stream-reconnect
+        notices, and a flood test that drives the real <code>event_loop</code> on a <code>TestBackend</code>.
+        Phase 5: A2A client (<code>forge a2a card|send|get|cancel</code>) with handler-generated fixtures and
+        a live send→get→cancel round-trip; the tool benchmark ran twice against
+        <code>google/gemma-4-12b-qat</code> and produced an unambiguous <strong>NO-GO</strong> for
+        forge-tools as a latency project (tools execute in 2–20 ms; turn time is model-dominated) — see
+        <a href="../docs/PI_TOOL_BENCHMARK.md">docs/PI_TOOL_BENCHMARK.md</a>.
+        Live validation also surfaced and fixed two real Python bugs, each pinned by a test:
+        <code>pge_launcher.launch_pge</code>'s already-running verdict was clobbered by the stale manifest
+        status (<code>tests/regression/test_launcher_already_running_verdict.py</code>), and
+        <code>forge_a2a.task_bridge.task()</code> flipped canceled tasks back to working.
+      </p>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

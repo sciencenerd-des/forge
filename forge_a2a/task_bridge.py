@@ -86,12 +86,15 @@ def task(task_id: str) -> dict[str, Any]:
     record = document["tasks"].get(task_id)
     if record is None:
         raise KeyError(task_id)
-    with SessionLocal() as db:
-        goal = db.get(ForgeGoal, record["goal_id"])
-        if goal is not None:
-            if goal.status == "completed": record["status"] = "completed"
-            elif goal.status in {"active", "proposed"}: record["status"] = "working"
-            elif goal.status in {"blocked", "failed"}: record["status"] = "failed"
+    # Terminal states are final: a canceled task must not flip back to
+    # "working" just because the underlying goal is still marked active.
+    if record["status"] not in {"completed", "failed", "canceled"}:
+        with SessionLocal() as db:
+            goal = db.get(ForgeGoal, record["goal_id"])
+            if goal is not None:
+                if goal.status == "completed": record["status"] = "completed"
+                elif goal.status in {"active", "proposed"}: record["status"] = "working"
+                elif goal.status in {"blocked", "failed"}: record["status"] = "failed"
     if record["status"] in {"completed", "failed", "canceled"}:
         document["tasks"][task_id] = record
         _save(document)

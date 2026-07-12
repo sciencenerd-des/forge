@@ -75,12 +75,12 @@ kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); bor
       <summary>Metadata</summary>
       <dl>
         <dt>created</dt>      <dd>2026-07-12T06:50:40Z</dd>
-        <dt>modified</dt>     <dd>2026-07-12T06:50:40Z, 2026-07-12T07:10:14Z</dd>
+        <dt>modified</dt>     <dd>2026-07-12T06:50:40Z, 2026-07-12T07:10:14Z, 2026-07-12T11:32:48Z</dd>
         <dt>commits</dt>      <dd>3fa0fb0 (branch: agent/standalone-a2a-auth)</dd>
         <dt>agent name</dt>   <dd>claude-fable-5, claude-fable-5</dd>
         <dt>session id</dt>   <dd>5b3d94f7-98f3-46ee-823a-ba3a7f32f7a5, 5b3d94f7-98f3-46ee-823a-ba3a7f32f7a5</dd>
         <dt>back refs</dt>    <dd>ARCHITECTURE.md, docs/A2A.md, specs/forge-standalone-a2a-auth.html, experimental/README.md</dd>
-        <dt>forward refs</dt> <dd>(future RFCs: forge-tools native tool layer, forge-agent no-Node native loop)</dd>
+        <dt>forward refs</dt> <dd>specs/forge-rust-tui-cycle2.html (Cycle 2: contract integrity, session completion, evidence work), (future RFCs: forge-tools native tool layer — go/no-go decided by Cycle 2 Phase 5 benchmark, forge-agent no-Node native loop)</dd>
       </dl>
     </details>
   </header>
@@ -521,6 +521,20 @@ kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); bor
         no "static-ish" ambiguity) and the stale package name — now <code>@earendil-works/pi-coding-agent</code>
         from <code>earendil-works/pi</code>; (10) dropped the immediate <code>forge-core</code> extraction — three
         crates until shared ownership emerges.
+      </p>
+    </details>
+    <details>
+      <summary>2026-07-12T11:32:48Z — Implemented in PR #6; Cycle 2 planned</summary>
+      <p>
+        This plan was implemented and shipped as
+        <a href="https://github.com/sciencenerd-des/forge/pull/6">PR #6</a> (commits <code>dbdc852</code>,
+        <code>8ab70de</code>; CI fully green including the pinned-Pi compatibility job). The implementation
+        review found ten issues, seven of which were fixed pre-merge. The remaining gaps — hand-written
+        contract fixtures, unfinished session lifecycle UX (stats footer, session picker, steer/follow-up,
+        multi-line editor, unverified <code>--resume</code> flag), watch-mode offline fallback, and the
+        toy-channel flood test — plus the deferred evidence work (Pi tool benchmark for the forge-tools
+        go/no-go, A2A client) are scoped in the follow-up plan
+        <a href="forge-rust-tui-cycle2.html">specs/forge-rust-tui-cycle2.html</a> (see forward refs).
       </p>
     </details>
   </section>

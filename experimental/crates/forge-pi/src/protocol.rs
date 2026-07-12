@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize)]
@@ -95,6 +97,19 @@ pub enum PiCommand {
     },
 }
 
+impl PiCommand {
+    /// The RPC command budget is part of the protocol contract. Keep slow
+    /// session-changing work from inheriting the short state-query timeout.
+    pub fn timeout(&self) -> Duration {
+        match self {
+            Self::Compact { .. } | Self::SwitchSession { .. } | Self::Fork { .. } => {
+                Duration::from_secs(120)
+            }
+            _ => Duration::from_secs(15),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PiIncoming {
@@ -116,10 +131,56 @@ pub enum PiIncoming {
     ExtensionUiRequest {
         id: String,
         method: String,
+        #[serde(default)]
+        timeout: Option<u64>,
         #[serde(flatten)]
         details: serde_json::Value,
     },
-    AgentSettled,
+    AgentEnd {
+        #[serde(default)]
+        messages: Vec<serde_json::Value>,
+    },
+    ToolExecutionStart {
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(default)]
+        args: serde_json::Value,
+    },
+    ToolExecutionUpdate {
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(default)]
+        args: serde_json::Value,
+        #[serde(rename = "partialResult", default)]
+        partial_result: serde_json::Value,
+    },
+    ToolExecutionEnd {
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(default)]
+        result: serde_json::Value,
+        #[serde(rename = "isError", default)]
+        is_error: bool,
+    },
+    QueueUpdate {
+        #[serde(flatten)]
+        details: serde_json::Value,
+    },
+    CompactionStart,
+    CompactionEnd {
+        #[serde(flatten)]
+        details: serde_json::Value,
+    },
+    ExtensionError {
+        #[serde(flatten)]
+        details: serde_json::Value,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -139,5 +200,35 @@ mod tests {
             serde_json::to_value(command).expect("serialize"),
             serde_json::json!({"type":"set_model","id":"req-1","provider":"openai","modelId":"gpt-test"})
         );
+    }
+
+    #[test]
+    fn assigns_longer_budgets_to_session_changing_commands() {
+        assert_eq!(
+            PiCommand::Compact { id: None }.timeout(),
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            PiCommand::GetSessionStats { id: None }.timeout(),
+            Duration::from_secs(15)
+        );
+    }
+
+    #[test]
+    fn decodes_real_pi_agent_and_tool_events() {
+        let end: PiIncoming = serde_json::from_value(serde_json::json!({
+            "type": "agent_end", "messages": []
+        }))
+        .expect("agent end");
+        assert!(matches!(end, PiIncoming::AgentEnd { .. }));
+        let tool: PiIncoming = serde_json::from_value(serde_json::json!({
+            "type": "tool_execution_end", "toolCallId": "call-1",
+            "toolName": "read", "result": {"content": []}, "isError": false
+        }))
+        .expect("tool end");
+        assert!(matches!(
+            tool,
+            PiIncoming::ToolExecutionEnd { tool_name, is_error: false, .. } if tool_name == "read"
+        ));
     }
 }

@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use forge_api::{
     ApprovalDecision, ForgeApi, ForgeConfig, ProjectId, ProviderUpdate, RunId, RuntimeRunStart,
 };
+use forge_pi::SpawnOptions;
 use futures_util::StreamExt;
 
 #[derive(Parser)]
@@ -30,7 +31,7 @@ struct Cli {
 enum Command {
     Health,
     Config,
-    Tui,
+    Tui(TuiArgs),
     Session(SessionArgs),
     Run {
         #[command(subcommand)]
@@ -44,6 +45,26 @@ enum Command {
         #[command(subcommand)]
         command: ProviderCommand,
     },
+    A2a {
+        #[command(subcommand)]
+        command: A2aCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum A2aCommand {
+    /// Fetch the public agent card.
+    Card,
+    /// Create an A2A task (requires an existing project).
+    Send {
+        #[arg(long)]
+        project: String,
+        goal: String,
+    },
+    /// Fetch a task's durable state.
+    Get { task_id: String },
+    /// Cancel a task and its detached run.
+    Cancel { task_id: String },
 }
 
 #[derive(Args)]
@@ -52,12 +73,50 @@ struct SessionArgs {
     provider: Option<String>,
     #[arg(long)]
     model: Option<String>,
+    #[arg(long = "continue")]
+    continue_recent: bool,
     #[arg(long)]
-    resume: bool,
+    session: Option<String>,
     #[arg(long)]
     fork: Option<String>,
     #[arg(long)]
     no_session: bool,
+    #[arg(long)]
+    session_dir: Option<std::path::PathBuf>,
+    #[arg(long, hide = true)]
+    resume: bool,
+}
+
+#[derive(Args)]
+struct TuiArgs {
+    #[arg(long)]
+    provider: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    session: Option<String>,
+    #[arg(long)]
+    fork: Option<String>,
+    #[arg(long = "continue")]
+    continue_recent: bool,
+    #[arg(long)]
+    no_session: bool,
+    #[arg(long)]
+    session_dir: Option<std::path::PathBuf>,
+}
+
+impl From<TuiArgs> for SpawnOptions {
+    fn from(args: TuiArgs) -> Self {
+        Self {
+            provider: args.provider,
+            model: args.model,
+            session: args.session,
+            fork: args.fork,
+            continue_recent: args.continue_recent,
+            no_session: args.no_session,
+            session_dir: args.session_dir,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -191,11 +250,12 @@ async fn main() -> Result<()> {
                 "manifest": config.manifest_path(),
             }),
         ),
-        Command::Tui => tui::run(api, config).await,
+        Command::Tui(args) => tui::run(api, config, args.into()).await,
         Command::Session(_) => unreachable!("session starts before control-plane configuration"),
         Command::Run { command } => run_command(&api, &config, json, command).await,
         Command::Approvals { command } => approval_command(&api, json, command).await,
         Command::Provider { command } => provider_command(&api, json, command).await,
+        Command::A2a { command } => a2a_command(&api, json, command).await,
     }
 }
 
@@ -315,6 +375,17 @@ async fn approval_command(api: &ForgeApi, json: bool, command: ApprovalCommand) 
                 .await?,
             )
         }
+    }
+}
+
+async fn a2a_command(api: &ForgeApi, json: bool, command: A2aCommand) -> Result<()> {
+    match command {
+        A2aCommand::Card => print_value(json, &api.agent_card().await?),
+        A2aCommand::Send { project, goal } => {
+            print_value(json, &api.a2a_send(&ProjectId(project), &goal).await?)
+        }
+        A2aCommand::Get { task_id } => print_value(json, &api.a2a_get(&task_id).await?),
+        A2aCommand::Cancel { task_id } => print_value(json, &api.a2a_cancel(&task_id).await?),
     }
 }
 

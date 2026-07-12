@@ -1,8 +1,8 @@
 {
-  "created_at": "2026-07-12T00:00:00+00:00",
+  "created_at": "2099-07-12T00:00:00",
   "current_node": "executor",
   "goal_id": "33333333-3333-3333-3333-333333333333",
-  "heartbeat_at": "2026-07-12T00:00:00+00:00",
+  "heartbeat_at": "2099-07-12T00:00:00",
   "id": "11111111-1111-1111-1111-111111111111",
   "lease_expires_at": null,
   "lease_owner": null,
@@ -13,5 +13,5 @@
   "status": "running",
   "terminal_reason": null,
   "turn": 2,
-  "updated_at": "2026-07-12T00:00:00+00:00"
+  "updated_at": "2099-07-12T00:00:00"
 }

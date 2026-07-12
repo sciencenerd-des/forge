@@ -11,109 +11,80 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+from fastapi.exceptions import ResponseValidationError
+
+from .conftest import A2A_TASK_ID, APPROVAL_ID, HEADERS, PROJECT_ID, RUN_ID
 from control_plane.api import app
-from control_plane.schemas import RuntimeRunSnapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "contracts" / "fixtures"
 OPENAPI = ROOT / "contracts" / "openapi" / "control-plane.json"
 
 
-def _samples() -> dict[str, object]:
-    """Representative wire payloads for each public operator representation.
+def _json(response, expected_status: int):
+    assert response.status_code == expected_status, response.text
+    return response.json()
 
-    These use the exact field names and response wrappers defined by the
-    FastAPI handlers/Pydantic schemas. IDs are stable only so git diffs expose
-    contract changes clearly; they are not fixtures for database behavior.
-    """
-    run_id = "11111111-1111-1111-1111-111111111111"
-    project_id = "22222222-2222-2222-2222-222222222222"
-    now = "2026-07-12T00:00:00+00:00"
-    return {
-        "runtime-runs.json": [RuntimeRunSnapshot(
-            id=run_id,
-            project_id=project_id,
-            project_name="fixture-project",
-            goal_id="33333333-3333-3333-3333-333333333333",
-            goal_title="Fixture goal",
-            status="running",
-            current_node="executor",
-            batch=2,
-            pid=4242,
-            updated_at=now,
-            active_task="Implement fixture",
-            attempt_count=1,
-            no_progress_count=0,
-            task_total=3,
-            task_completed=1,
-            file_count=2,
-            test_count=4,
-            log_tail=["executor running"],
-            model="fixture-model",
-        ).model_dump(mode="json")],
-        "durable-run.json": {
-            "id": run_id,
-            "project_id": project_id,
-            "goal_id": "33333333-3333-3333-3333-333333333333",
-            "provider_id": "executor",
-            "status": "running",
-            "current_node": "executor",
-            "turn": 2,
-            "max_turns": 24,
-            "lease_owner": None,
-            "lease_token": None,
-            "lease_expires_at": None,
-            "heartbeat_at": now,
-            "terminal_reason": None,
-            "created_at": now,
-            "updated_at": now,
-        },
-        "events.json": [{
-            "id": "44444444-4444-4444-4444-444444444444",
-            "run_id": run_id,
-            "sequence": 1,
-            "event_type": "run.running",
-            "actor": "pge-supervisor",
-            "payload": {"batch": 2},
-            "created_at": now,
-        }],
-        "approvals.json": [{
-            "id": "55555555-5555-5555-5555-555555555555",
-            "run_id": run_id,
-            "action_type": "external_action",
-            "action_digest": "a" * 64,
-            "action_preview": {"url": "https://example.test"},
-            "risk": "high",
-            "status": "pending",
-            "requested_by": "planner",
-            "decided_by": None,
-            "decision_reason": None,
-            "expires_at": "2026-07-12T00:15:00+00:00",
-            "decided_at": None,
-            "consumed_at": None,
-            "created_at": now,
-        }],
-        "providers.json": {
-            "version": 1,
-            "profiles": {"executor": {
-                "base_url": "http://127.0.0.1:1234/v1",
-                "model": "fixture-model",
-                "api_key": "sec…1234",
-                "auth_mode": "api_key",
-            }},
-        },
-        "run-start.json": {
-            "status": "success", "started": True, "already_running": False,
-            "run_id": run_id, "pid": 4242, "log": "/tmp/fixture.log",
-            "source": "control-plane:web", "note": "Detached PGE supervisor started; lifecycle is durable in PostgreSQL.",
-        },
-        "run-stop.json": {"status": "stopped", "project_id": project_id, "pid": 4242},
-        "errors.json": {
-            "unauthorized": {"detail": "invalid control-plane credential"},
-            "not_found": {"detail": "run not found"},
-            "conflict": {"detail": "approval is no longer pending"},
-        },
+
+def _samples(client) -> dict[str, object]:
+    """Capture wire payloads through real routes and response models."""
+    _json(client.put("/providers/executor", headers=HEADERS, json={
+        "base_url": "http://127.0.0.1:1234/v1",
+        "model": "fixture-model",
+        "api_key": "secret-key-1234",
+        "auth_mode": "api_key",
+    }), 200)
+    approvals = _json(client.get("/approvals", headers=HEADERS), 200)
+    samples = {
+        "runtime-runs.json": _json(client.get("/runtime/runs", headers=HEADERS), 200),
+        "runtime-projects.json": _json(client.get("/runtime/projects", headers=HEADERS), 200),
+        "durable-run.json": _json(client.get(f"/runs/{RUN_ID}", headers=HEADERS), 200),
+        "events.json": _json(client.get(f"/runs/{RUN_ID}/events", headers=HEADERS), 200),
+        "approvals.json": approvals,
+        "providers.json": _json(client.get("/providers", headers=HEADERS), 200),
+        "run-start.json": _json(client.post("/runtime/runs/start", headers=HEADERS, json={
+            "goal": "Fixture goal", "description": "Implement fixture", "project_id": PROJECT_ID,
+        }), 201),
+        "run-stop.json": _json(client.post(f"/runtime/runs/{PROJECT_ID}/stop", headers=HEADERS), 200),
     }
+    first_decision = _json(client.post(
+        f"/approvals/{APPROVAL_ID}/decision",
+        headers=HEADERS,
+        json={"actor": "fixture", "approved": True, "reason": "Reviewed"},
+    ), 200)
+    assert first_decision["status"] == "approved"
+    samples["errors.json"] = {
+        "unauthorized": _json(client.get("/runtime/runs"), 401),
+        "not_found": _json(client.get("/runs/missing", headers=HEADERS), 404),
+        "conflict": _json(client.post(
+            f"/approvals/{APPROVAL_ID}/decision",
+            headers=HEADERS,
+            json={"actor": "fixture", "approved": True, "reason": "Reviewed again"},
+        ), 409),
+    }
+
+    def rpc(method: str, params: dict) -> dict:
+        return _json(client.post("/a2a", headers=HEADERS, json={
+            "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+        }), 200)
+
+    samples["agent-card.json"] = _json(client.get("/.well-known/agent-card.json"), 200)
+    send = rpc("message/send", {
+        "metadata": {"project_id": PROJECT_ID},
+        "message": {"parts": [{"text": "Fixture A2A goal"}]},
+    })
+    assert send["result"]["id"] == A2A_TASK_ID
+    samples["a2a-send.json"] = send
+    samples["a2a-get.json"] = rpc("tasks/get", {"id": A2A_TASK_ID})
+    samples["a2a-cancel.json"] = rpc("tasks/cancel", {"id": A2A_TASK_ID})
+    assert samples["a2a-cancel.json"]["result"]["status"]["state"] == "canceled"
+    samples["a2a-errors.json"] = {
+        "task_not_found": rpc("tasks/get", {"id": "missing"}),
+        "missing_project": rpc("message/send", {"message": {"parts": [{"text": "x"}]}}),
+        "unknown_method": rpc("tasks/unknown", {}),
+    }
+    return samples
 
 
 def _canonical(value: object) -> str:
@@ -128,14 +99,27 @@ def _assert_or_update(path: Path, value: object) -> None:
     assert path.read_text(encoding="utf-8") == rendered, f"contract fixture changed: {path.relative_to(ROOT)}"
 
 
-def test_contract_fixtures_are_current() -> None:
+def test_contract_fixtures_are_current(contract_client) -> None:
     _assert_or_update(OPENAPI, app.openapi())
-    for name, payload in _samples().items():
+    for name, payload in _samples(contract_client).items():
         _assert_or_update(FIXTURES / name, payload)
 
 
-def test_runtime_fixture_keys_follow_the_handler_response_model() -> None:
+def test_runtime_fixture_keys_follow_the_handler_response_model(contract_client) -> None:
     """Prevent a dashboard field from drifting away from its wire contract."""
     schema = app.openapi()["components"]["schemas"]["RuntimeRunSnapshot"]
-    sample = _samples()["runtime-runs.json"][0]
+    sample = _samples(contract_client)["runtime-runs.json"][0]
     assert set(sample) == set(schema["properties"])
+
+
+def test_runtime_handler_rejects_a_drifted_snapshot(contract_client, monkeypatch) -> None:
+    """A dropped runtime field must fail at the HTTP boundary, not in Rust."""
+    import control_plane.api as api
+
+    monkeypatch.setattr(
+        api,
+        "list_runtime_snapshots",
+        lambda: [{"id": RUN_ID, "project_id": PROJECT_ID}],
+    )
+    with pytest.raises(ResponseValidationError):
+        contract_client.get("/runtime/runs", headers=HEADERS)

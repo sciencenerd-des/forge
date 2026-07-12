@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::PathBuf,
     process::Stdio,
     sync::{
         Arc,
@@ -39,6 +40,56 @@ pub enum PiError {
     Protocol(String),
     #[error("Pi command response timed out")]
     Timeout,
+    #[error("invalid Pi session options: {0}")]
+    InvalidSpawnOptions(String),
+}
+
+/// Session arguments accepted by Pi RPC mode. This keeps all callers on one
+/// validated flag contract and prevents interactive `--resume` from being
+/// passed before JSONL RPC starts.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SpawnOptions {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub session: Option<String>,
+    pub fork: Option<String>,
+    pub continue_recent: bool,
+    pub no_session: bool,
+    pub session_dir: Option<PathBuf>,
+}
+
+impl SpawnOptions {
+    pub fn args(&self) -> Result<Vec<String>, PiError> {
+        let session_mode_count = usize::from(self.session.is_some())
+            + usize::from(self.fork.is_some())
+            + usize::from(self.continue_recent)
+            + usize::from(self.no_session);
+        if session_mode_count > 1 {
+            return Err(PiError::InvalidSpawnOptions(
+                "choose only one of session, fork, continue, or no-session".into(),
+            ));
+        }
+        let mut args = Vec::new();
+        if let Some(provider) = &self.provider {
+            args.extend(["--provider".into(), provider.clone()]);
+        }
+        if let Some(model) = &self.model {
+            args.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(session_dir) = &self.session_dir {
+            args.extend(["--session-dir".into(), session_dir.display().to_string()]);
+        }
+        if let Some(session) = &self.session {
+            args.extend(["--session".into(), session.clone()]);
+        } else if let Some(fork) = &self.fork {
+            args.extend(["--fork".into(), fork.clone()]);
+        } else if self.continue_recent {
+            args.push("--continue".into());
+        } else if self.no_session {
+            args.push("--no-session".into());
+        }
+        Ok(args)
+    }
 }
 
 struct Inner {
@@ -55,6 +106,10 @@ struct Inner {
 pub struct PiClient(Arc<Inner>);
 
 impl PiClient {
+    pub async fn spawn_with_options(options: &SpawnOptions) -> Result<Self, PiError> {
+        Self::spawn_pi(&options.args()?).await
+    }
+
     pub async fn spawn_pi(args: &[String]) -> Result<Self, PiError> {
         let mut command = Command::new("pi");
         command.arg("--mode").arg("rpc").args(args);
@@ -133,11 +188,7 @@ impl PiClient {
     }
 
     pub async fn send(&self, command: PiCommand) -> Result<serde_json::Value, PiError> {
-        let timeout_duration = match &command {
-            PiCommand::Compact { .. } => Duration::from_secs(60),
-            PiCommand::SwitchSession { .. } | PiCommand::Fork { .. } => Duration::from_secs(30),
-            _ => Duration::from_secs(15),
-        };
+        let timeout_duration = command.timeout();
         let mut command = serde_json::to_value(command)?;
         let id = self.0.next_id.fetch_add(1, Ordering::Relaxed).to_string();
         command["id"] = serde_json::Value::String(id.clone());
@@ -206,7 +257,7 @@ mod tests {
             "read line; printf '%s\\n' \"$1\" \"$2\"",
             "sh",
             "{\"type\":\"response\",\"id\":\"1\",\"command\":\"get_state\",\"success\":true}",
-            "{\"type\":\"agent_settled\"}",
+            "{\"type\":\"agent_end\",\"messages\":[]}",
         ]);
         let client = PiClient::spawn(command).await.expect("spawn fake Pi");
         let mut events = client.events();
@@ -217,9 +268,75 @@ mod tests {
         assert_eq!(response["success"], true);
         assert!(matches!(
             events.recv().await.expect("event"),
-            PiIncoming::AgentSettled
+            PiIncoming::AgentEnd { .. }
         ));
         client.shutdown().await;
+    }
+
+    #[test]
+    fn spawn_options_are_validated_and_rendered_once() {
+        let options = SpawnOptions {
+            provider: Some("openai".into()),
+            model: Some("gpt-test".into()),
+            session: Some("session.jsonl".into()),
+            session_dir: Some(PathBuf::from("/tmp/pi-sessions")),
+            ..SpawnOptions::default()
+        };
+        assert_eq!(
+            options.args().expect("args"),
+            [
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-test",
+                "--session-dir",
+                "/tmp/pi-sessions",
+                "--session",
+                "session.jsonl"
+            ]
+        );
+        assert!(
+            SpawnOptions {
+                session: Some("one".into()),
+                no_session: true,
+                ..SpawnOptions::default()
+            }
+            .args()
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the pinned Pi executable on PATH"]
+    async fn pinned_pi_accepts_every_supported_flag_combination() {
+        let directory = tempfile::tempdir().expect("session dir");
+        let combinations = [
+            SpawnOptions {
+                no_session: true,
+                ..SpawnOptions::default()
+            },
+            SpawnOptions {
+                no_session: true,
+                provider: Some("openai".into()),
+                model: Some("gpt-4o-mini".into()),
+                ..SpawnOptions::default()
+            },
+            SpawnOptions {
+                session_dir: Some(directory.path().to_path_buf()),
+                ..SpawnOptions::default()
+            },
+        ];
+        for options in combinations {
+            let client = PiClient::spawn_with_options(&options)
+                .await
+                .unwrap_or_else(|error| panic!("spawn with {options:?}: {error}"));
+            let response = client
+                .send(PiCommand::GetState { id: None })
+                .await
+                .unwrap_or_else(|error| panic!("get_state with {options:?}: {error}"));
+            assert_eq!(response["success"], true, "options: {options:?}");
+            client.shutdown().await;
+        }
     }
 
     #[tokio::test]

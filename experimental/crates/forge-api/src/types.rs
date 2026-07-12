@@ -38,6 +38,23 @@ pub struct RuntimeRunSnapshot {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RuntimeProjectSnapshot {
+    pub id: ProjectId,
+    pub name: String,
+    pub repo_path: String,
+    #[serde(default)]
+    pub goal_count: u32,
+    #[serde(default)]
+    pub active_goal: Option<String>,
+    #[serde(default)]
+    pub active_goal_status: Option<String>,
+    #[serde(default)]
+    pub task_total: u32,
+    #[serde(default)]
+    pub task_completed: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DurableRun {
     pub id: RunId,
     pub project_id: ProjectId,

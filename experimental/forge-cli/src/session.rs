@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use anyhow::{Context, Result};
-use forge_pi::{PiClient, PiCommand, PiError, PiIncoming};
+use forge_pi::{PiClient, PiCommand, PiError, PiIncoming, SpawnOptions};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::broadcast,
@@ -54,24 +54,22 @@ impl SessionEngine for PiSession {
 }
 
 pub async fn run(args: SessionArgs) -> Result<()> {
-    let mut pi_args = Vec::new();
-    if let Some(provider) = args.provider {
-        pi_args.extend(["--provider".into(), provider]);
-    }
-    if let Some(model) = args.model {
-        pi_args.extend(["--model".into(), model]);
-    }
     if args.resume {
-        pi_args.push("--resume".into());
-    }
-    if let Some(fork) = args.fork {
-        pi_args.extend(["--fork".into(), fork]);
-    }
-    if args.no_session {
-        pi_args.push("--no-session".into());
+        anyhow::bail!(
+            "--resume opens Pi's interactive selector before RPC starts; use --session PATH_OR_ID or --continue"
+        );
     }
     let session = PiSession {
-        client: PiClient::spawn_pi(&pi_args).await?,
+        client: PiClient::spawn_with_options(&SpawnOptions {
+            provider: args.provider,
+            model: args.model,
+            session: args.session,
+            fork: args.fork,
+            continue_recent: args.continue_recent,
+            no_session: args.no_session,
+            session_dir: args.session_dir,
+        })
+        .await?,
     };
     let mut events = session.events();
     println!("Pi session ready. Type a prompt; /abort aborts; /quit exits.");
@@ -87,7 +85,7 @@ pub async fn run(args: SessionArgs) -> Result<()> {
                         print!("{delta}");
                     }
                 }
-                Ok(PiIncoming::AgentSettled) => println!(),
+                Ok(PiIncoming::AgentEnd { .. }) => println!(),
                 Ok(PiIncoming::ExtensionUiRequest { id, method, .. }) => {
                     eprintln!("\nPi extension requested {method}; cancelling it in CLI mode.");
                     session

@@ -32,11 +32,17 @@ forge approvals list --status pending
 forge approvals decide APPROVAL_ID --approve --reason "Reviewed the action"
 forge provider list
 forge provider set executor --base-url http://127.0.0.1:1234/v1 --model local-model
+forge a2a card
+forge a2a send --project PROJECT_ID "Run the test suite and fix the failing parser"
+forge a2a get TASK_ID
+forge a2a cancel TASK_ID
 forge tui
 ```
 
 `forge run stop` takes a **project ID**; run events take a **run ID**. The
-client keeps those identifiers as distinct Rust types.
+client keeps those identifiers as distinct Rust types. `forge run list
+--watch` keeps polling through control-plane outages, alternating its
+`source` field between `control-plane` and `offline-manifest`.
 
 ## TUI keys
 
@@ -50,10 +56,24 @@ client keeps those identifiers as distinct Rust types.
 | `?` | Toggle help |
 | `q` | Quit operator mode |
 
-In session mode, `Ctrl+G` opens a promotion review. Enter the proposed goal,
-review it, then press `y` to explicitly create the durable PGE run. Escape
-cancels the proposal. Use `Ctrl+Q` to quit session mode; a plain `q` is entered
-as prompt text.
+### Session-mode keys
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Send the prompt (`Alt+Enter` inserts a newline) |
+| `Esc` | Open the turn menu: `a` abort · `s` steer with the editor text · `f` follow-up |
+| `Ctrl+R` | Session picker for this directory: `Enter` switch · `f` fork · `Esc` close |
+| `Ctrl+M` / `Ctrl+T` / `Ctrl+K` | Cycle model / thinking level / compact context |
+| `Ctrl+G` | Promote to a durable PGE goal |
+| `Ctrl+Q` | Quit (a plain `q` is prompt text) |
+
+The footer shows live session stats (model · thinking · context % · cost),
+refreshed after every settled turn.
+
+`Ctrl+G` runs a three-step review: type the goal, pick the target project
+(projects with an active run are marked `● active run` and warned about),
+then press `y` to explicitly create the durable PGE run. Escape cancels at
+any step.
 
 When the control plane is unavailable, the TUI shows a prominent **OFFLINE**
 banner and displays only the read-only launcher manifest. It never merges that

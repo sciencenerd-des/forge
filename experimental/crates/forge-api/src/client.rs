@@ -8,8 +8,8 @@ use crate::{
     sse::{SseEvent, decode_sse},
     types::{
         ApiErrorBody, Approval, ApprovalDecision, DurableRun, ProjectId, ProviderList,
-        ProviderProfile, ProviderUpdate, RunEvent, RunId, RunStartResult, RuntimeRunSnapshot,
-        RuntimeRunStart, StopRunResult,
+        ProviderProfile, ProviderUpdate, RunEvent, RunId, RunStartResult, RuntimeProjectSnapshot,
+        RuntimeRunSnapshot, RuntimeRunStart, StopRunResult,
     },
 };
 
@@ -30,6 +30,8 @@ pub enum ApiError {
     Decode(#[from] serde_json::Error),
     #[error("SSE stream failed: {0}")]
     Stream(String),
+    #[error("A2A JSON-RPC error {code}: {message}")]
+    Rpc { code: i64, message: String },
 }
 
 impl ForgeApi {
@@ -52,7 +54,7 @@ impl ForgeApi {
         self.get_json("runtime/runs", true).await
     }
 
-    pub async fn runtime_projects(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+    pub async fn runtime_projects(&self) -> Result<Vec<RuntimeProjectSnapshot>, ApiError> {
         self.get_json("runtime/projects", true).await
     }
 
@@ -136,7 +138,7 @@ impl ForgeApi {
         Ok(decode_sse(response.bytes_stream()))
     }
 
-    async fn get_json<T: serde::de::DeserializeOwned>(
+    pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
         authenticated: bool,
@@ -149,7 +151,7 @@ impl ForgeApi {
         Ok(response.json().await?)
     }
 
-    async fn send_json<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+    pub(crate) async fn send_json<T: serde::Serialize, R: serde::de::DeserializeOwned>(
         &self,
         method: Method,
         path: &str,

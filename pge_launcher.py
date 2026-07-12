@@ -119,7 +119,9 @@ def launch_pge(project_id: str, source: str, invocation: dict[str, Any] | None =
     state = load_run_state()
     existing = state.get(project_id, {})
     if process_is_alive(existing.get("pid")):
-        return {"status": "success", "started": False, "already_running": True, **existing}
+        # Spread the manifest first: its stale lifecycle status ("running",
+        # "stopped") must not clobber the launch verdict, which callers gate on.
+        return {**existing, "status": "success", "started": False, "already_running": True}
 
     run_id = str(uuid.uuid4())
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

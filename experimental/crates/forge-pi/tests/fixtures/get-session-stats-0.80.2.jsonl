@@ -1,0 +1,1 @@
+{"id":"1","type":"response","command":"get_session_stats","success":true,"data":{"sessionId":"019f574b-f336-7560-860c-8a60aed7b6df","userMessages":0,"assistantMessages":0,"toolCalls":0,"toolResults":0,"totalMessages":0,"tokens":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0},"cost":0,"contextUsage":{"tokens":0,"contextWindow":262144,"percent":0}}}

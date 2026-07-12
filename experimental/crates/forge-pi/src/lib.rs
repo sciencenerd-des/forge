@@ -8,5 +8,5 @@ pub mod process;
 pub mod protocol;
 
 pub use codec::JsonlDecoder;
-pub use process::{PiClient, PiError};
+pub use process::{PiClient, PiError, SpawnOptions};
 pub use protocol::{PiCommand, PiIncoming};

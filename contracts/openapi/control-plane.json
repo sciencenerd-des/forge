@@ -79,6 +79,112 @@
         "title": "ApprovalDecision",
         "type": "object"
       },
+      "ApprovalOut": {
+        "properties": {
+          "action_digest": {
+            "title": "Action Digest",
+            "type": "string"
+          },
+          "action_preview": {
+            "additionalProperties": true,
+            "title": "Action Preview",
+            "type": "object"
+          },
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "consumed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "decision_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Reason"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          },
+          "risk": {
+            "title": "Risk",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "action_type",
+          "action_digest",
+          "risk",
+          "status",
+          "requested_by",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "ApprovalOut",
+        "type": "object"
+      },
       "BrowserActionCreate": {
         "properties": {
           "action": {
@@ -136,6 +242,129 @@
           "run_id"
         ],
         "title": "BrowserSessionCreate",
+        "type": "object"
+      },
+      "DurableRunOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_node": {
+            "title": "Current Node",
+            "type": "string"
+          },
+          "goal_id": {
+            "title": "Goal Id",
+            "type": "string"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "lease_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Owner"
+          },
+          "lease_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Token"
+          },
+          "max_turns": {
+            "title": "Max Turns",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "terminal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Reason"
+          },
+          "turn": {
+            "title": "Turn",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "goal_id",
+          "status",
+          "current_node",
+          "turn",
+          "max_turns",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DurableRunOut",
         "type": "object"
       },
       "EventCreate": {
@@ -267,6 +496,77 @@
         "title": "LeaseHeartbeat",
         "type": "object"
       },
+      "ProviderListOut": {
+        "properties": {
+          "profiles": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ProviderProfileOut"
+            },
+            "title": "Profiles",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "profiles"
+        ],
+        "title": "ProviderListOut",
+        "type": "object"
+      },
+      "ProviderProfileOut": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "auth_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Mode"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "title": "ProviderProfileOut",
+        "type": "object"
+      },
       "ProviderUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -360,6 +660,182 @@
           "goal_id"
         ],
         "title": "RunCreate",
+        "type": "object"
+      },
+      "RunEventOut": {
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "sequence",
+          "event_type",
+          "actor",
+          "created_at"
+        ],
+        "title": "RunEventOut",
+        "type": "object"
+      },
+      "RunStartResultOut": {
+        "properties": {
+          "already_running": {
+            "default": false,
+            "title": "Already Running",
+            "type": "boolean"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "started": {
+            "title": "Started",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "started",
+          "run_id"
+        ],
+        "title": "RunStartResultOut",
+        "type": "object"
+      },
+      "RuntimeProjectSnapshot": {
+        "properties": {
+          "active_goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Goal"
+          },
+          "active_goal_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Goal Status"
+          },
+          "goal_count": {
+            "default": 0,
+            "title": "Goal Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "repo_path": {
+            "title": "Repo Path",
+            "type": "string"
+          },
+          "task_completed": {
+            "default": 0,
+            "title": "Task Completed",
+            "type": "integer"
+          },
+          "task_total": {
+            "default": 0,
+            "title": "Task Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "repo_path"
+        ],
+        "title": "RuntimeProjectSnapshot",
         "type": "object"
       },
       "RuntimeRunSnapshot": {
@@ -531,6 +1007,35 @@
         "title": "RuntimeRunStart",
         "type": "object"
       },
+      "StopRunResultOut": {
+        "properties": {
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "project_id"
+        ],
+        "title": "StopRunResultOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -698,8 +1203,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/ApprovalOut"
                   },
                   "title": "Response Approvals List Approvals Get",
                   "type": "array"
@@ -756,9 +1260,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Approvals Create Approvals Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApprovalOut"
                 }
               }
             },
@@ -823,9 +1325,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Approvals Decide Approvals  Approval Id  Decision Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApprovalOut"
                 }
               }
             },
@@ -1195,9 +1695,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Providers List Providers Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProviderListOut"
                 }
               }
             },
@@ -1314,9 +1812,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Providers Put Providers  Role  Put",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProviderProfileOut"
                 }
               }
             },
@@ -1443,8 +1939,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/DurableRunOut"
                   },
                   "title": "Response Runs List Runs Get",
                   "type": "array"
@@ -1501,9 +1996,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Runs Create Runs Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/DurableRunOut"
                 }
               }
             },
@@ -1623,9 +2116,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Runs Get Runs  Run Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/DurableRunOut"
                 }
               }
             },
@@ -1692,8 +2183,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/RunEventOut"
                   },
                   "title": "Response Events List Runs  Run Id  Events Get",
                   "type": "array"
@@ -1759,9 +2249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Events Create Runs  Run Id  Events Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunEventOut"
                 }
               }
             },
@@ -1990,8 +2478,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/RuntimeProjectSnapshot"
                   },
                   "title": "Response Runtime Projects Runtime Projects Get",
                   "type": "array"
@@ -2102,9 +2589,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Runtime Start Runtime Runs Start Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunStartResultOut"
                 }
               }
             },
@@ -2160,9 +2645,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Runtime Stop Runtime Runs  Project Id  Stop Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/StopRunResultOut"
                 }
               }
             },
