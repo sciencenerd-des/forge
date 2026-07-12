@@ -446,22 +446,10 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
             )}
         print(f"LLM Raw Output:\n{response_raw}\n")
         
-        # Clean JSON block
+        # Clean JSON block — extract_json handles think-tags, fences, and the
+        # junk-wrapped payloads small local models emit.
         try:
-            clean_raw = response_raw.strip()
-            if "<think>" in clean_raw:
-                clean_raw = clean_raw.split("</think>")[-1].strip()
-            if "</think>" in clean_raw:
-                clean_raw = clean_raw.split("</think>")[-1].strip()
-                
-            if "```json" in clean_raw:
-                _json_str = clean_raw.split("```json")[1].split("```")[0].strip()
-            elif "```" in clean_raw:
-                _json_str = clean_raw.split("```")[1].split("```")[0].strip()
-            else:
-                _json_str = clean_raw
-                
-            data = json.loads(extract_json(clean_raw))
+            data = json.loads(extract_json(response_raw))
             if "action" in data and "type" not in data:
                 data["type"] = "tool_call"
             if "action_input" in data and "arguments" not in data:
