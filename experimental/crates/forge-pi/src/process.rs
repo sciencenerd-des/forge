@@ -196,8 +196,18 @@ mod tests {
 
     #[tokio::test]
     async fn correlates_responses_and_broadcasts_events() {
+        // Pass the JSON records as positional args emitted with `printf '%s\n'`
+        // so the fake never depends on how a shell interprets `\"` — dash keeps
+        // the backslashes (invalid JSON) while bash strips them, which made this
+        // test pass on macOS and fail under Ubuntu CI's dash.
         let mut command = Command::new("sh");
-        command.args(["-c", "read line; printf '{\\\"type\\\":\\\"response\\\",\\\"id\\\":\\\"1\\\",\\\"command\\\":\\\"get_state\\\",\\\"success\\\":true}\\n{\\\"type\\\":\\\"agent_settled\\\"}\\n'"]);
+        command.args([
+            "-c",
+            "read line; printf '%s\\n' \"$1\" \"$2\"",
+            "sh",
+            "{\"type\":\"response\",\"id\":\"1\",\"command\":\"get_state\",\"success\":true}",
+            "{\"type\":\"agent_settled\"}",
+        ]);
         let client = PiClient::spawn(command).await.expect("spawn fake Pi");
         let mut events = client.events();
         let response = client
