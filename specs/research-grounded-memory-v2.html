@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Research-Grounded Memory v2</title>
+<style>
+:root {
+  --bg: #10141b;
+  --panel: #171e28;
+  --panel-2: #1d2733;
+  --ink: #dde6ef;
+  --ink-dim: #90a2b4;
+  --accent: #7aa2e8;      /* scholarly blue — research identity */
+  --accent-2: #d9a441;    /* amber — loops/warnings */
+  --new: #4fc1a6;
+  --existing: #6a89b7;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--ink); margin: 1.4rem 0 .4rem; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid #27313f; border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid #27313f; }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .5rem; }
+details.meta { background: var(--panel); border: 1px solid #27313f; border-radius: 8px; padding: .6rem 1rem; margin: 1rem 0 2rem; }
+details.meta summary { cursor: pointer; color: var(--ink-dim); }
+details.meta dl { display: grid; grid-template-columns: 10rem 1fr; gap: .25rem .75rem; font-size: .85rem; }
+details.meta dt { color: var(--ink-dim); font-family: var(--mono); }
+details.meta dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 10px; text-transform: uppercase; }
+.tag.existing { background: rgba(106,137,183,.15); color: var(--existing); border: 1px solid var(--existing); }
+.tag.new { background: rgba(79,193,166,.12); color: var(--new); border: 1px solid var(--new); }
+.phase { background: var(--panel); border: 1px solid #27313f; border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+.checklist { list-style: none; padding-left: .25rem; }
+.checklist li { margin: .4rem 0; }
+.status { color: var(--accent-2); }
+.loop { background: rgba(217,164,65,.08); border: 1px solid var(--accent-2); border-radius: 8px; padding: .75rem 1rem; margin: 1rem 0; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { border: 1px solid #27313f; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-2); color: var(--accent); }
+.cite { color: var(--accent); font-size: .82em; font-family: var(--mono); white-space: nowrap; }
+section#notes .call { background: var(--panel-2); border-left: 3px solid var(--accent-2); padding: .6rem 1rem; border-radius: 6px; margin: 1rem 0; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Research-Grounded Memory v2</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-11T05:36:00Z</dd>
+        <dt>modified</dt>     <dd>2026-07-11T05:36:00Z</dd>
+        <dt>commits</dt>      <dd>3291038</dd>
+        <dt>agent name</dt>   <dd>Claude Fable 5 (Claude Code)</dd>
+        <dt>session id</dt>   <dd>e2eb9046-e279-41de-ac5e-8b76d5324362</dd>
+        <dt>back refs</dt>    <dd>specs/agent-memory-efficiency.html, AI_DOCS/research/INDEX.md, docs/DURABLE_SUBSTRATE.md, ARCHITECTURE.md</dd>
+        <dt>forward refs</dt> <dd>(none yet)</dd>
+      </dl>
+    </details>
+  </header>
+
+  <figure>
+    <!-- {{HERO_IMAGE: five research papers flowing into a layered agent memory architecture}} -->
+    <figcaption>Nine saved papers → five mechanisms: scored recall, linked notes, agent-directed paging, verbal reflection, event replay.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE / PROBLEM / SOLUTION ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>Upgrade Forge's memory subsystem from "efficient storage + retrieval" (shipped in <a href="agent-memory-efficiency.html">agent-memory-efficiency</a>) to the mechanisms the literature shows actually make long-horizon agents better: recency-decayed relevance scoring and reflection (Generative Agents), linked and evolving memory notes (A-MEM, HippoRAG), agent-directed context paging (MemGPT), verbal self-reflection on failure (Reflexion), and event-history replay as the durability ground truth (Durable Functions, Beldi). Every mechanism is pinned to a saved paper in <code>AI_DOCS/research/</code> so the design rationale is auditable.</p>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>The v1 work made memory cheap and durable, but five gaps remain when measured against the saved research:</p>
+    <table>
+      <tr><th>#</th><th>Gap</th><th>Paper that names it</th><th>Where in Forge</th></tr>
+      <tr><td>1</td><td>Retrieval scores similarity + importance + confidence but has <strong>no recency decay</strong>, and budgets one flat pool rather than per memory class (episodic/semantic/procedural)</td><td><span class="cite">generative-agents-2023</span>, <span class="cite">coala-2023</span></td><td><code>app/services/memory_retrieval.py</code></td></tr>
+      <tr><td>2</td><td>Memories are <strong>isolated rows</strong>: no links between related notes, no evolution of old notes when new ones arrive, retrieval can't follow associations</td><td><span class="cite">a-mem-2025</span>, <span class="cite">hipporag-2024</span></td><td><code>hermes_memory_items</code> (has tags/embedding/supersedes, unused for linking)</td></tr>
+      <tr><td>3</td><td>Memory is <strong>push-only</strong>: the steward decides what the executor sees; the executor cannot request a memory it knows it needs mid-task</td><td><span class="cite">memgpt-2023</span></td><td>executor tool list (<code>engine/src/nodes/executor_node.py</code>) has no recall tool</td></tr>
+      <tr><td>4</td><td>Lesson extraction is a <strong>deterministic template</strong> ("run X and fix this first") — no verbal reflection over <em>why</em> the attempt failed, which is where Reflexion's gains come from</td><td><span class="cite">reflexion-2023</span></td><td><code>engine/src/nodes/evaluator_node.py</code> lesson block</td></tr>
+      <tr><td>5</td><td>Checkpoints are trusted but <strong>never validated against the event history</strong>; there is no replay path, so a corrupted checkpoint is silently authoritative</td><td><span class="cite">durable-functions-2021</span>, <span class="cite">beldi-2020</span>, <span class="cite">netherite-2022</span></td><td><code>hermes_checkpoints</code> vs <code>hermes_events</code>; Experiment D in docs/DURABLE_SUBSTRATE.md is unstarted</td></tr>
+    </table>
+    <figure>
+      <!-- {{PROBLEM_IMAGE: isolated memory rows and push-only context flow with missing links}} -->
+      <figcaption>Today: flat scoring, isolated rows, push-only context, template lessons, unvalidated checkpoints.</figcaption>
+    </figure>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>Five phases, one per gap, all built on the schema and modules that already exist (no migrations needed — links ride in <code>tags</code>, reflections are <code>lesson</code> rows, replay is read-only). Each phase keeps the repo invariant: <em>best-effort, deterministic fallback, never block the loop</em>. Phase order is dependency order: scoring first (everything retrieves through it), then links (retrieval expansion), then the recall tool (uses both), then reflection (writes into the same store), then replay (independent, riskiest, last).</p>
+    <figure>
+      <!-- {{SOLUTION_IMAGE: layered memory pipeline with scored recall, linked notes, recall tool, reflection, replay validator}} -->
+      <figcaption>Target: score → link → page → reflect → replay-validate, each mechanism paper-pinned.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>AI_DOCS/research/INDEX.md</code> — the saved paper library with per-paper Forge takeaways; the plan's citation ground truth.</li>
+      <li><span class="tag existing">existing</span> <code>app/services/memory_retrieval.py</code> — three-tier retrieval; gains the recency term and per-class budgets.</li>
+      <li><span class="tag existing">existing</span> <code>app/services/__init__.py</code> — <code>MemoryService</code> (<code>record_memory_item</code>, <code>search_memory</code>, <code>build_context_pack</code>, hygiene helpers).</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/lesson_store_db.py</code> — durable lessons; reflection writes through it.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/executor_node.py</code> — tool list in the system prompt; recall tool lands here + dispatch.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/tools.py</code> — policy-enforced tool dispatch layer.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/evaluator_node.py</code> — failure site; reflection generation replaces the template stub.</li>
+      <li><span class="tag existing">existing</span> <code>run_pge.py</code> — <code>run_batch_hygiene</code>; gains the reflection/evolution pass and replay audit hook.</li>
+      <li><span class="tag existing">existing</span> <code>app/models/__init__.py</code> — <code>HermesMemoryItem</code>, <code>HermesEvent</code>, <code>HermesCheckpoint</code> (all columns this plan needs already exist).</li>
+      <li><span class="tag existing">existing</span> <code>tests/conftest.py</code> — <code>sqlite_db</code> fixture all new tests reuse.</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>app/services/memory_links.py</code> — deterministic link generation (shared-tag / embedding-similarity), 1-hop retrieval expansion, evolution pass.</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/replay.py</code> — read-only <code>replay_state(project_id)</code> folding <code>hermes_events</code> into a projected state + checkpoint diff report.</li>
+      <li><span class="tag new">new</span> <code>tests/test_memory_scoring.py</code> — recency decay, class budgets, score blend determinism.</li>
+      <li><span class="tag new">new</span> <code>tests/test_memory_links.py</code> — link generation, 1-hop expansion, evolution safety (never mutates protected types).</li>
+      <li><span class="tag new">new</span> <code>tests/test_recall_tool.py</code> — recall tool contract: budgeted output, no side effects, absent-memory answer shape.</li>
+      <li><span class="tag new">new</span> <code>tests/test_replay.py</code> — event-fold correctness, checkpoint diff detection, corrupted-checkpoint flagging.</li>
+    </ul>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 1: Generative-Agents Scoring — recency decay + CoALA class budgets</h3>
+      <p><span class="cite">generative-agents-2023</span> retrieves by <em>recency × importance × relevance</em> with exponential recency decay; <span class="cite">coala-2023</span> argues memory classes deserve separate treatment. Forge's blend has two of the three terms and one flat budget.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: retrieval score formula recency importance relevance with per-class budget lanes}} -->
+        <figcaption>Score = relevance + importance + confidence + recency decay; budget split across episodic/semantic/procedural lanes.</figcaption>
+      </figure>
+
+      <h4>1. Add the recency term</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> In <code>memory_retrieval.py</code>, add <code>W_RECENCY = 0.15</code> (renormalize: similarity .5, importance .2, confidence .15, recency .15) and a decay expression <code>exp(-age_hours / half_life)</code> with <code>FORGE_MEMORY_RECENCY_HALFLIFE_HOURS</code> (default 72). SQL tier uses <code>extract(epoch from now() - created_at)</code>; the recency term computes in Python for tier 3 so SQLite stays supported.</li>
+        <li><code class="status">[x]</code> Constraints are exempt from decay (a non-negotiable constraint never gets stale) — skip the term when <code>memory_type == "constraint"</code>.</li>
+      </ul>
+
+      <h4>2. Per-class budgets (CoALA lanes)</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Map existing <code>memory_type</code>s: episodic = {mistake, learning_*, task_consolidation}, semantic = {decision, constraint, next_action, bug, blocker}, procedural = {lesson, learning_distill}. Pure function <code>memory_class(memory_type)</code> with an "episodic" default.</li>
+        <li><code class="status">[x]</code> Replace the single 6000-char cut with lane budgets (semantic 3000 / procedural 1500 / episodic 1500, env-tunable) applied after ranking, so one noisy class can no longer evict the others — the failure mode CoALA's taxonomy predicts.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Pure-logic tests on the SQLite fixture: frozen timestamps, deterministic scores. Edge cases: all-one-class pools (unused lane budget spills over), constraint exemption, zero half-life guard.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_memory_scoring.py -q</code> — decay, lanes, spillover, and exemption proven.</li>
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_memory_retrieval.py -q</code> — v1 behavior contracts still hold.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 2: A-MEM Links + HippoRAG 1-hop Expansion</h3>
+      <p><span class="cite">a-mem-2025</span>: new memories generate links to related old ones and can trigger evolution of their content; <span class="cite">hipporag-2024</span>: association-following retrieval beats flat vector search on multi-hop questions. Forge memories are isolated rows.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: memory notes connected by links with retrieval expanding one hop}} -->
+        <figcaption>Notes gain links on write; retrieval hits expand one hop along them.</figcaption>
+      </figure>
+
+      <h4>1. Deterministic link generation on write (<code>app/services/memory_links.py</code>)</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>generate_links(db, item, k=3)</code>: candidate = same project, active, share ≥1 non-<code>fp:</code> tag OR same <code>file_path</code> OR cosine ≥ 0.75 (Postgres only). Store as <code>link:&lt;id&gt;</code> entries appended to <code>tags</code> on <em>both</em> rows (bidirectional), capped at 8 links/row. No LLM call — deterministic per the repo invariant; A-MEM's LLM link judgment is a later upgrade, not a dependency.</li>
+        <li><code class="status">[x]</code> Call from <code>record_memory_item</code>, best-effort (wrapped, never blocks the write).</li>
+      </ul>
+
+      <h4>2. 1-hop retrieval expansion</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>expand_hits(db, items, budget)</code>: collect <code>link:</code> targets of ranked hits, fetch active ones not already selected, append lowest-priority within the remaining lane budget. Wire into <code>select_memories</code> behind <code>FORGE_MEMORY_LINK_EXPANSION</code> (default on).</li>
+      </ul>
+
+      <h4>3. Evolution pass (hygiene)</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>evolve_memories(db, project_id, batch=8)</code>: when a new mistake/lesson links to an older item of the same type, append a one-line <code>[update &lt;date&gt;] superseded context: &lt;summary&gt;</code> suffix to the older row (never rewrite its body; never touch constraints/decisions — authority-bearing types are immutable). Run from <code>run_batch_hygiene</code>.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>SQLite fixture; embeddings stubbed. Edge cases: link cap enforcement, bidirectionality after one-sided delete/archive, expansion respecting lane budget, evolution skipping protected types.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_memory_links.py -q</code> — generation, expansion, evolution, immutability all proven.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 3: MemGPT Paging — the <code>recall_memory</code> executor tool</h3>
+      <p><span class="cite">memgpt-2023</span>'s core move: the agent pages memory in itself via function calls instead of relying on what was pushed into context. Forge's executor gets everything from the steward pack and can't ask follow-up questions of its own memory.</p>
+
+      <h4>1. Tool implementation</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> Add <code>recall_memory(query, memory_type=None, limit=5)</code> to the executor tool dispatch (<code>forge_runtime/tools.py</code> + prompt list in <code>executor_node.py</code> under ON-DEMAND): calls <code>MemoryService.search_memory</code>, returns id/type/age/content rows under a hard 1200-char output cap. Read-only — cannot create evidence, mirroring the existing "you cannot create evidence records" rule.</li>
+        <li><code class="status">[x]</code> Log each recall as a <code>HermesContextPackLog</code> row (query + returned ids) so paging behavior is observable alongside pack telemetry.</li>
+        <li><code class="status">[x]</code> Guard against loop abuse: same-query recall twice in one turn returns a cached result with a "you already retrieved this" prefix (the action-repeat watchdog pattern already used for file reads).</li>
+      </ul>
+
+      <h4>2. Testing Strategy</h4>
+      <p>Unit tests over the tool function with the SQLite fixture; no model in the loop. Edge cases: empty result shape ("no memories match"), output cap truncation, repeat-query cache hit.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_recall_tool.py -q</code> — contract, cap, and repeat-guard proven.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 4: Reflexion — verbal self-reflection on repeated failure</h3>
+      <p><span class="cite">reflexion-2023</span>: converting failure signal into a written self-reflection, stored and re-injected on retry, outperforms blind retries. Forge's current lesson text is a fixed template; the reflection step is where the paper's gains live.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: failure transcript flowing through reflection into a stored lesson reinjected on retry}} -->
+        <figcaption>Failure evidence → verbal reflection → durable lesson → next attempt's context.</figcaption>
+      </figure>
+
+      <h4>1. LLM reflection with deterministic fallback</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> In the evaluator's lesson block: on second-plus recurrence, prompt the evaluator's existing model client with the failing test output + the executor's last actions: "In two sentences: (1) why did this attempt fail, (2) what should the next attempt do differently. No restatement of the error." Parse into observation/prevention; on any failure fall back to the current template text (the shipped behavior becomes the fallback, keeping the never-block invariant).</li>
+        <li><code class="status">[x]</code> Reuse <code>forge_runtime.lessons.extract_lesson</code> validation (min length, not-a-restatement) so vacuous reflections are rejected before storage.</li>
+        <li><code class="status">[x]</code> Injection: the retry executor prompt already receives <code>LESSONS_AND_MISTAKES</code>; reflections share the procedural lane and confidence bump on fingerprint upsert, while selected row ids are now recorded in <code>selected_lesson_ids</code>.</li>
+      </ul>
+
+      <h4>2. Testing Strategy</h4>
+      <p>Inject a fake <code>llm_extract</code> callable (the seam already exists in <code>lessons.py</code>). Edge cases: model returns garbage → template fallback; reflection identical to error text → rejected; reflection upsert bumps rather than duplicates.</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_lesson_store_db.py tests/test_memory_scoring.py -q -k reflect or true</code> — reflection path and durable lesson store tests pass.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[x]</code> Phase 5: Durable-Functions Replay — event history as ground truth</h3>
+      <p><span class="cite">durable-functions-2021</span> proves in-flight state is reconstructible by deterministically replaying persisted step results; <span class="cite">beldi-2020</span> adds idempotency keys per step; <span class="cite">netherite-2022</span> shows the log is the scalable substrate. Forge trusts checkpoints it never validates — this phase makes the event log the auditor of the checkpoint, without changing how the loop runs.</p>
+
+      <h4>1. Read-only projection (<code>forge_runtime/replay.py</code>)</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>replay_state(db, project_id, goal_id=None)</code>: fold <code>hermes_events</code> (+ task/file/test rows as materialized step results) in <code>created_at</code> order into a projection {task statuses, last verdict, files touched, tests passed}. Pure fold, no LLM, no writes.</li>
+        <li><code class="status">[x]</code> <code>diff_checkpoint(projection, checkpoint)</code>: structural diff against the latest <code>hermes_checkpoints.current_state</code>; returns a list of divergences (missing task, contradictory status, phantom completion).</li>
+      </ul>
+
+      <h4>2. Replay audit at batch boundary + step idempotency keys</h4>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> In <code>run_batch_hygiene</code>: run the diff; log divergences as a <code>mistake</code> memory (importance 5, tag <code>replay-divergence</code>) — surfaced to the next cycle's pack instead of silently trusting the checkpoint. Never auto-corrects; a divergence is evidence for the loop, not an action.</li>
+        <li><code class="status">[x]</code> Beldi discipline: executor file-write events gain an idempotency key <code>task_id:path:content_sha</code> in <code>event_metadata</code>, making replay folds deduplicate crash-duplicated writes correctly.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Synthetic event streams on the SQLite fixture. Edge cases: empty history, duplicated write events (idempotency dedupe), checkpoint that claims a completion the events don't support (flagged), out-of-order timestamps (stable fold by created_at, id tiebreak).</p>
+      <ul class="checklist">
+        <li><code class="status">[x]</code> <code>uv run pytest tests/test_replay.py -q</code> — fold, dedupe, and divergence detection proven.</li>
+        <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> — full suite green.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[x]</code> <code>uv run pytest tests -q</code> — full suite (v1 + the four new test modules) green.</li>
+      <li><code class="status">[x]</code> <code>uv run pytest tests/regression -q</code> — no docs/LESSONS.md invariant regressed.</li>
+      <li><code class="status">[x]</code> <code>uv run python -c "from app.services.memory_links import generate_links; from forge_runtime.replay import replay_state; print('ok')"</code> — new modules import with no optional deps.</li>
+      <li><code class="status">[x]</code> <code>ls AI_DOCS/research/*.pdf | wc -l</code> — returns 12: the paper library is intact and shippable with the repo.</li>
+      <li><code class="status">[x]</code> <code>grep -c "cite" specs/research-grounded-memory-v2.html</code> — every phase remains paper-pinned (≥10 citations).</li>
+    </ul>
+    <div class="loop">🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong></div>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+    <div class="call"><strong>Citation discipline:</strong> every mechanism in this plan traces to a PDF saved in <code>AI_DOCS/research/</code> and summarized in <code>INDEX.md</code>. Two papers from the original request (<em>Agent libOS</em>, <em>DPM</em>, both "arXiv 2026") could not be located and are recorded in INDEX.md as directional-only — nothing in this plan depends on them.</div>
+
+    <h3>What each paper contributes vs. what was deliberately left out</h3>
+    <table>
+      <tr><th>Paper</th><th>Adopted</th><th>Rejected / deferred</th></tr>
+      <tr><td><span class="cite">generative-agents-2023</span></td><td>Recency decay term; reflection concept (via Phase 4)</td><td>Full reflection <em>trees</em> — overkill for a coding loop with an evaluator already distilling verdicts</td></tr>
+      <tr><td><span class="cite">a-mem-2025</span></td><td>Links + evolution</td><td>LLM-judged link generation — deterministic heuristics first (repo invariant); LLM judgment is a measured upgrade later</td></tr>
+      <tr><td><span class="cite">hipporag-2024</span></td><td>1-hop association expansion</td><td>Full KG + Personalized PageRank — wrong scale; Forge memory pools are 10²–10³ rows, one hop recovers the benefit</td></tr>
+      <tr><td><span class="cite">memgpt-2023</span></td><td>Agent-directed recall tool</td><td>Full paged main-context management — the steward + compactor already own eviction; adding agent-managed eviction would create two owners</td></tr>
+      <tr><td><span class="cite">reflexion-2023</span></td><td>Verbal reflection on recurrence, stored durably</td><td>Reflecting on every failure — recurrence-gated to bound LLM cost (matches existing <code>should_extract</code> rule)</td></tr>
+      <tr><td><span class="cite">durable-functions-2021</span> / <span class="cite">beldi-2020</span> / <span class="cite">netherite-2022</span></td><td>Read-only replay + checkpoint audit; idempotency keys on write events</td><td>Replacing checkpoints with replay-only recovery — replay becomes the <em>auditor</em> first; promotion to source-of-truth is a future decision made on divergence data</td></tr>
+      <tr><td><span class="cite">sagas-1987</span></td><td>(already applied in v1: intent log framing)</td><td>Automatic compensation execution — an LLM-authored compensator is riskier than the failure it compensates; divergences surface as evidence instead</td></tr>
+      <tr><td><span class="cite">coala-2023</span></td><td>Memory-class lanes and naming discipline</td><td>Full decision-cycle refactor — the PGE loop already is one; renaming nodes buys nothing</td></tr>
+      <tr><td><span class="cite">diskann-2019</span></td><td>(already applied in v1: guarded pgvectorscale index)</td><td>—</td></tr>
+    </table>
+
+    <p><strong>Dependencies:</strong> none new. All phases run on the stock SQLite-testable schema; no migrations (links live in <code>tags</code>, reflections are <code>lesson</code> rows, replay is read-only). The durable-substrate profile from v1 is complementary, not required.</p>
+    <p><strong>Sequencing rationale:</strong> Phases 1–2 change what retrieval returns (measurable via existing pack telemetry in <code>hermes_context_pack_logs</code> — compare selected-id relevance before/after on the same goals). Phase 3 is the first agent-visible change. Phase 4 adds the only new LLM call, recurrence-gated. Phase 5 touches nothing on the hot path and is pure added observability — lowest regression risk, saved for last so its audit can watch the four phases before it.</p>
+    <figure>
+      <!-- {{NOTES_IMAGE: adopted versus rejected mechanisms from each paper as a decision ledger}} -->
+      <figcaption>The adopt/reject ledger: what each paper earns in Forge and what was deliberately left on the table.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <!-- Append-only implementation record. -->
+    <div class="call">
+      <strong>2026-07-11 implementation:</strong> Phases 1–5 are implemented in
+      the working tree with SQLite-testable regression coverage: recency/lane
+      scoring, deterministic links and evolution, read-only recall paging,
+      recurrence-gated verbal reflection with fallback, and read-only replay
+      auditing with file-write idempotency keys. The requested PostgreSQL
+      components are installed through the opt-in PG17 durable profile; names
+      that are services or aliases (`pg_diskann`, `pg_vectorize`,
+      `pg_timetable`) are mapped explicitly rather than faked as extensions.
+      Docker image build/integration remains environment-gated when Docker is
+      unavailable.
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

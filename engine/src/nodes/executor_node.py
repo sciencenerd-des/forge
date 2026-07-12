@@ -109,6 +109,45 @@ def _run_command_string(args: dict) -> str:
     return ""
 
 
+def _detect_project_stack(sandbox) -> str:
+    """Detect the project stack from workspace marker files."""
+    if sandbox.exists("Cargo.toml"):
+        return "rust"
+    if sandbox.exists("CMakeLists.txt"):
+        return "cpp"
+    if sandbox.exists("package.json"):
+        return "node"
+    return "python"
+
+
+_RUN_TESTS_CMD = {
+    "rust": "cargo test 2>&1",
+    "cpp": "cmake -S . -B build >/dev/null 2>&1 && cmake --build build >/dev/null 2>&1 && cd build && ctest --output-on-failure 2>&1",
+    "node": "npm test 2>&1",
+    "python": 'if python3 -c "import pytest" >/dev/null 2>&1; then python3 -m pytest -q 2>&1; else python3 -m unittest discover -v 2>&1; fi',
+}
+_BUILD_CMD = {
+    "rust": "cargo build 2>&1", "cpp": "cmake -S . -B build 2>&1 && cmake --build build 2>&1",
+    "node": "npm run build --if-present 2>&1", "python": "python3 -m compileall -q .",
+}
+_AUDIT_DEPS_CMD = {
+    "rust": "cargo audit 2>&1", "cpp": "echo 'dependency audit skipped for C++'",
+    "node": "npm audit --audit-level=high 2>&1", "python": "pip-audit 2>&1",
+}
+
+
+def _lint_cmd(stack: str, fix: bool) -> str:
+    if stack == "rust":
+        return f"cargo clippy {'--fix --allow-dirty --allow-staged' if fix else ''} 2>&1"
+    if stack == "cpp":
+        mode = "-i" if fix else "--dry-run --Werror"
+        return f"if command -v clang-format >/dev/null 2>&1; then find . -type f -print0 | xargs -0 -r clang-format {mode}; else false; fi"
+    if stack == "node":
+        return f"npx --yes eslint . {'--fix' if fix else ''} 2>&1"
+    return ("(command -v ruff >/dev/null 2>&1 || pip install --quiet ruff) "
+            f"&& ruff check . {'--fix' if fix else ''} 2>&1")
+
+
 def _ensure_venv(workspace: str) -> str:
     """Create <workspace>/.venv once; return its python path."""
     import subprocess as _vsp

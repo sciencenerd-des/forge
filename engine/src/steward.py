@@ -14,11 +14,14 @@ deterministic fallback (empty string / raw truncation), never blocks.
 import json
 import urllib.request
 
-STEWARD_URL = "http://127.0.0.1:1234/v1"
-# Model is env-driven so the whole loop can run single-model (all nodes on the
-# 12B) or split-brain (steward on the small e2b). Defaults to the same model the
-# other nodes use via LLM_MODEL, falling back to the 12B.
+# Base URL is env-driven like every other node — the hardcoded LM Studio
+# address (127.0.0.1:1234) kept answering HTTP 400 ("No models loaded") after
+# the stack moved to Ollama, silently degrading every briefing to the raw
+# fallback. PGE_STEWARD_BASE_URL lets a split-brain setup keep a second server.
 import os
+STEWARD_URL = (os.getenv("PGE_STEWARD_BASE_URL")
+               or os.getenv("LLM_BASE_URL")
+               or "http://127.0.0.1:1234/v1").rstrip("/")
 STEWARD_MODEL = (os.getenv("PGE_STEWARD_MODEL")
                  or os.getenv("LLM_MODEL")
                  or "google/gemma-4-12b-qat")
@@ -84,7 +87,17 @@ def _cached_docs_for(task_title: str, limit: int = 2) -> str:
         return ""
 
 
-_BRIEF_CACHE = {}  # (project_id, task_title) -> (fingerprint, briefing)
+from collections import OrderedDict
+
+_BRIEF_CACHE_MAX = 32  # bounded LRU — the old plain dict grew for the life of the process
+_BRIEF_CACHE = OrderedDict()  # (project_id, task_title) -> (fingerprint, briefing)
+
+
+def _brief_cache_put(key, value):
+    _BRIEF_CACHE[key] = value
+    _BRIEF_CACHE.move_to_end(key)
+    while len(_BRIEF_CACHE) > _BRIEF_CACHE_MAX:
+        _BRIEF_CACHE.popitem(last=False)
 
 
 def _state_fingerprint(snap: dict) -> str:
@@ -96,16 +109,37 @@ def _state_fingerprint(snap: dict) -> str:
     return hashlib.md5(sig.encode()).hexdigest()
 
 
-def compact_context(project_id: str, task_title: str = "", budget_words: int = 180) -> str:
+def snapshot_from_pack(context_pack: dict) -> dict:
+    """Derive the steward's snapshot shape from an already-built context pack
+    so the executor turn does ONE state fetch, not two. Recent tests aren't in
+    the pack; the briefing degrades gracefully without them."""
+    project = context_pack.get("PROJECT", {}) or {}
+    task = context_pack.get("ACTIVE_TASK", {}) or {}
+    files = context_pack.get("RELEVANT_FILES", []) or []
+    return {
+        "goal": {"title": project.get("goal", ""),
+                 "status": project.get("status", ""),
+                 "criteria": task.get("acceptance_criteria", [])},
+        "tasks": [{"title": task.get("title", ""), "status": task.get("status", "")}],
+        "recent_files": [f"{f.get('file_path')}: {f.get('summary')}" for f in files[:5]],
+        "recent_tests": [],
+    }
+
+
+def compact_context(project_id: str, task_title: str = "", budget_words: int = 180,
+                    snapshot: dict = None) -> str:
     """Compact, stale-filtered context for the executor prompt.
     Cached: the e2b briefing is regenerated ONLY when the project state
-    fingerprint changes — identical successive turns reuse it for free."""
+    fingerprint changes — identical successive turns reuse it for free.
+    ``snapshot`` lets the caller reuse an already-fetched state dict (the
+    executor derives one from its context pack) instead of re-querying."""
     try:
-        snap = _db_snapshot(project_id)
+        snap = snapshot if snapshot is not None else _db_snapshot(project_id)
         fp = _state_fingerprint(snap)
         ck = (project_id, task_title)
         cached = _BRIEF_CACHE.get(ck)
         if cached and cached[0] == fp:
+            _BRIEF_CACHE.move_to_end(ck)
             return cached[1]
         docs = _cached_docs_for(task_title)
         if docs:
@@ -121,21 +155,22 @@ def compact_context(project_id: str, task_title: str = "", budget_words: int = 1
         if "BRIEFING:" in out:
             out = out.split("BRIEFING:", 1)[1].strip()
         out = out[:2000]
-        _BRIEF_CACHE[ck] = (fp, out)
+        _brief_cache_put(ck, (fp, out))
         return out
     except Exception as e:
         print(f"🧑‍✈️ Steward compact_context unavailable ({str(e)[:60]}) — using raw fallback.")
         try:
-            snap = _db_snapshot(project_id)
+            snap = snapshot if snapshot is not None else _db_snapshot(project_id)
             return json.dumps(snap, default=str)[:1500]
         except Exception:
             return ""
 
 
-def steering(project_id: str, test_results: list, last_reason: str = "") -> str:
+def steering(project_id: str, test_results: list, last_reason: str = "",
+             snapshot: dict = None) -> str:
     """End-of-cycle directive: where should the loop go next."""
     try:
-        snap = _db_snapshot(project_id)
+        snap = snapshot if snapshot is not None else _db_snapshot(project_id)
         tests = "; ".join(f"{t['id']}:{'PASS' if t['passed'] else 'FAIL ' + t['output'][-120:]}"
                           for t in (test_results or []))
         out = _chat(

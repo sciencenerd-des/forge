@@ -16,11 +16,27 @@ setup: $(VENV) ## Create venv + install (editable, with dev deps)
 	$(BIN)/pip install -U pip
 	$(BIN)/pip install -e ".[dev]"
 	@test -f .env || cp .env.example .env
-	@echo "✓ setup complete. Edit .env, then 'make db' and 'make run'."
+	@echo "✓ setup complete. Edit .env, then 'make db', 'make sandbox-image', and 'make run'."
 
 .PHONY: db
 db: ## Start Postgres (docker) for the engine
 	docker compose up -d db
+
+.PHONY: db-durable
+db-durable: ## Build/start the PG17 durable extension profile
+	docker compose --profile durable up -d --build db-durable
+
+.PHONY: db-extensions
+db-extensions: ## Install/verify the pinned durable extension contract
+	psql "$${FORGE_DURABLE_DATABASE_URL:-postgresql://forge:forge@127.0.0.1:5433/forge}" -v ON_ERROR_STOP=1 -f migrations/004_memory_v2_extensions.sql
+
+.PHONY: sandbox-image
+sandbox-image: ## Build the default per-project sandbox container image
+	docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .
+
+.PHONY: otel
+otel: ## Start the OpenTelemetry collector (traces/metrics via docker-compose logs)
+	docker compose up -d otel-collector
 
 .PHONY: run
 run: ## Run the autonomy loop (forge run); pass GOAL="..." for a new goal
@@ -42,6 +58,10 @@ test: ## Run the test suite (incl. regression)
 fmt: ## Lint/format with ruff
 	$(BIN)/ruff check --fix .
 	$(BIN)/ruff format .
+
+.PHONY: evals
+evals: ## Run the harness benchmark suite (specs/convergent-autonomous-harness.html Phase 6)
+	$(BIN)/python evals/runner.py
 
 .PHONY: config
 config: ## Print the resolved configuration

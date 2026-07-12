@@ -23,6 +23,41 @@ services:
       timeout: 5s
       retries: 10
 
+  db-durable:
+    build: docker/postgres-durable
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forge
+    ports:
+      - "127.0.0.1:${FORGE_DB_DURABLE_PORT:-5433}:5432"
+    volumes:
+      - forge_pgdata_durable:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    profiles: ["durable"]
+
+  pg-timetable:
+    build: docker/postgres-durable
+    depends_on:
+      db-durable:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/pg_timetable"]
+    command: ["postgresql://forge:forge@db-durable:5432/forge", "--clientname=forge"]
+    profiles: ["durable"]
+
+  pgai-vectorizer:
+    image: ${PGAI_VECTORIZER_IMAGE:-timescale/pgai-vectorizer-worker:v0.11.2}
+    depends_on:
+      db-durable:
+        condition: service_healthy
+    environment:
+      PGAI_VECTORIZER_WORKER_DB_URL: postgresql://forge:forge@db-durable:5432/forge
+    profiles: ["durable"]
+
   control-plane:
     build: .
     depends_on:
@@ -39,6 +74,7 @@ services:
       # forge_home volume and prints it in the control-plane logs once.
       FORGE_CONTROL_TOKEN: ${FORGE_CONTROL_TOKEN:-}
       FORGE_HOME: /home/forge/.forge
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "127.0.0.1:8787:8787"
     extra_hosts:
@@ -58,6 +94,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-google/gemma-4-12b-qat}
       FORGE_LLM_API_KEY: ${FORGE_LLM_API_KEY:-not-needed}
       FORGE_ALLOW_HOST_EXECUTION: "1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     extra_hosts:
       - "host.docker.internal:host-gateway"
     profiles: ["cli"]
@@ -66,4 +103,5 @@ services:
 
 volumes:
   forge_pgdata:
+  forge_pgdata_durable:
   forge_home:

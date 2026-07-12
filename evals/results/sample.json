@@ -1,0 +1,19 @@
+{
+  "git_sha": "sample",
+  "verified_completion_rate": 1.0,
+  "mean_cycles_to_done": 6.2,
+  "mean_distance_auc": 1.4,
+  "false_completion_count": 0,
+  "token_cost": 48000,
+  "goals": [
+    {
+      "goal_id": "sample-goal",
+      "outcome": "verified",
+      "cycles": 6,
+      "distance_auc": 1.4,
+      "false_completion": false,
+      "token_cost": 48000,
+      "note": "fixture only"
+    }
+  ]
+}

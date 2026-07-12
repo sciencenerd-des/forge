@@ -165,14 +165,25 @@ def _disabled_pack(reason: str) -> dict[str, Any]:
 
 def _select_files(repo_root: Path, *, task_terms: list[str], max_files: int) -> list[Path]:
     out: list[Path] = []
-    for rel in (*PROJECT_FILES, *ENTRYPOINT_FILES):
-        path = repo_root / rel
-        if path.is_file() and path not in out:
+    project_candidates = [
+        repo_root / rel
+        for rel in (*PROJECT_FILES, *ENTRYPOINT_FILES)
+        if (repo_root / rel).is_file()
+    ]
+    project_budget = max_files if not task_terms else max(1, max_files // 2)
+    for path in project_candidates:
+        if path not in out:
             out.append(path)
-        if len(out) >= max_files:
+        if len(out) >= project_budget:
             break
     if len(out) < max_files and task_terms:
         for path in _rank_task_relevant_files(repo_root, task_terms):
+            if path not in out:
+                out.append(path)
+            if len(out) >= max_files:
+                break
+    if len(out) < max_files:
+        for path in project_candidates:
             if path not in out:
                 out.append(path)
             if len(out) >= max_files:

@@ -78,6 +78,47 @@ def test_repo_context_pack_selects_task_relevant_source_files(tmp_path, monkeypa
     assert pack["steering"]["mode"] == "feature"
 
 
+def test_repo_context_pack_reserves_budget_for_task_relevant_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_HOME", str(tmp_path / ".forge"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_node_project(repo)
+
+    for name in [
+        ".forge.yaml",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "tsconfig.json",
+        "next.config.js",
+        "vite.config.ts",
+        "pyproject.toml",
+        "requirements.txt",
+        "uv.lock",
+        "Dockerfile",
+        "docker-compose.yml",
+        "main.py",
+        "app.py",
+    ]:
+        (repo / name).write_text("placeholder\n", encoding="utf-8")
+
+    feature_dir = repo / "src" / "features" / "billing"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "invoice-service.ts").write_text(
+        "export function buildInvoiceContext() { return 'invoice billing context' }\n",
+        encoding="utf-8",
+    )
+
+    from forge_runtime.context_pack import build_repo_context_pack
+
+    pack = build_repo_context_pack(
+        repo,
+        task_text="fix invoice billing context selection",
+    )
+
+    paths = [item["path"] for item in pack["selected_files"]]
+    assert "src/features/billing/invoice-service.ts" in paths
+
+
 def test_context_pack_is_threaded_into_memory_service_and_executor_prompt():
     service_source = Path("app/services/__init__.py").read_text(encoding="utf-8")
     executor_source = Path("engine/src/nodes/executor_node.py").read_text(encoding="utf-8")

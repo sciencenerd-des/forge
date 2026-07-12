@@ -13,6 +13,34 @@ from src.runtime import active_goal_query, project_workspace
 from datetime import datetime, timezone
 
 
+def _failure_evidence(output: str, budget: int = 400) -> str:
+    """Preserve actionable compiler/test diagnostics for repair prompts."""
+    output = (output or "").strip()
+    if not output:
+        return "<the command produced NO output — diagnostics may have been discarded>"
+    error_lines = [line for line in output.splitlines() if "error" in line.lower()]
+    return "\n".join(error_lines[:6])[:budget] if error_lines else output[-budget:]
+
+
+def _semantic_revert_grace(last_eval) -> bool:
+    """Keep a forward attempt when the previous state was semantically rejected."""
+    return bool(last_eval and last_eval.get("semantic_block"))
+
+
+def _review_call_with_fallback(prompt: str, schema, max_tokens: int,
+                               primary=None, fallback=None) -> dict:
+    """Use a preferred reviewer and fall back to the local reviewer once."""
+    if primary is None or fallback is None:
+        from forge_runtime.llm import evaluator_llm, llm
+        primary = primary or evaluator_llm
+        fallback = fallback or llm
+    try:
+        return primary.generate_json(prompt, schema, max_tokens=max_tokens)
+    except Exception as error:
+        print(f"Reviewer unavailable ({str(error)[:120]}); retrying locally.")
+        return fallback.generate_json(prompt, schema, max_tokens=max_tokens)
+
+
 def _utcnow() -> datetime:
     """Naive UTC now. DB columns are TIMESTAMP WITHOUT TIME ZONE, so we keep
     timestamps naive while avoiding the deprecated ``datetime.utcnow()``."""
