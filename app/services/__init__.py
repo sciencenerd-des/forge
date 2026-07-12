@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, false, func, literal_column, or_, select
@@ -128,6 +129,18 @@ except Exception as _schema_exc:  # pragma: no cover
     _lg.getLogger(__name__).warning(
         'DB schema bootstrap skipped (%s): %s', type(_schema_exc).__name__, _schema_exc)
 
+
+@lru_cache(maxsize=1)
+def _cached_reranker():
+    """Load the optional reranker once, only when explicitly enabled."""
+    if os.getenv("FORGE_MEMORY_RERANK", "").lower() not in {"1", "true", "yes", "on"}:
+        return None
+    try:
+        from sentence_transformers import CrossEncoder
+        return CrossEncoder(os.getenv("FORGE_MEMORY_RERANK_MODEL", "BAAI/bge-reranker-base"))
+    except Exception:
+        return None
+
 class MemoryService:
     def __init__(self, db: Session):
         self.db = db
@@ -135,19 +148,42 @@ class MemoryService:
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
         if not text or not text.strip():
             return None
+        profile = forge_config.embedding_provider()
+        if not profile["enabled"]:
+            return None
         import requests
-        url = "http://127.0.0.1:1234/v1/embeddings"
-        payload = {
-            "model": "text-embedding-nomic-embed-text-v1.5",
-            "input": text
-        }
+        url = f"{profile['base_url']}/embeddings"
+        payload = {"model": profile["model"], "input": text}
         try:
-            res = requests.post(url, json=payload, timeout=10)
+            res = requests.post(url, json=payload,
+                                headers={"Authorization": f"Bearer {profile['api_key']}"},
+                                timeout=profile["timeout"])
             if res.status_code == 200:
                 return res.json()["data"][0]["embedding"]
         except Exception:
             pass
         return None
+
+    def backfill_embeddings(self, project_id: str, batch: int = 16) -> int:
+        """Fill missing embeddings in bounded batches; stop after first failure."""
+        if not forge_config.embedding_provider()["enabled"]:
+            return 0
+        rows = (self.db.query(ForgeMemoryItem)
+                .filter(ForgeMemoryItem.project_id == project_id,
+                        ForgeMemoryItem.status == "active",
+                        ForgeMemoryItem.embedding.is_(None))
+                .order_by(ForgeMemoryItem.created_at.desc())
+                .limit(max(1, batch)).all())
+        updated = 0
+        for row in rows:
+            embedding = self._generate_embedding(row.content)
+            if embedding is None:
+                break
+            row.embedding = embedding
+            updated += 1
+        if updated:
+            self.db.commit()
+        return updated
 
     def create_project(self, name: str, repo_path: str, description: str = "", project_id: Optional[str] = None) -> ForgeProject:
         project = ForgeProject(id=project_id, name=name, repo_path=repo_path, description=description)
@@ -627,6 +663,8 @@ class MemoryService:
             "NON_NEGOTIABLE_CONSTRAINTS": constraints,
             "DECISIONS_ALREADY_MADE": decisions,
             "LESSONS_AND_MISTAKES": lessons,
+            "SELECTED_LESSON_IDS": [m.id for m in memories
+                                    if m.memory_type in ("lesson", "learning_distill")],
             "RELEVANT_FILES": [{"file_path": f.file_path, "summary": f.change_summary} for f in recent_files],
             "OPEN_BUGS_BLOCKERS_RISKS": blockers,
             "NEXT_BEST_ACTION": next_actions[0] if next_actions else "No specific next action recorded",
@@ -719,8 +757,9 @@ class MemoryService:
         if not items:
             return items
         try:
-            from sentence_transformers import CrossEncoder
-            model = CrossEncoder('BAAI/bge-reranker-base')
+            model = _cached_reranker()
+            if model is None:
+                return items[:limit]
             pairs = [[query, item.content] for item in items]
             scores = model.predict(pairs)
             ranked = sorted(zip(items, scores), key=lambda x: x[1], reverse=True)

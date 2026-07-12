@@ -51,11 +51,41 @@ git clone https://github.com/sciencenerd-des/forge && cd forge
 make setup          # venv + install + create .env
 # edit .env: point LLM_BASE_URL / LLM_MODEL at your backend
 make db             # start Postgres (docker)
+docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .  # one-time: the sandbox image
 
-# Host command execution is disabled by default. Prefer the Docker workflow below.
-# Trusted local experiment only: FORGE_ALLOW_HOST_EXECUTION=1 forge run ...
 forge run --goal "Build a Python snake game with tests"
 ```
+
+The opt-in PG17 durable extension profile is separate from the default PG16
+database. Build and verify it only when you need the requested database
+workers:
+
+```bash
+make db-durable
+# first let Forge create its tables, then install and verify every component
+make db-extensions
+docker compose --profile durable up -d pg-timetable pgai-vectorizer
+# optional live contract check (requires the durable profile and psycopg)
+FORGE_PG_EXTENSIONS=1 FORGE_DURABLE_DATABASE_URL=postgresql://forge:forge@127.0.0.1:5433/forge \
+  uv run pytest tests/integration -q
+```
+
+The names map as follows: `pg_diskann` is Timescale `vectorscale`,
+`pg_ai_query` is pgai's `ai` extension, and `pg_vectorize`/`pg_timetable` are
+separate worker services rather than PostgreSQL extensions. See
+[`docs/DURABLE_SUBSTRATE.md`](docs/DURABLE_SUBSTRATE.md) and
+[`migrations/004_memory_v2_extensions.sql`](migrations/004_memory_v2_extensions.sql).
+
+Every tool call above runs inside a per-project **sandbox container** by default —
+non-root, every capability dropped, files on a Docker-managed volume with no path
+back to your host filesystem (see [Sandbox](#sandbox--observability) below). No
+`FORGE_ALLOW_HOST_EXECUTION` needed. Container mode fails closed if Docker is not
+available. Host mode is an explicit opt-in: set `FORGE_SANDBOX_MODE=host`, then
+set `FORGE_ALLOW_HOST_EXECUTION=1` only when you accept host shell-execution risk.
+The bundled Compose services deliberately do **not** mount the host Docker socket:
+that socket is host-root equivalent. Run `forge` directly on the host for default
+container-mode execution; a Compose-hosted Forge process fails closed instead of
+receiving Docker-daemon authority.
 
 That's it — the loop creates a default project, derives a contract, and works the goal
 to completion (or pauses as `blocked` for you). Watch it live:
@@ -88,8 +118,54 @@ see [`.env.example`](.env.example) for the full list. Highlights:
 | `DATABASE_URL` | engine Postgres | matches docker-compose |
 | `FORGE_HOME` | state / logs / workspaces | `~/.forge` |
 | `FORGE_DEFAULT_PROJECT` | pin a project | resolve-or-create |
+| `FORGE_SANDBOX_MODE` | per-project workspace: container or host | `container` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | trace/metric collector | `http://localhost:4317` |
 
 Run `forge config` to print the resolved configuration.
+
+## Sandbox & observability
+
+**Sandbox** ([`forge_runtime/sandbox.py`](forge_runtime/sandbox.py)): the default
+workspace for every project is a long-lived, per-project Docker container —
+`write_file`/`read_file`/`bash`/`install_deps`/`run_tests`/etc. all execute there,
+not on your host. The container runs as a fixed non-root UID (`10001:10001`),
+every Linux capability dropped, `no-new-privileges` set, and its files on a
+Docker-managed named volume — never a host bind-mount, so it has no path back to
+your filesystem at all. Host behavior is available only through the explicit
+operator opt-in `FORGE_SANDBOX_MODE=host`. In the default
+`container` mode, Docker or sandbox setup failure stops the run before a tool can
+touch the host. A non-empty existing workspace is imported into its new named
+volume once; later container results are copied back through a staged,
+transactional replacement. Controlled by `FORGE_SANDBOX_MODE` (`container`
+default / `host`) and `FORGE_SANDBOX_IMAGE`; see
+[`docker/sandbox/Dockerfile`](docker/sandbox/Dockerfile) for the toolchain baked
+into the default image (python/pytest/ruff, node/npm, cmake/build-essential/
+clang-format, rustc/cargo, ripgrep/git/curl).
+
+Host mode is for an operator-controlled local experiment. Generated-contract
+strength and mutation verification deliberately require the container boundary,
+so Forge defers completion instead of executing those probes on the host.
+
+Four new tools ride on top of the same sandbox and close the gap where the
+executor used to hand-assemble build/test/lint commands via raw shell: **`run_tests`**,
+**`build`**, **`lint`** (`fix=true` to auto-fix), and **`audit_deps`** — each
+auto-detects the stack (Cargo.toml/CMakeLists.txt/package.json/else python) and
+runs the right OSS tool (cargo test/clippy/audit, cmake+ctest, npm test/audit,
+pytest/ruff/pip-audit).
+
+**Observability** ([`forge_runtime/telemetry.py`](forge_runtime/telemetry.py)):
+OpenTelemetry traces every PGE node (planner/auditor/executor/evaluator) and tool
+call, plus counters for tool invocations and completion-gate blocks (mutation/
+vacuous-test/overfitting/scope-completeness). Exports via OTLP:
+
+```bash
+docker compose up -d otel-collector
+docker compose logs -f otel-collector   # see spans/metrics as they land
+```
+
+Point the collector's exporters ([`otel-collector-config.yaml`](otel-collector-config.yaml))
+at Jaeger/Grafana/etc. to get a proper trace UI. Degrades to silently running
+without tracing if no collector is reachable — optional infra never blocks a run.
 
 ## How it works
 
@@ -120,6 +196,9 @@ forge_cli.py        # `forge` entry point (run / serve / config)
 run_pge.py          # the batch loop (attached)
 pge_launcher.py     # detached launcher + run manifest
 engine/src/         # the PGE graph: planner, auditor, executor, evaluator, steward
+forge_runtime/sandbox.py     # per-project container sandbox (default workspace)
+forge_runtime/telemetry.py   # OpenTelemetry tracing/metrics
+docker/sandbox/     # the sandbox container image (Dockerfile)
 app/                # SQLAlchemy models + services (Postgres)
 control_plane/      # FastAPI API behind the console
 web/                # React 19 + Vite operator console

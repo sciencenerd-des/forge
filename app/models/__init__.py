@@ -20,6 +20,16 @@ from sqlalchemy.sql import func
 from ..database import Base
 
 
+def _StringArray():
+    """Use native Postgres arrays while keeping lightweight SQLite tests usable."""
+    return ARRAY(String).with_variant(JSON(none_as_null=True), "sqlite")
+
+
+def _Embedding():
+    """Use pgvector in production and JSON storage in SQLite tests."""
+    return Vector(768).with_variant(JSON(none_as_null=True), "sqlite")
+
+
 class ForgeProject(Base):
     __tablename__ = "forge_projects"
 
@@ -41,7 +51,7 @@ class ForgeGoal(Base):
     success_criteria = Column(JSON, nullable=False, default=list)
     status = Column(String, nullable=False, default='active')
     priority = Column(Integer, nullable=False, default=3)
-    embedding = Column(Vector(768), nullable=True)
+    embedding = Column(_Embedding(), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -62,7 +72,7 @@ class ForgeTask(Base):
     no_progress_count = Column(Integer, nullable=False, default=0)
     evidence_baseline_at = Column(DateTime, nullable=True)
     last_progress_at = Column(DateTime, nullable=True)
-    embedding = Column(Vector(768), nullable=True)
+    embedding = Column(_Embedding(), nullable=True)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -99,10 +109,10 @@ class ForgeMemoryItem(Base):
     status = Column(String, nullable=False, default='active')
     confidence = Column(Numeric, nullable=False, default=0.8)
     importance = Column(Integer, nullable=False, default=3)
-    tags = Column(ARRAY(String), nullable=False, default=list)
+    tags = Column(_StringArray(), nullable=False, default=list)
     file_path = Column(String)
     supersedes_id = Column(String, ForeignKey("forge_memory_items.id"), nullable=True)
-    embedding = Column(Vector(768), nullable=True)
+    embedding = Column(_Embedding(), nullable=True)
     expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -158,7 +168,7 @@ class ForgeContextPackLog(Base):
     project_id = Column(String, ForeignKey("forge_projects.id"), nullable=False)
     task_id = Column(String, ForeignKey("forge_tasks.id"), nullable=True)
     query = Column(String)
-    selected_memory_ids = Column(ARRAY(String), nullable=False, default=list)
+    selected_memory_ids = Column(_StringArray(), nullable=False, default=list)
     token_estimate = Column(Integer)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -172,14 +182,14 @@ class ForgeContextCompressionSnapshot(Base):
     goal_id = Column(String, ForeignKey("forge_goals.id", ondelete="SET NULL"), nullable=True)
     task_id = Column(String, ForeignKey("forge_tasks.id", ondelete="SET NULL"), nullable=True)
     source_hash = Column(String, nullable=False)
-    source_memory_ids = Column(ARRAY(String), nullable=False, default=list)
+    source_memory_ids = Column(_StringArray(), nullable=False, default=list)
     raw_context = Column(JSON, nullable=False)
     compressed_context = Column(JSON, nullable=False)
     tokens_before = Column(Integer, nullable=False, default=0)
     tokens_after = Column(Integer, nullable=False, default=0)
     tokens_saved = Column(Integer, nullable=False, default=0)
     compression_ratio = Column(Numeric, nullable=False, default=0)
-    transforms_applied = Column(ARRAY(String), nullable=False, default=list)
+    transforms_applied = Column(_StringArray(), nullable=False, default=list)
     compressor = Column(String, nullable=False, default="headroom-ai")
     compressor_version = Column(String, nullable=False)
     created_at = Column(DateTime, server_default=func.now())

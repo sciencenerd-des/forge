@@ -156,3 +156,14 @@ def llm_dialect(role: str = "general") -> str:
             raise ValueError(f"unsupported LLM dialect: {forced}")
         return value
     return "ollama" if ":11434" in provider_for(role)["base_url"] else "openai"
+
+
+def embedding_provider() -> dict:
+    """Resolve optional embedding configuration without blocking core memory."""
+    return {
+        "enabled": os.getenv("FORGE_EMBED_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+        "base_url": os.getenv("FORGE_EMBED_BASE_URL", provider_for("general")["base_url"]).rstrip("/"),
+        "model": os.getenv("FORGE_EMBED_MODEL", "text-embedding-nomic-embed-text-v1.5"),
+        "api_key": os.getenv("FORGE_EMBED_API_KEY", DEFAULT_API_KEY),
+        "timeout": float(os.getenv("FORGE_EMBED_TIMEOUT", "10")),
+    }

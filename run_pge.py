@@ -54,6 +54,102 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+_hygiene_consolidated = False  # consolidate at most once per run
+
+
+def run_batch_hygiene(project_id: str, batch: int) -> None:
+    """Best-effort memory maintenance at a batch boundary: heal NULL
+    embeddings, consolidate old fine-grained logs (once per run), and decay
+    stale durable lessons. A failure here is logged and swallowed — hygiene
+    must never cost a batch. Skipped entirely when pg_cron owns hygiene
+    in-database (durable substrate profile)."""
+    global _hygiene_consolidated
+    try:
+        db = SessionLocal()
+    except Exception as exc:
+        print(f"Batch hygiene skipped (no session): {exc}")
+        return
+    try:
+        try:  # pg_cron ownership check (durable substrate, Phase 6)
+            from sqlalchemy import text
+            if db.bind.dialect.name == "postgresql":
+                owned = db.execute(text(
+                    "SELECT count(*) FROM cron.job WHERE jobname LIKE 'forge_%'"
+                )).scalar()
+                if owned:
+                    return
+        except Exception:
+            db.rollback()  # cron schema absent — app-side hygiene proceeds
+
+        service = MemoryService(db)
+        try:
+            healed = service.backfill_embeddings(project_id)
+            if healed:
+                print(f"🧠 Backfilled {healed} memory embeddings.")
+        except Exception as exc:
+            print(f"Embedding backfill skipped: {exc}")
+
+        if not _hygiene_consolidated:
+            try:
+                service.consolidate_old_logs(project_id)
+                _hygiene_consolidated = True
+            except Exception as exc:
+                print(f"Log consolidation skipped: {exc}")
+
+        try:
+            from datetime import timedelta
+
+            from forge_runtime.lesson_store_db import FP_TAG_PREFIX, DbLessonStore
+            store = DbLessonStore(db, project_id)
+            stale_cutoff = _utcnow() - timedelta(days=1)
+            stale = [
+                tag[len(FP_TAG_PREFIX):]
+                for row in store._active_rows()
+                if (row.updated_at or row.created_at) and
+                   (row.updated_at or row.created_at) < stale_cutoff
+                for tag in (row.tags or []) if tag.startswith(FP_TAG_PREFIX)
+            ]
+            if stale:
+                store.mark_unmatched(stale)
+        except Exception as exc:
+            print(f"Lesson decay skipped: {exc}")
+
+        try:
+            from app.models import HermesCheckpoint
+            from app.services.memory_links import evolve_memories
+            evolve_memories(db, project_id)
+            checkpoint = (db.query(HermesCheckpoint)
+                          .filter(HermesCheckpoint.project_id == project_id)
+                          .order_by(HermesCheckpoint.created_at.desc())
+                          .first())
+            if checkpoint:
+                from forge_runtime.replay import diff_checkpoint, replay_state
+                divergences = diff_checkpoint(
+                    replay_state(db, project_id, checkpoint.goal_id), checkpoint)
+                for divergence in divergences[:8]:
+                    content = f"REPLAY DIVERGENCE: {divergence}"
+                    exists = db.query(ForgeMemoryItem).filter(
+                        ForgeMemoryItem.project_id == project_id,
+                        ForgeMemoryItem.memory_type == "mistake",
+                        ForgeMemoryItem.content == content,
+                        ForgeMemoryItem.status == "active",
+                    ).first()
+                    if not exists:
+                        service.record_memory_item(
+                            project_id=project_id,
+                            memory_type="mistake",
+                            content=content,
+                            importance=5,
+                            tags=["replay-divergence"],
+                        )
+        except Exception as exc:
+            print(f"Replay audit skipped: {exc}")
+    except Exception as exc:
+        print(f"Batch hygiene skipped: {exc}")
+    finally:
+        db.close()
+
+
 def resolve_default_project() -> str:
     """Resolve (or create) the default project id — never a hardcoded UUID.
     Honors FORGE_DEFAULT_PROJECT; otherwise resolve-or-create a 'default'
@@ -158,6 +254,22 @@ def _initial_state(project_id: str, goal=None):
     }
 
 
+def _is_semantic_block(last_eval: dict | None) -> bool:
+    """True when the batch ended in a semantic completion block.
+
+    Byte-fingerprint stagnation cannot see this failure mode: a model that
+    oscillates between weakening a test and reverting it changes the
+    workspace every batch, so `stagnant_batches` never advances while the
+    scope gate blocks completion forever. No attempt is made to compare
+    verdict TEXT across batches — the reviewer is an LLM and rewords the
+    same verdict every cycle (observed live: 'ensuring that an empty title
+    results in a 422' vs 'validating that an empty title results in a 422'),
+    so an exact-match signature never fires. Reaching the completion gate
+    and being semantically blocked N batches in a row is non-convergence
+    regardless of wording."""
+    return bool(last_eval and last_eval.get("semantic_block"))
+
+
 def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
             run_id: str | None = None):
     if run_id:
@@ -202,6 +314,8 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
     config = {"recursion_limit": MAX_TURNS * 3 + 10}
     stagnant_batches = 0
     max_stagnant_batches = int(os.getenv("PGE_MAX_STAGNANT_BATCHES", "2"))
+    semantic_block_streak = 0
+    max_semantic_blocks = int(os.getenv("PGE_MAX_SEMANTIC_BLOCKS", "4"))
     previous_fingerprint = None
     batch = 0
     final_state = None
@@ -311,6 +425,19 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
                 update_run(project_id, run_id, status="blocked",
                            terminal_reason="blocked_no_actionable_task")
             break
+        if _is_semantic_block(final_state.get("last_eval") if final_state else None):
+            semantic_block_streak += 1
+            if semantic_block_streak >= max_semantic_blocks:
+                print(f"🛑 Semantic gate blocked completion "
+                      f"{semantic_block_streak} batches in a row; the executor is not "
+                      "converging on it (e.g. weakening tests instead of fixing the "
+                      "source). Stopping honestly incomplete instead of thrashing.")
+                if run_id:
+                    update_run(project_id, run_id, status="blocked",
+                               terminal_reason="semantic_block_thrash")
+                break
+        else:
+            semantic_block_streak = 0
         if stagnant_batches >= max_stagnant_batches:
             print(f"🛑 No durable task or evidence progress across "
                   f"{max_stagnant_batches + 1} graph batches; stopping to avoid a busy-loop.")
@@ -319,6 +446,28 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
                            terminal_reason="stagnant_durable_state")
             break
         print("↻ Batch ended before goal completion; reloading filtered Postgres state.")
+
+        # KV-cache pruning: at 200k num_ctx the Ollama KV cache grows with the
+        # longest prompt seen and never shrinks (observed 7.7GB -> 17GB ->
+        # host swap exhaustion). Unloading the model at regular batch
+        # boundaries releases it; the next call reloads with a fresh, small
+        # allocation. num_ctx is untouched.
+        from forge_runtime.context_compactor import kv_prune_interval, prune_ollama_kv
+        interval = kv_prune_interval()
+        if interval and batch % interval == 0:
+            if prune_ollama_kv():
+                print(f"🧹 Ollama KV cache pruned (batch {batch}, every {interval}).")
+
+        # Memory hygiene at the batch boundary: embedding backfill, old-log
+        # consolidation (at most once per run), and durable-lesson decay.
+        # All best-effort — hygiene can never take a batch down with it.
+        run_batch_hygiene(project_id, batch)
+
+    # Always release the KV cache when a run ends — sequential goal runs were
+    # the exact pattern that accumulated memory pressure across the session.
+    from forge_runtime.context_compactor import kv_prune_interval, prune_ollama_kv
+    if kv_prune_interval():
+        prune_ollama_kv()
 
     print("\n--- PGE loop finished ---")
     print(f"Turns in batch : {final_state.get('turn_count') if final_state else 0}")

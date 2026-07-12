@@ -332,7 +332,16 @@ def validate_tests(tests: list, stack: dict | None = None) -> tuple:
                                "elif", "fi", "for", "while", "until", "case",
                                "do", "done", "{", "}", "(", "!", "[[", "echo",
                                "true", "false", "export", "local", "read", "set"}
+            # A variable assignment prefix (`out=$(cmake ...)`, `X=1 cmd`) is
+            # a valid shell first token, not a binary — same failure shape as
+            # the `if` case above: the diagnostics-capturing T3/T4 commands
+            # (`out=$(cmake ...) && echo BUILD_OK || ...`) were silently
+            # DROPPED as "binary 'out=$(cmake' not found", which would have
+            # re-neutered the very contract fix that made build failures
+            # visible. Caught by the Lesson-1 regression test, not live.
+            _is_assignment = bool(_re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", first or ""))
             if (first and "/" not in first and first not in _SHELL_KEYWORDS
+                    and not _is_assignment
                     and _shutil.which(first) is None):
                 reason = f"binary '{first}' not found on this machine"
         if reason:
@@ -340,6 +349,45 @@ def validate_tests(tests: list, stack: dict | None = None) -> tuple:
         else:
             kept.append(t)
     return kept, dropped
+
+
+def harden_pipefail(tests: list) -> tuple:
+    """Repair (never drop) commands whose exit code is masked by a pipe.
+
+    Bash reports a pipeline's exit status as the status of its LAST stage,
+    not any earlier one — so `pytest ... | tail -3` or `ls *.py | head -1`
+    exits 0 whenever `tail`/`head` succeeds, REGARDLESS of whether pytest
+    failed or the `ls` glob matched nothing. validate_tests() only caught
+    this for test-runner commands specifically (piped without ``2>&1``);
+    this generalizes it to any pipe, for template-generated AND LLM-authored
+    tests alike.
+
+    Live incident this pins (2026-07-03): the python template's own T1
+    (`ls *.py | head -1`, expect_exit 0) passed even when NO .py file
+    existed, because ``head -1`` on empty input still exits 0 — and its
+    ``expect_substring=".py"`` matched the literal text of ls's OWN stderr
+    error message, not real output. Prefixing ``set -o pipefail;`` makes the
+    pipeline's exit status the first non-zero stage instead — this can only
+    make a test MORE likely to correctly fail, never adds a new false pass,
+    so it is a repair, not a rejection: coverage is preserved, not lost.
+
+    A pipe fully enclosed in a ``$(...)`` command substitution (e.g. the
+    render-variety test's ``N=$(... | wc -l)``) is unaffected in practice —
+    ``set -o pipefail`` changes the exit status pipelines report, but a
+    plain assignment like ``N=$(...)`` never inspects that status, so
+    piping inside a substitution used only for its stdout is not a masking
+    risk and does not need (or resist) this repair.
+
+    Returns (hardened_tests, repaired_ids).
+    """
+    hardened, repaired = [], []
+    for t in tests:
+        cmd = t.get("command", "")
+        if "|" in cmd and "pipefail" not in cmd:
+            t = {**t, "command": f"set -o pipefail; {cmd}"}
+            repaired.append(t.get("id", "?"))
+        hardened.append(t)
+    return hardened, repaired
 
 
 def generate_contract(title: str, description: str = "", user_prompt: str = "",
@@ -480,15 +528,35 @@ def template_contract(stack: dict, goal_text: str) -> dict:
     if lang == "cpp":
         checklist = [
             {"id": "C1", "criterion": "A CMakeLists.txt build file exists", "verification": "test -f CMakeLists.txt"},
-            {"id": "C2", "criterion": "At least one C++ source file exists", "verification": "ls *.cpp src/*.cpp"},
+            {"id": "C2", "criterion": "At least one C++ source file exists", "verification": "find . -name '*.cpp'"},
             {"id": "C3", "criterion": "The project configures and compiles with CMake", "verification": "cmake -S . -B build && cmake --build build"},
             {"id": "C4", "criterion": "The built program runs without crashing", "verification": "run the built binary, exit 0"},
         ]
         tests = [
             {"id": "T1", "command": "test -f CMakeLists.txt && echo CMAKE_OK", "expect_substring": "CMAKE_OK", "expect_exit": 0},
-            {"id": "T2", "command": "ls *.cpp src/*.cpp 2>/dev/null | head -1", "expect_substring": ".cpp", "expect_exit": 0},
-            {"id": "T3", "command": "cmake -S . -B build >/dev/null 2>&1 && echo CONFIG_OK", "expect_substring": "CONFIG_OK", "expect_exit": 0},
-            {"id": "T4", "command": "cmake --build build >/dev/null 2>&1 && echo BUILD_OK", "expect_substring": "BUILD_OK", "expect_exit": 0},
+            # `find`, not `ls *.cpp src/*.cpp`: when ls is given several glob
+            # patterns and only SOME match, ls's own exit code is nonzero
+            # even though it printed the matching ones — reproduced live
+            # (2026-07-03, C++ postfix evaluator goal): main.cpp legitimately
+            # lived only under src/, `*.cpp` at the root matched nothing, and
+            # this test spuriously failed on an otherwise-correct project.
+            # Before the pipefail fix this was silently masked (`| head -1`
+            # always exited 0); fixing that exposed this latent bug — find
+            # has no such multi-pattern partial-match ambiguity.
+            {"id": "T2", "command": "set -o pipefail; find . -maxdepth 3 -name '*.cpp' 2>/dev/null | head -1", "expect_substring": ".cpp", "expect_exit": 0},
+            # On SUCCESS these print only the marker (clean substring check).
+            # On FAILURE they print the captured tool output — tail first,
+            # then the grep'd `error:` lines LAST, because every downstream
+            # consumer truncates keeping the END (evaluator: output[-700:],
+            # repair-task description: the final chars). The previous form
+            # (`cmake ... >/dev/null 2>&1 && echo BUILD_OK`) discarded ALL
+            # diagnostics unconditionally — reproduced live (2026-07-06/07,
+            # C++ postfix sandbox rerun): T4 failed 32 straight attempts on a
+            # one-line missing `#include <string>` whose fix GCC spelled out
+            # verbatim, but every repair task read `current output: ''` — the
+            # loop wasn't incapable, it was blind by its own contract's design.
+            {"id": "T3", "command": 'out=$(cmake -S . -B build 2>&1) && echo CONFIG_OK || { printf "%s\\n" "$out" | tail -20; printf "%s\\n" "$out" | grep -i error | head -5; exit 1; }', "expect_substring": "CONFIG_OK", "expect_exit": 0},
+            {"id": "T4", "command": 'out=$(cmake --build build 2>&1) && echo BUILD_OK || { printf "%s\\n" "$out" | tail -20; printf "%s\\n" "$out" | grep -iE "error" | head -5; exit 1; }', "expect_substring": "BUILD_OK", "expect_exit": 0},
         ]
         if (stack or {}).get("feature") == "render":
             # Feature-level contract: the program must actually RENDER an image,
@@ -528,17 +596,120 @@ def template_contract(stack: dict, goal_text: str) -> dict:
                              "N=$(sed '1,3d' render.ppm | tr -cs '0-9' '\\n' | grep -v '^$' | sort -u | wc -l); "
                              "fi; test \"$N\" -gt 16 && echo VARIED"),
                  "expect_substring": "VARIED", "expect_exit": 0},
+                {"id": "T8",
+                 # OBJECT EDGES: T7's global variety is defeated by a bare
+                 # background gradient — reproduced live (2026-07-07,
+                 # raytracer stress goal): a GENUINE raytracer (real sphere
+                 # intersection, three materials, lighting) whose camera
+                 # pointed AWAY from every sphere rendered only the sky
+                 # gradient — 444 distinct colors, T7 passed, goal marked
+                 # verified, image shows nothing. Distinct-count within a row
+                 # is ALSO defeated (lens falloff gives ~46 near-identical
+                 # triplets per row, adjacent deltas ~1 — measured on the
+                 # real false-completion artifact). The discriminator that
+                 # separates them: the largest adjacent-pixel channel jump
+                 # within a row — smooth shading changes by ~1-2/pixel, an
+                 # object silhouette against the background is a
+                 # discontinuity of tens. Sample 5 rows; require a jump >=25
+                 # somewhere (stride 3 so antialiased edges still register).
+                 # Python is legitimate here (reads a build artifact — see
+                 # the narrowed quality-gate rule above).
+                 # A TRUE one-liner on purpose (assignments/lambdas/
+                 # comprehensions only — no def/if statements): the executor
+                 # copies acceptance commands to self-verify and reformats
+                 # whitespace; a multi-line `python3 -c` script flattened
+                 # into semicolons is a SyntaxError (observed live 2026-07-08
+                 # — the model's own T8 reproduction kept crashing while the
+                 # evaluator's verbatim run worked). Lesson 5: meet the
+                 # model where it is — this form survives any flattening.
+                 "command": ("python3 -c 'import sys; d = open(\"render.ppm\", \"rb\").read(); "
+                             "p = d.split(None, 4); m, w, h, rest = p[0], int(p[1]), int(p[2]), p[4]; "
+                             "rows = sorted({h//6, h//3, h//2, 2*h//3, 5*h//6}); "
+                             "px = (lambda y: [(rest[y*w*3+i], rest[y*w*3+i+1], rest[y*w*3+i+2]) for i in range(0, w*3-2, 3)]) "
+                             "if m == b\"P6\" else "
+                             "(lambda y, V=rest.split(): [tuple(int(t) for t in V[y*w*3+i : y*w*3+i+3]) for i in range(0, w*3-2, 3)]); "
+                             "j = max(max(abs(a-b) for a, b in zip(P[i], P[i+3])) for y in rows for P in [px(y)] for i in range(len(P)-3)); "
+                             "print(\"SCENE_OK\" if j >= 25 else \"NO_OBJECT_EDGES max_row_jump=%d - the image is a smooth background (gradient/flat); no object silhouettes are visible. Check the camera actually faces the scene objects.\" % j); "
+                             "sys.exit(0 if j >= 25 else 1)'"),
+                 "expect_substring": "SCENE_OK", "expect_exit": 0},
             ]
+            checklist.append({
+                "id": "C8",
+                "criterion": ("The rendered image shows actual scene objects (within-row color "
+                              "variation), not merely a background gradient — e.g. the camera "
+                              "must face the objects it is supposed to render"),
+                "verification": ">=8 distinct pixel values within a sampled row",
+            })
             return {"checklist": checklist, "tests": tests, "auditor_model": "template:cpp-render"}
+        # BASE (non-render) cpp goals: T1-T4 only prove the project BUILDS —
+        # they never prove it does anything. Reproduced live (2026-07-03/04,
+        # C++ postfix evaluator goal): main.cpp was `int main() { return
+        # 0; }`, built clean, and was marked verified complete. Require at
+        # least one CTest-registered test that actually runs and passes.
+        #
+        # `ctest`'s exit code alone does NOT discriminate this — verified
+        # empirically: with no CTestTestfile.cmake at all, or with
+        # `enable_testing()` but zero `add_test()` calls, ctest prints "No
+        # test(s) were found" and still EXITS 0 (the same false-pass class
+        # as `cargo test`'s "0 passed; 0 failed"). What DOES discriminate:
+        # ctest only prints its "N% tests passed" SUCCESS summary line when
+        # at least one test actually ran; a genuinely failing test exits
+        # nonzero. So exit_code==0 AND substring "tests passed" together
+        # correctly separate all three cases (verified with real cmake/ctest
+        # runs: zero tests registered, one passing test, one failing test).
+        checklist.append({
+            "id": "C5",
+            "criterion": ("At least one CTest test is registered (enable_testing() + add_test()) "
+                          "and verifies real program behavior, not just that it builds"),
+            "verification": "ctest reports at least one test passed",
+        })
+        tests.append({
+            "id": "T5",
+            # Build diagnostics surfaced on failure for the same reason as
+            # T3/T4 above — a broken build here previously produced '' too.
+            "command": ('set -o pipefail; out=$(cmake --build build 2>&1) || { printf "%s\\n" "$out" | tail -15; '
+                        'printf "%s\\n" "$out" | grep -i error | head -5; exit 1; }; '
+                        'cd build && ctest --output-on-failure 2>&1 | tail -20'),
+            "expect_substring": "tests passed", "expect_exit": 0,
+        })
         return {"checklist": checklist, "tests": tests, "auditor_model": "template:cpp-cmake"}
     if lang == "python":
+        # NOTE on pipefail: every piped command below is prefixed with
+        # `set -o pipefail;` because bash reports a pipeline's exit status as
+        # its LAST stage's, not any earlier one. Without it, T1's
+        # `ls *.py | head -1` exits 0 (head succeeds) even when NO .py file
+        # exists — a real, live false-pass (2026-07-03: fizzbuzz.py's T1
+        # passed on an empty workspace during a mutation-gate probe). See
+        # harden_pipefail() for the general form of this repair, applied here
+        # directly at the source so the template is correct without relying
+        # on that pass. `ls *.py` uses `2>/dev/null` so a genuine no-match
+        # doesn't leak an error message that could accidentally satisfy
+        # `expect_substring`.
         return {"checklist": [
             {"id": "C1", "criterion": "A Python entry file exists and compiles", "verification": "py_compile"},
             {"id": "C2", "criterion": "The test suite passes", "verification": "pytest/unittest"}],
             "tests": [
-            {"id": "T1", "command": "ls *.py | head -1", "expect_substring": ".py", "expect_exit": 0},
+            {"id": "T1", "command": "set -o pipefail; ls *.py 2>/dev/null | head -1", "expect_substring": ".py", "expect_exit": 0},
             {"id": "T2", "command": "for f in *.py; do python3 -m py_compile \"$f\" || exit 1; done; echo COMPILE_OK", "expect_substring": "COMPILE_OK", "expect_exit": 0},
-            {"id": "T3", "command": "python3 -m pytest -q 2>&1 | tail -3 || python3 -m unittest discover -v 2>&1 | tail -3", "expect_substring": "", "expect_exit": 0}],
+            # NOTE on `||`: the previous form (`pytest ... | tail -3 || unittest
+            # discover ... | tail -3`) had the exact masking bug documented as
+            # Lesson 13 — reproduced live (2026-07-06, LRU-cache sandbox
+            # rerun): the executor's own real pytest suite genuinely failed
+            # 2 of 3 tests (a real eviction bug), but `||` ALSO fires on
+            # pytest's real nonzero exit, falling through to `unittest
+            # discover` finding zero pytest-style tests ("Ran 0 tests ... OK",
+            # exit 0) — which became T3's reported result, so the goal was
+            # marked verified complete over a genuinely broken implementation.
+            # An if/then/else keeps "pytest missing" (fall back to unittest)
+            # and "pytest ran and failed" (report that failure) on
+            # non-overlapping exit paths — each branch's own `| tail` still
+            # correctly propagates its real exit code via pipefail since only
+            # one branch ever runs.
+            {"id": "T3", "command": ('set -o pipefail; VENV="python3"; '
+                                      '[ -x .venv/bin/python3 ] && .venv/bin/python3 -c "import pytest" >/dev/null 2>&1 && VENV=".venv/bin/python3"; '
+                                      'if "$VENV" -c "import pytest" >/dev/null 2>&1; then "$VENV" -m pytest -q 2>&1 | tail -15; '
+                                      'else "$VENV" -m unittest discover -v 2>&1 | tail -15; fi'),
+             "expect_substring": "", "expect_exit": 0}],
             "auditor_model": "template:python"}
     if lang == "node":
         return {"checklist": [
@@ -546,15 +717,19 @@ def template_contract(stack: dict, goal_text: str) -> dict:
             {"id": "C2", "criterion": "npm test passes", "verification": "npm test"}],
             "tests": [
             {"id": "T1", "command": "test -f package.json && echo PKG_OK", "expect_substring": "PKG_OK", "expect_exit": 0},
-            {"id": "T2", "command": "npm test 2>&1 | tail -5", "expect_substring": "", "expect_exit": 0}],
+            {"id": "T2", "command": "set -o pipefail; npm test 2>&1 | tail -5", "expect_substring": "", "expect_exit": 0}],
             "auditor_model": "template:node"}
     if lang == "rust":
+        # T1 was the most severe instance of the pipe-masking bug: without
+        # pipefail, `cargo build 2>&1 | tail -3` always exits 0 (tail
+        # succeeds), so `&& echo BUILD_OK` ran and printed BUILD_OK on EVERY
+        # build, including ones that failed to compile.
         return {"checklist": [
             {"id": "C1", "criterion": "Cargo project builds", "verification": "cargo build"},
             {"id": "C2", "criterion": "cargo test passes", "verification": "cargo test"}],
             "tests": [
-            {"id": "T1", "command": "cargo build 2>&1 | tail -3 && echo BUILD_OK", "expect_substring": "BUILD_OK", "expect_exit": 0},
-            {"id": "T2", "command": "cargo test 2>&1 | tail -3", "expect_substring": "", "expect_exit": 0}],
+            {"id": "T1", "command": "set -o pipefail; cargo build 2>&1 | tail -3 && echo BUILD_OK", "expect_substring": "BUILD_OK", "expect_exit": 0},
+            {"id": "T2", "command": "set -o pipefail; cargo test 2>&1 | tail -3", "expect_substring": "", "expect_exit": 0}],
             "auditor_model": "template:rust"}
     return {}
 
@@ -583,6 +758,56 @@ def _already_cached(con, term: str) -> bool:
                            (f"%research:{term.lower()}%",)).fetchone() is not None
     except _sql2.Error:
         return False
+
+
+def web_search_cached(query: str, max_results: int = 4) -> str:
+    """Web search (DuckDuckGo via ddgs), cached by query in web_docs.
+
+    Shared by two consumers with different triggers:
+    - the executor's ``web_search`` tool (model-initiated), and
+    - the evaluator's failure-triggered research (harness-initiated — after
+      a test fails repeatedly, the harness searches the error signature
+      ITSELF and embeds the findings in the repair task, because per Huang
+      et al. (ICLR 2024) models don't reliably self-correct without external
+      information, and across 26 logged runs (~1300 tool calls) this
+      harness's executor never once spontaneously reached for its research
+      tools even 32 attempts deep into one failure).
+
+    Returns a compact "title — url\\nsnippet" bundle, or "" on failure.
+    Failures are never cached (see research_and_cache's scar directly above).
+    """
+    query = (query or "").strip()[:300]
+    if not query:
+        return ""
+    try:
+        con = _sql2.connect(_WEB_DOCS_DB, timeout=4)
+        con.execute("""CREATE TABLE IF NOT EXISTS web_docs (
+            url TEXT PRIMARY KEY, content TEXT NOT NULL, fetched_at TEXT NOT NULL)""")
+        key = f"search:{query.lower()}"
+        row = con.execute("SELECT content FROM web_docs WHERE url=?", (key,)).fetchone()
+        if row:
+            con.close()
+            return row[0]
+        from ddgs import DDGS
+        with DDGS() as d:
+            hits = list(d.text(query, max_results=max_results))
+        parts = []
+        for h in hits:
+            url = h.get("href") or h.get("url") or ""
+            title = (h.get("title") or "")[:120]
+            body = (h.get("body") or "")[:400]
+            if url:
+                parts.append(f"{title} — {url}\n{body}")
+        text = "\n\n".join(parts)[:4000]
+        if text:
+            con.execute("INSERT OR REPLACE INTO web_docs(url,content,fetched_at) VALUES (?,?,?)",
+                        (key, text, _dt2.now(_tz2.utc).isoformat()))
+            con.commit()
+        con.close()
+        return text
+    except Exception as e:
+        print(f"🔎 web_search_cached failed ({str(e)[:80]}) — returning nothing, not cached.")
+        return ""
 
 
 def research_and_cache(goal_text: str, max_terms: int = 4) -> str:
@@ -623,7 +848,16 @@ def research_and_cache(goal_text: str, max_terms: int = 4) -> str:
                         except Exception:
                             text = f"DOC URL: {url}\n{body}"
             except Exception as se:
-                text = f"(search unavailable for {term}: {str(se)[:60]})"
+                # NEVER cache the failure, and NEVER log it as success. The
+                # previous form cached "(search unavailable ...: No module
+                # named 'ddgs')" under the research key and printed
+                # "📚 Auditor researched & cached docs" — so search silently
+                # failed on EVERY run ever (ddgs was missing from
+                # requirements), the log claimed research happened, and the
+                # poisoned cache entry made each term permanently
+                # unresearchable even after the dependency was fixed.
+                print(f"📚 research failed for {term!r} ({str(se)[:80]}) — not cached, will retry next run.")
+                continue
             if text:
                 con.execute("INSERT OR REPLACE INTO web_docs(url,content,fetched_at) VALUES (?,?,?)",
                             (key, text[:8000], _dt2.now(_tz2.utc).isoformat()))
