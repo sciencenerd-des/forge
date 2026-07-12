@@ -18,6 +18,30 @@ class RuntimeRunStart(BaseModel):
     project_id: str | None = Field(default=None, max_length=128)
 
 
+class RuntimeRunSnapshot(BaseModel):
+    """Stable response contract for the operator runtime dashboard."""
+
+    id: str
+    project_id: str
+    project_name: str
+    goal_id: str | None = None
+    goal_title: str
+    status: str
+    current_node: str
+    batch: int = 0
+    pid: int | None = None
+    updated_at: str | None = None
+    active_task: str | None = None
+    attempt_count: int = 0
+    no_progress_count: int = 0
+    task_total: int = 0
+    task_completed: int = 0
+    file_count: int = 0
+    test_count: int = 0
+    log_tail: list[str] = Field(default_factory=list)
+    model: str | None = None
+
+
 class LeaseClaim(BaseModel):
     worker_id: str = Field(min_length=1, max_length=128)
     lease_seconds: int = Field(default=60, ge=10, le=900)

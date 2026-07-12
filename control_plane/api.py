@@ -31,6 +31,7 @@ from .schemas import (
     LeaseClaim,
     LeaseHeartbeat,
     RunCreate,
+    RuntimeRunSnapshot,
     RuntimeRunStart,
 )
 from .service import (
@@ -93,7 +94,11 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/runtime/runs", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/runtime/runs",
+    response_model=list[RuntimeRunSnapshot],
+    dependencies=[Depends(require_control_token)],
+)
 def runtime_runs() -> list[dict]:
     """Read-only loopback dashboard feed for live PGE runs."""
     return list_runtime_snapshots()

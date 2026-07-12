@@ -1,0 +1,21 @@
+[package]
+name = "forge-api"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Typed Rust client for the Forge control plane"
+
+[dependencies]
+bytes.workspace = true
+eventsource-stream.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tempfile = "3.23"

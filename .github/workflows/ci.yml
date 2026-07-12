@@ -53,4 +53,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  rust-pi-compat:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experimental
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.80.2
+      - run: pi --version
+      - run: PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 cargo test -p forge-pi -- --ignored
