@@ -124,7 +124,11 @@ def query_model(base_url: str, model: str, prompt: str, timeout: int) -> tuple[s
         "stream": False,
     }
     if is_ollama:
-        body_data["options"] = {"num_predict": 500}
+        # Thinking mode stays on (disabling it silently voids Ollama's JSON
+        # grammar mask — ollama#15260), so the token budget must cover the
+        # chain-of-thought AND the full object. 500 truncated the JSON mid-key
+        # and produced the spurious "capability wall"; 2000 leaves ample room.
+        body_data["options"] = {"num_predict": 2000}
         body_data["format"] = "json"
         endpoint = f"{base_url.rstrip('/').removesuffix('/v1')}/api/chat"
     else:

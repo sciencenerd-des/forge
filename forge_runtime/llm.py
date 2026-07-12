@@ -36,15 +36,30 @@ EXECUTOR_SCHEMA = {"type": "json_schema", "json_schema": {"name": "executor_acti
 
 
 def extract_json(raw: str) -> str:
-    """Extract one JSON object from model prose, thinking tags, or fences."""
+    """Extract one JSON object from model prose, thinking tags, or fences.
+
+    Small local models (e.g. Gemma on Ollama) frequently wrap the real object
+    in junk — a leading ``json`` token, a `````json`` fence, or even a
+    fake outer ``{"`` before the fence (``json\\n{"```json\\n{...}`````).
+    When a fence is present anywhere it holds the true payload, so it is tried
+    before the brace-window fallback.
+    """
     text = (raw or "").strip()
     if "</think>" in text:
         text = text.rsplit("</think>", 1)[-1].strip()
+    fence = text.find("```")
+    if fence != -1:
+        inner = text[fence + 3:]
+        if inner[:4].lower() == "json":
+            inner = inner[4:]
+        inner = inner.lstrip("\n")
+        end = inner.find("```")
+        if end != -1:
+            inner = inner[:end]
+        first, last = inner.find("{"), inner.rfind("}")
+        if 0 <= first < last:
+            return inner[first:last + 1]
     text = text.removeprefix("json").strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if "```" in text:
-            text = text.split("```", 1)[0].strip()
     first, last = text.find("{"), text.rfind("}")
     if first < 0 or last <= first:
         raise ValueError("model response did not contain a JSON object")
