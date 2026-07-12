@@ -14,8 +14,9 @@ from pathlib import Path
 import pytest
 from fastapi.exceptions import ResponseValidationError
 
-from .conftest import A2A_TASK_ID, APPROVAL_ID, HEADERS, PROJECT_ID, RUN_ID
 from control_plane.api import app
+
+from .conftest import A2A_TASK_ID, APPROVAL_ID, HEADERS, PROJECT_ID, RUN_ID
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "contracts" / "fixtures"

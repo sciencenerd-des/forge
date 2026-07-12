@@ -24,7 +24,6 @@ import threading
 import time
 from pathlib import Path
 
-
 SCENARIOS = {
     "read": (
         "Use the read tool to read each of these files one at a time: "

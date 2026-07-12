@@ -8,7 +8,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-
 RUN_ID = "11111111-1111-1111-1111-111111111111"
 PROJECT_ID = "22222222-2222-2222-2222-222222222222"
 GOAL_ID = "33333333-3333-3333-3333-333333333333"
