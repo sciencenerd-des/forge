@@ -142,6 +142,28 @@ def evaluate_gate(candidate: dict, baseline: dict) -> GateResult:
     return GateResult(passed=not reasons, reasons=tuple(reasons), deltas=deltas)
 
 
+def evaluate_self_improvement_gate(candidate: dict, baseline: dict,
+                                   min_replicates: int = 3) -> GateResult:
+    """Stricter gate for accepting a self-improvement proposal.
+
+    A stochastic local model can pass one lucky run, so a self-improvement
+    decision additionally requires both sides to aggregate at least
+    ``min_replicates`` trials (paired, under the same environment). Everything
+    else is the standard comparability + regression + false-completion gate.
+    """
+    base = evaluate_gate(candidate, baseline)
+    reasons = list(base.reasons)
+    for label, report in (("candidate", candidate), ("baseline", baseline)):
+        env = report.get("environment") or {}
+        replicates = report.get("replicate_count", env.get("replicate_count"))
+        if replicates is None or replicates < min_replicates:
+            reasons.append(
+                f"{label} has {replicates} replicate(s); self-improvement needs "
+                f">= {min_replicates} (never gate on one lucky run)"
+            )
+    return GateResult(passed=not reasons, reasons=tuple(reasons), deltas=base.deltas)
+
+
 def validate_whitelist(proposed_changes: dict) -> tuple[bool, tuple[str, ...]]:
     """A proposer may only touch whitelisted config knobs."""
     rejected = tuple(k for k in proposed_changes if k not in CONFIG_WHITELIST)

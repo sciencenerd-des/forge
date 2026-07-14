@@ -165,6 +165,26 @@ def test_truncated_json_raises_cleanly(tmp_path):
         load_result_readonly(path)
 
 
+def test_sample_v2_identity_comparison_passes():
+    from pathlib import Path
+
+    sample = Path(__file__).resolve().parent.parent / "evals" / "results" / "sample-v2.json"
+    data = json.loads(sample.read_text())
+    assert gate.evaluate_gate(data, data).passed
+
+
+def test_self_improvement_gate_requires_min_replicates():
+    one = _v2(replicate_count=1)
+    # Standard gate passes identity; the self-improvement gate does not (1 < 3).
+    assert gate.evaluate_gate(one, one).passed
+    strict = gate.evaluate_self_improvement_gate(one, one, min_replicates=3)
+    assert not strict.passed
+    assert any("replicate" in r for r in strict.reasons)
+    # Three replicates satisfies the paired-trial requirement.
+    three = _v2(replicate_count=3)
+    assert gate.evaluate_self_improvement_gate(three, three, min_replicates=3).passed
+
+
 def test_atomic_write_leaves_valid_file_and_no_tmp(tmp_path):
     path = tmp_path / "sub" / "report.json"
     suite = SuiteResultV2(environment=EnvironmentFingerprint(model="m"))
