@@ -56,6 +56,53 @@ SANDBOX_UID = 10001
 SANDBOX_GID = 10001
 _DEFAULT_TIMEOUT = 120
 
+# Directories excluded from an exported snapshot: VCS metadata, our own probes,
+# build caches, and dependency trees. They are run byproducts, not the artifact,
+# and copying them would let stale/agent-controlled state pollute verification.
+_SNAPSHOT_PRUNE = {".git", "__pycache__", ".pytest_cache", ".mypy_cache",
+                   ".ruff_cache", "node_modules", ".venv", "venv", ".tox",
+                   "target", "build", ".forge-sandbox-host-import-v1"}
+
+
+@dataclass(frozen=True)
+class SnapshotResult:
+    """An immutable, content-addressed copy of a workspace at a terminal moment."""
+
+    path: str
+    digest: str
+    file_count: int
+
+
+def _stage_dir_snapshot(src: Path, dest: Path) -> SnapshotResult:
+    """Copy ``src`` -> ``dest`` minus prune dirs and compute a content digest.
+
+    The digest is over the sorted (relative-path, sha256(bytes)) pairs, so it is
+    stable across machines and independent of mtimes — two runs that produced
+    byte-identical artifacts get the same digest.
+    """
+    import hashlib
+
+    dest.mkdir(parents=True, exist_ok=True)
+    entries: list[tuple[str, str]] = []
+    for path in sorted(src.rglob("*")):
+        if any(part in _SNAPSHOT_PRUNE for part in path.relative_to(src).parts):
+            continue
+        rel = path.relative_to(src)
+        target = dest / rel
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if not path.is_file():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = path.read_bytes()
+        target.write_bytes(data)
+        entries.append((str(rel), hashlib.sha256(data).hexdigest()))
+    digest = hashlib.sha256(
+        "\0".join(f"{rel}:{h}" for rel, h in entries).encode("utf-8")
+    ).hexdigest()
+    return SnapshotResult(path=str(dest), digest=digest, file_count=len(entries))
+
 
 def docker_available() -> bool:
     """Same contract as verifier_hierarchy.docker_available(): CLI present
@@ -116,6 +163,18 @@ class Workspace:
         whole module to be sandbox-aware was judged higher-risk than syncing
         once per evaluation cycle). No-op for HostWorkspace, which already IS
         the host directory."""
+        raise NotImplementedError
+
+    def export_snapshot(self, dest: str) -> SnapshotResult:
+        """Stage an immutable, content-addressed copy of this workspace.
+
+        This is the *authoritative* artifact source for acceptance: in container
+        mode the real workspace lives in the container's volume, so reading the
+        host mirror (which may hold only ``.git``) would verify stale bytes. The
+        caller must invoke this only after the run is terminal; the export never
+        overwrites the project's host mirror. Prune dirs are stripped and a
+        content digest is returned so a result can record exactly what was
+        judged."""
         raise NotImplementedError
 
 
@@ -179,6 +238,9 @@ class HostWorkspace(Workspace):
 
     def sync_to_host(self, host_dir: str) -> None:
         pass  # already the host directory
+
+    def export_snapshot(self, dest: str) -> SnapshotResult:
+        return _stage_dir_snapshot(self._root, Path(dest).expanduser().resolve(strict=False))
 
 
 class ContainerSandbox(Workspace):
@@ -488,6 +550,25 @@ class ContainerSandbox(Workspace):
         finally:
             if not replaced and stage.exists():
                 shutil.rmtree(stage, ignore_errors=True)
+
+    def export_snapshot(self, dest: str) -> SnapshotResult:
+        """Copy the container's authoritative /workspace into an immutable stage.
+
+        Reads from the container volume (the real workspace), never the host
+        mirror, so acceptance judges what the agent actually produced. Runs only
+        against a terminal container — the caller guarantees termination first."""
+        dest_path = Path(dest).expanduser().resolve(strict=False)
+        stage = Path(tempfile.mkdtemp(prefix="forge-snap-src-"))
+        try:
+            copied = subprocess.run(
+                ["docker", "cp", f"{self.container_name}:/workspace/.", str(stage)],
+                capture_output=True, text=True, timeout=120,
+            )
+            if copied.returncode != 0:
+                raise SandboxError(f"snapshot export failed: {copied.stderr[:300]}")
+            return _stage_dir_snapshot(stage, dest_path)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
 
 
 _WORKSPACE_CACHE: dict[str, Workspace] = {}

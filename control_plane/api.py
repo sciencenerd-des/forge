@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import secrets
 from contextlib import asynccontextmanager
 
@@ -138,25 +137,22 @@ def runtime_projects() -> list[dict]:
     dependencies=[Depends(require_control_token)],
 )
 def runtime_stop(project_id: str) -> dict:
-    """Stop a detached run: signal its process and mark the manifest stopped.
-    Loopback dashboard control (the console runs on localhost)."""
-    import signal
+    """Stop a detached run: terminate its whole process group and mark the
+    manifest stopped. Loopback dashboard control (the console runs on localhost).
 
-    from pge_launcher import load_run_state, process_is_alive, update_run
+    Reuses ``terminate_run`` so operator stops and eval timeouts share one
+    bounded TERM -> KILL termination path and identical lifecycle persistence."""
+    from pge_launcher import load_run_state, terminate_run
 
     manifest = load_run_state().get(project_id)
     if not manifest:
         raise HTTPException(404, "no run for that project")
     pid = manifest.get("pid")
     run_id = manifest.get("run_id")
-    if pid and process_is_alive(pid):
-        try:
-            os.kill(int(pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError) as exc:
-            raise HTTPException(409, f"could not signal pid {pid}: {exc}")
-    if run_id:
-        update_run(project_id, run_id, status="stopped", terminal_reason="stopped_by_operator")
-    return {"status": "stopped", "project_id": project_id, "pid": pid}
+    if not run_id:
+        return {"status": "stopped", "project_id": project_id, "pid": pid}
+    result = terminate_run(project_id, run_id, "stopped_by_operator")
+    return {"status": result.get("status", "stopped"), "project_id": project_id, "pid": pid}
 
 
 @app.post(

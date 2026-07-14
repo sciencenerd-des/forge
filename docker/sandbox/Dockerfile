@@ -32,7 +32,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # active, which run_tests/lint/audit_deps can't assume exists yet.
 # --break-system-packages is safe here: this IS the disposable, non-root,
 # capability-dropped sandbox environment, not a host Python install.
-RUN pip install --no-cache-dir --break-system-packages pytest ruff pip-audit
+#
+# numpy/scikit-learn are PINNED and baked in because the canonical suite's
+# digits goal both trains and is independently VERIFIED against a reproduced
+# accuracy > 0.95. If the verifier runtime lacked sklearn (as the July-13 host
+# verifier did), digits could only ever return "unverifiable" — a missing
+# dependency masquerading as an inconclusive result. Pinning also makes the
+# reproduced accuracy deterministic and records a stable image digest per run.
+RUN pip install --no-cache-dir --break-system-packages \
+    pytest==8.3.4 ruff==0.8.6 pip-audit==2.7.3 \
+    numpy==2.1.3 scikit-learn==1.6.0
 
 RUN groupadd --gid 10001 sandbox \
     && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash sandbox
