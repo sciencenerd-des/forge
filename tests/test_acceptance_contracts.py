@@ -10,6 +10,7 @@ false-green hole fails here.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -486,3 +487,25 @@ def test_contract_hash_changes_with_module_content():
     from evals.acceptance import contract_hash
 
     assert isinstance(contract_hash(), str) and len(contract_hash()) == 16
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4: real container verifier boundary (Docker-gated)
+# --------------------------------------------------------------------------- #
+_DOCKER_VERIFIER = pytest.mark.skipif(
+    os.environ.get("FORGE_TEST_DOCKER") != "1" or shutil.which("docker") is None,
+    reason="set FORGE_TEST_DOCKER=1 with Docker + forge-sandbox image to run the verifier container",
+)
+
+
+@_DOCKER_VERIFIER
+def test_container_verifier_accepts_good_and_rejects_broken(tmp_path):
+    from evals.acceptance import ContainerRunner
+
+    good = _workspace(tmp_path, "clru-good", {"lru_cache.py": GOOD_LRU})
+    broken = _workspace(tmp_path, "clru-bad", {"lru_cache.py": BROKEN_LRU})
+    good_result = verify_goal("lru", good, runner=ContainerRunner())
+    broken_result = verify_goal("lru", broken, runner=ContainerRunner())
+    assert good_result["verdict"] == "accepted", good_result["reason"]
+    assert good_result["gateable"] is True and good_result["runner_label"] == "container"
+    assert broken_result["verdict"] == "rejected"

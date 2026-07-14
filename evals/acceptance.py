@@ -200,6 +200,7 @@ class ContainerRunner(Runner):
         except ValueError:
             root, rel = cwd, Path(".")
         container_cwd = str(PurePosixPath("/verify") / rel)
+        translated = [self._to_container(token, root) for token in cmd]
         docker_cmd = [
             "docker", "run", "--rm", "--network", "none",
             "--memory", self.memory, "--cpus", self.cpus, "--pids-limit", str(self.pids),
@@ -207,10 +208,28 @@ class ContainerRunner(Runner):
             "--read-only", "--tmpfs", "/tmp:rw,exec",
             "--user", "10001:10001",
             "-v", f"{root}:/verify:rw", "-w", container_cwd,
-            "-i", self.image, *cmd,
+            "-i", self.image, *translated,
         ]
         return subprocess.run(docker_cmd, input=stdin, text=True,
                               capture_output=True, timeout=timeout + 15)
+
+    @staticmethod
+    def _to_container(token: str, root: Path) -> str:
+        """Rewrite a host command token for the container's filesystem/tools.
+
+        The host interpreter path (this venv's python) does not exist in the
+        image, and absolute host paths under the mount must become ``/verify``
+        paths. Anything else (flags, code strings, plain args) passes through.
+        """
+        if token == PYTHON or token == str(PYTHON):
+            return "python3"
+        try:
+            candidate = Path(token)
+            if candidate.is_absolute():
+                return str(PurePosixPath("/verify") / candidate.resolve().relative_to(root))
+        except (ValueError, OSError):
+            pass
+        return token
 
 
 # The active runner is context-local so contracts need no signature changes and
