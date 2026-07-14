@@ -2611,7 +2611,7 @@
     },
     "/runtime/runs/{project_id}/stop": {
       "post": {
-        "description": "Stop a detached run: signal its process and mark the manifest stopped.\nLoopback dashboard control (the console runs on localhost).",
+        "description": "Stop a detached run: terminate its whole process group and mark the\nmanifest stopped. Loopback dashboard control (the console runs on localhost).\n\nReuses ``terminate_run`` so operator stops and eval timeouts share one\nbounded TERM -> KILL termination path and identical lifecycle persistence.",
         "operationId": "runtime_stop_runtime_runs__project_id__stop_post",
         "parameters": [
           {
