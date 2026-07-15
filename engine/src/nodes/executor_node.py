@@ -776,6 +776,8 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                             tool_result = json.dumps({"status": "success" if _r.returncode == 0 else "error",
                                 "exit_code": _r.returncode, "stdout": (_r.stdout or "")[-6000:],
                                 "stderr": (_r.stderr or "")[-3000:]})
+                        except subprocess.TimeoutExpired:
+                            tool_result = json.dumps({"status": "error", "message": f"bash timed out after {_to}s"})
                         except Exception as _be:
                             tool_result = json.dumps({"status": "error", "message": f"bash: {_be}"})
                         record_tool_msg("bash", tool_result[:200])
@@ -832,6 +834,9 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                                 "status": "success" if _r.returncode == 0 else "error",
                                 "exit_code": _r.returncode, "stdout": (_r.stdout or "")[-6000:],
                                 "stderr": (_r.stderr or "")[-3000:]})
+                        except subprocess.TimeoutExpired:
+                            tool_result = json.dumps({"ok": False, "status": "error",
+                                "message": f"run_command timed out after {_to}s"})
                         except Exception as _re:
                             tool_result = json.dumps({"ok": False, "status": "error",
                                 "message": f"run_command: {_re}"})
