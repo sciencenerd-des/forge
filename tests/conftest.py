@@ -1,7 +1,7 @@
 """Shared pytest setup for Forge.
 
 Puts the two package roots (repo root for ``app``/``control_plane``/``forge_config``
-and ``engine`` for ``src``/``hermes_tools``) on ``sys.path`` and points
+and ``engine`` for ``src``/``forge_runtime.llm``) on ``sys.path`` and points
 ``FORGE_HOME`` at a throwaway temp dir so tests never touch real state.
 """
 import os

@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from forge_runtime.llm import EXECUTOR_SCHEMA, extract_json
+
 ALLOWED_TOOLS = {"read_file", "write_file", "run_command", "notebook_cell"}
 
 FIXTURES = {
@@ -29,6 +31,15 @@ Return executor JSON only.""",
 run_command({"argv":["python3","-m","pytest","-q"]}) ->
 {"ok":false,"data":{"exit_code":4,"stderr":"ERROR: file or directory not found: tests"},"error":"command exited with 4"}
 Do not repeat that command and do not claim completion. Choose one diagnostic read action to discover the repository's test configuration. Return executor JSON only.""",
+    "heartbeat_progress_reporting": """You are mid-batch on a long-running goal. No tool result is available yet; the current
+batch is still executing in the background. Report status without taking a tool action. Return exactly one executor
+JSON heartbeat object with progress_summary, next_task_description, blocker (null if none), and resume_instruction.
+No markdown or prose.""",
+    "notebook_tool_selection": """The task requires documenting findings in a markdown cell in notebooks/report.ipynb
+before continuing further edits. Choose exactly one next tool action. Return executor JSON only.""",
+    "single_action_discipline": """Two independent fixes are needed: src/a.py and src/b.py. Only one tool call is
+allowed per turn. Choose exactly one next tool action to make progress; the other fix can wait. Return executor
+JSON only as a single object, not a list.""",
 }
 
 
@@ -43,7 +54,7 @@ class FixtureResult:
 
 def _parse_action(raw: str) -> tuple[dict[str, Any] | None, str]:
     try:
-        value = json.loads(raw.strip())
+        value = json.loads(extract_json(raw))
     except (json.JSONDecodeError, TypeError) as error:
         return None, f"invalid JSON: {error}"
     if not isinstance(value, dict):
@@ -87,41 +98,45 @@ def evaluate_response(fixture: str, raw: str) -> FixtureResult:
     elif fixture == "failed_command_recovery":
         passed = name == "read_file" and arguments.get("path") in {"pyproject.toml", "package.json", "README.md"}
         reason = "diagnosed test configuration after failure" if passed else "repeated failure or skipped diagnosis"
+    elif fixture == "heartbeat_progress_reporting":
+        required = {"progress_summary", "next_task_description", "blocker", "resume_instruction"}
+        passed = action.get("type") == "heartbeat" and required.issubset(action)
+        reason = "reported heartbeat without taking a tool action" if passed else "expected a heartbeat with all required fields"
+    elif fixture == "notebook_tool_selection":
+        passed = name == "notebook_cell" and arguments.get("path") == "notebooks/report.ipynb"
+        reason = "used notebook_cell for the notebook edit" if passed else "expected notebook_cell for notebooks/report.ipynb"
+    elif fixture == "single_action_discipline":
+        passed = name == "read_file" and arguments.get("path") in {"src/a.py", "src/b.py"}
+        reason = "chose a single scoped action" if passed else "expected a single read_file action on src/a.py or src/b.py"
     else:
         raise ValueError(f"unknown fixture: {fixture}")
     return FixtureResult(fixture, passed, reason, raw)
 
 
 def query_model(base_url: str, model: str, prompt: str, timeout: int) -> tuple[str, int]:
-    body = json.dumps({
+    schema_prompt = "Return exactly one JSON object. No markdown, prose, or thinking. Keys: type, name, arguments, progress_summary, next_task_description, blocker, resume_instruction."
+    is_ollama = ":11434" in base_url
+    request_messages = [{"role": "user", "content": prompt}]
+    body_data: dict[str, Any] = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": request_messages + ([{"role": "system", "content": schema_prompt}] if is_ollama else []),
         "temperature": 0,
-        "max_tokens": 500,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "executor_action",
-                "strict": False,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "type": {"type": "string", "enum": ["tool_call", "heartbeat"]},
-                        "name": {"type": "string", "enum": sorted(ALLOWED_TOOLS)},
-                        "arguments": {"type": "object"},
-                        "progress_summary": {"type": "string"},
-                        "next_task_description": {"type": "string"},
-                        "blocker": {"type": ["string", "null"]},
-                        "resume_instruction": {"type": "string"},
-                    },
-                    "required": ["type"],
-                },
-            },
-        },
-        "extra_body": {"reasoning_effort": "none"},
-    }).encode()
+        "stream": False,
+    }
+    if is_ollama:
+        # Thinking mode stays on (disabling it silently voids Ollama's JSON
+        # grammar mask — ollama#15260), so the token budget must cover the
+        # chain-of-thought AND the full object. 500 truncated the JSON mid-key
+        # and produced the spurious "capability wall"; 2000 leaves ample room.
+        body_data["options"] = {"num_predict": 2000}
+        body_data["format"] = "json"
+        endpoint = f"{base_url.rstrip('/').removesuffix('/v1')}/api/chat"
+    else:
+        body_data.update({"max_tokens": 500, "response_format": EXECUTOR_SCHEMA})
+        endpoint = f"{base_url.rstrip('/')}/chat/completions"
+    body = json.dumps(body_data).encode()
     request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/chat/completions",
+        endpoint,
         data=body,
         headers={"Content-Type": "application/json", "Authorization": "Bearer not-needed"},
     )
@@ -129,7 +144,8 @@ def query_model(base_url: str, model: str, prompt: str, timeout: int) -> tuple[s
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = json.load(response)
     latency_ms = int((time.monotonic() - started) * 1000)
-    return payload["choices"][0]["message"]["content"] or "", latency_ms
+    content = payload.get("message", {}).get("content") if is_ollama else payload["choices"][0]["message"]["content"]
+    return content or "", latency_ms
 
 
 def run_evaluation(base_url: str, model: str, timeout: int) -> dict[str, Any]:

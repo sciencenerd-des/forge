@@ -70,3 +70,17 @@ cloud). This is what makes Forge plug-and-play.
 
 See [docs/LESSONS.md](docs/LESSONS.md) — the design invariants are direct scar
 tissue from real failure modes, each now pinned by a test in `tests/regression/`.
+# Standalone provider and A2A boundaries
+
+Forge resolves model profiles through `forge_config.provider_for(role)`. The
+resolution order is role-specific environment variables, global environment
+variables, `$FORGE_HOME/providers.json`, then the local LM Studio default. The
+file-backed store uses atomic writes and mode `0600`; API responses use masked
+profiles and never return raw keys. `forge_runtime.llm.client_for(role)` is
+lazy and its cache can be invalidated after a profile update.
+
+The control plane exposes a public Agent Card and a bearer-protected A2A JSON-RPC
+endpoint. A2A requests must name an existing project in `metadata.project_id`;
+the adapter never creates a workspace from an untrusted context identifier.
+Task records are durable under `$FORGE_HOME/a2a_tasks.json`, and detached PGE
+runs provide the long-running task lifecycle. See [docs/A2A.md](docs/A2A.md).

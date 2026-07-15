@@ -32,6 +32,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    "a2a-sdk>=1.0,<1.1",
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
@@ -39,9 +40,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Starlette 1.3+ moved its TestClient backend to the httpx2 namespace.
-# Keep the test client dependency explicit so the suite stays warning-free.
-dev = ["httpx2>=2.5", "pytest>=8.0", "ruff>=0.5"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
 
 [project.scripts]
 forge = "forge_cli:main"
@@ -58,7 +57,7 @@ py-modules = ["forge_config", "forge_cli", "run_pge", "pge_launcher", "models", 
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*", "control_plane*", "forge_runtime*"]
+include = ["app*", "control_plane*", "forge_runtime*", "forge_a2a*"]
 
 [tool.ruff]
 line-length = 100

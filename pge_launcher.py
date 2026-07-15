@@ -56,17 +56,17 @@ def _persist_lifecycle(record: dict[str, Any], event_type: str) -> None:
     from sqlalchemy import func, select
 
     from app.database import SessionLocal as PgeSession
-    from app.models import HermesGoal
+    from app.models import ForgeGoal
     from control_plane.database import SessionLocal as ControlSession
     from control_plane.database import create_schema
     from control_plane.models import RunEventRecord, RunRecord
 
     project_id = record["project_id"]
     with PgeSession() as pge_db:
-        goal = (pge_db.query(HermesGoal)
-                .filter(HermesGoal.project_id == project_id,
-                        HermesGoal.status.in_(("active", "proposed")))
-                .order_by(HermesGoal.created_at.desc()).first())
+        goal = (pge_db.query(ForgeGoal)
+                .filter(ForgeGoal.project_id == project_id,
+                        ForgeGoal.status.in_(("active", "proposed")))
+                .order_by(ForgeGoal.created_at.desc()).first())
     if goal is None:
         return
 

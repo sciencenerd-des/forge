@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Resolve .env relative to the PROJECT ROOT (parent of this app/ package), not the
-# current working directory. The MCP server and the native Hermes plugin import
+# current working directory. The MCP server and Forge integrations import
 # this module from arbitrary cwds; a cwd-relative load_dotenv() silently missed
 # the .env and fell back to a bad default URL (role "postgres" does not exist),
 # which crashed the MCP server on startup.

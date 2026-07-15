@@ -2,14 +2,14 @@ import os
 import json
 from typing import List, Dict
 from src.state.schema import AgentState, Task, Goal
-from hermes_tools import planner_llm, PLANNER_SCHEMA
+from forge_runtime.llm import planner_llm, PLANNER_SCHEMA, extract_json
 from app.database import SessionLocal
 from app.services import MemoryService
-from app.models import HermesProject, HermesGoal, HermesTask
+from app.models import ForgeProject, ForgeGoal, ForgeTask
 from src.runtime import active_goal_query
 
 
-def _runtime_task(task: HermesTask) -> Task:
+def _runtime_task(task: ForgeTask) -> Task:
     return Task(
         id=task.id,
         title=task.title,
@@ -38,7 +38,7 @@ def planner_node(state: AgentState) -> Dict:
     try:
         print("🎯 planner_node: querying project and goal...")
         service = MemoryService(db)
-        db_project = db.query(HermesProject).filter(HermesProject.id == project_id).first()
+        db_project = db.query(ForgeProject).filter(ForgeProject.id == project_id).first()
         if not db_project:
             import forge_config
             db_project = service.create_project(
@@ -56,7 +56,7 @@ def planner_node(state: AgentState) -> Dict:
             db_goal = service.create_goal(
                 project_id=project_id,
                 title=state["goal"].title if state.get("goal") else "Persistent Agent Autonomy Architecture",
-                description=state["goal"].description if state.get("goal") else "Build a robust, persistent state machine for Hermes.",
+                description=state["goal"].description if state.get("goal") else "Build a robust, persistent state machine for Forge.",
                 success_criteria=state["goal"].success_criteria if state.get("goal") else ["State is saved to Postgres at every turn"]
             )
         
@@ -71,18 +71,18 @@ def planner_node(state: AgentState) -> Dict:
         )
         
         # Query task list
-        db_tasks = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id, HermesTask.goal_id == db_goal.id).all()
+        db_tasks = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id, ForgeTask.goal_id == db_goal.id).all()
         has_active = any(t.status == "active" for t in db_tasks)
         if not has_active:
-            db_proposed = db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.status == "proposed"
-            ).order_by(HermesTask.priority.asc(), HermesTask.created_at.asc()).first()
+            db_proposed = db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.status == "proposed"
+            ).order_by(ForgeTask.priority.asc(), ForgeTask.created_at.asc()).first()
             if db_proposed:
                 service.set_active_task(project_id, db_proposed.id)
-                db_tasks = db.query(HermesTask).filter(
-                    HermesTask.project_id == project_id, HermesTask.goal_id == db_goal.id).all()
+                db_tasks = db.query(ForgeTask).filter(
+                    ForgeTask.project_id == project_id, ForgeTask.goal_id == db_goal.id).all()
                 
         task_queue = []
         for t in db_tasks:
@@ -115,7 +115,7 @@ def planner_node(state: AgentState) -> Dict:
               f"{attempts.get(active_existing.id)} attempts — retiring it (status=blocked).")
         db_r = SessionLocal()
         try:
-            row = db_r.query(HermesTask).filter(HermesTask.id == active_existing.id).first()
+            row = db_r.query(ForgeTask).filter(ForgeTask.id == active_existing.id).first()
             if row:
                 row.status = "blocked"
                 db_r.commit()
@@ -136,7 +136,7 @@ def planner_node(state: AgentState) -> Dict:
             and attempts.get(active_existing.id, 0) >= 2):
         db_p = SessionLocal()
         try:
-            row = db_p.query(HermesTask).filter(HermesTask.id == active_existing.id).first()
+            row = db_p.query(ForgeTask).filter(ForgeTask.id == active_existing.id).first()
             if row and row.status == "active":
                 row.status = "proposed"
                 db_p.commit()
@@ -165,7 +165,7 @@ def planner_node(state: AgentState) -> Dict:
         new_desc = f"{base_desc}\n[LOOP FEEDBACK] {fb}"
         db_f = SessionLocal()
         try:
-            row = db_f.query(HermesTask).filter(HermesTask.id == active_existing.id).first()
+            row = db_f.query(ForgeTask).filter(ForgeTask.id == active_existing.id).first()
             if row:
                 row.description = new_desc
                 db_f.commit()
@@ -185,7 +185,7 @@ def planner_node(state: AgentState) -> Dict:
     if _stagnating and active_existing is not None:
         try:
             _dbx = SessionLocal()
-            _row = _dbx.query(HermesTask).filter(HermesTask.id == active_existing.id).first()
+            _row = _dbx.query(ForgeTask).filter(ForgeTask.id == active_existing.id).first()
             if _row and (_row.attempt_count or 0) >= 3:
                 _row.status = "blocked"
                 _dbx.commit()
@@ -201,7 +201,7 @@ def planner_node(state: AgentState) -> Dict:
             nxt = pending_proposed[0]
             db2 = SessionLocal()
             try:
-                row = db2.query(HermesTask).filter(HermesTask.id == nxt.id).first()
+                row = db2.query(ForgeTask).filter(ForgeTask.id == nxt.id).first()
                 if row:
                     MemoryService(db2).set_active_task(project_id, row.id)
                 nxt.status = "active"
@@ -286,28 +286,28 @@ def planner_node(state: AgentState) -> Dict:
             clean_raw = clean_raw.split("</think>")[-1].strip()
             
         if "```json" in clean_raw:
-            json_str = clean_raw.split("```json")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```json")[1].split("```")[0].strip()
         elif "```" in clean_raw:
-            json_str = clean_raw.split("```")[1].split("```")[0].strip()
+                _json_str = clean_raw.split("```")[1].split("```")[0].strip()
         else:
             first_brace = clean_raw.find("{")
             last_brace = clean_raw.rfind("}")
             if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                json_str = clean_raw[first_brace:last_brace+1].strip()
+                _json_str = clean_raw[first_brace:last_brace+1].strip()
             else:
-                json_str = clean_raw
+                _json_str = clean_raw
             
-        data = json.loads(json_str)
+        data = json.loads(extract_json(clean_raw))
         new_tasks_data = data.get("new_tasks", [])
         
         # Save new tasks to the database
         db_goal = active_goal_query(db, project_id)
         for nt in new_tasks_data:
             # Check if task already exists
-            existing = db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == db_goal.id,
-                HermesTask.title == nt.get("title")
+            existing = db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == db_goal.id,
+                ForgeTask.title == nt.get("title")
             ).first()
             if existing and existing.status == "blocked":
                 print(f"🛑 planner: refusing to re-propose blocked task '{nt.get('title')}'")
@@ -337,9 +337,9 @@ def planner_node(state: AgentState) -> Dict:
                 )
                 
         # Reload tasks from DB to update task queue
-        db_tasks = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == state["goal"].id,
+        db_tasks = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == state["goal"].id,
         ).all()
         updated_queue = []
         for t in db_tasks:
@@ -348,21 +348,21 @@ def planner_node(state: AgentState) -> Dict:
         # Select active task
         active_task = None
         # First check if there's already an active task in DB
-        db_active = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == db_goal.id,
-            HermesTask.status == "active"
+        db_active = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == db_goal.id,
+            ForgeTask.status == "active"
         ).first()
         
         if db_active:
             active_task = _runtime_task(db_active)
         else:
             # Find the first proposed task and activate it
-            db_proposed = db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == db_goal.id,
-                HermesTask.status == "proposed"
-            ).order_by(HermesTask.priority.asc(), HermesTask.created_at.asc()).first()
+            db_proposed = db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == db_goal.id,
+                ForgeTask.status == "proposed"
+            ).order_by(ForgeTask.priority.asc(), ForgeTask.created_at.asc()).first()
             
             if db_proposed:
                 service.set_active_task(project_id, db_proposed.id)
@@ -378,23 +378,23 @@ def planner_node(state: AgentState) -> Dict:
     except Exception as e:
         print(f"Error parsing planner response: {e}")
         # Return whatever we managed to load
-        db_tasks = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == state["goal"].id,
+        db_tasks = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == state["goal"].id,
         ).all()
         fallback_queue = [_runtime_task(t) for t in db_tasks]
         
-        db_active = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == state["goal"].id,
-            HermesTask.status == "active",
+        db_active = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == state["goal"].id,
+            ForgeTask.status == "active",
         ).first()
         if not db_active:
-            db_proposed = db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == state["goal"].id,
-                HermesTask.status == "proposed"
-            ).order_by(HermesTask.priority.asc(), HermesTask.created_at.asc()).first()
+            db_proposed = db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == state["goal"].id,
+                ForgeTask.status == "proposed"
+            ).order_by(ForgeTask.priority.asc(), ForgeTask.created_at.asc()).first()
             if db_proposed:
                 db_proposed.status = "active"
                 db.commit()

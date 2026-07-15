@@ -9,7 +9,7 @@ from app.database import SessionLocal
 def _utcnow() -> datetime:
     """Naive UTC now (avoids the deprecated ``datetime.utcnow()``)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
-from app.models import HermesFileChange, HermesGoal, HermesMemoryItem, HermesProject, HermesTask, HermesTestRun
+from app.models import ForgeFileChange, ForgeGoal, ForgeMemoryItem, ForgeProject, ForgeTask, ForgeTestRun
 from app.services import MemoryService
 from src.nodes.executor_node import record_tool_msg
 
@@ -19,9 +19,9 @@ def task_record():
     db = SessionLocal()
     project_id = "loop-control-test"
     try:
-        for model in (HermesFileChange, HermesTestRun, HermesMemoryItem, HermesTask, HermesGoal):
+        for model in (ForgeFileChange, ForgeTestRun, ForgeMemoryItem, ForgeTask, ForgeGoal):
             db.query(model).filter(model.project_id == project_id).delete(synchronize_session=False)
-        db.query(HermesProject).filter(HermesProject.id == project_id).delete(synchronize_session=False)
+        db.query(ForgeProject).filter(ForgeProject.id == project_id).delete(synchronize_session=False)
         db.commit()
         service = MemoryService(db)
         service.create_project("test", "/tmp", project_id=project_id)
@@ -31,9 +31,9 @@ def task_record():
         yield project_id, task.id
     finally:
         db.rollback()
-        for model in (HermesFileChange, HermesTestRun, HermesMemoryItem, HermesTask, HermesGoal):
+        for model in (ForgeFileChange, ForgeTestRun, ForgeMemoryItem, ForgeTask, ForgeGoal):
             db.query(model).filter(model.project_id == project_id).delete(synchronize_session=False)
-        db.query(HermesProject).filter(HermesProject.id == project_id).delete(synchronize_session=False)
+        db.query(ForgeProject).filter(ForgeProject.id == project_id).delete(synchronize_session=False)
         db.commit()
         db.close()
 
@@ -53,9 +53,9 @@ def test_attempts_and_no_progress_are_durable(task_record):
 def test_historical_evidence_cannot_complete_new_activation(task_record):
     project_id, task_id = task_record
     with SessionLocal() as db:
-        task = db.get(HermesTask, task_id)
+        task = db.get(ForgeTask, task_id)
         task.evidence_baseline_at = _utcnow()
-        db.add(HermesTestRun(
+        db.add(ForgeTestRun(
             project_id=project_id, task_id=task_id, command="old",
             status="success", output_summary="old",
             created_at=_utcnow() - timedelta(days=1),
@@ -79,9 +79,9 @@ def test_context_consults_verified_learning_only(task_record):
         lessons = " ".join(pack["LESSONS_AND_MISTAKES"])
         assert "Repair the smallest failing behavior" in lessons
         assert "Independent rubric verification failed" not in lessons
-        assert db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.task_id == task_id,
-            HermesMemoryItem.memory_type == "learning_fail").count() == 1
+        assert db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.task_id == task_id,
+            ForgeMemoryItem.memory_type == "learning_fail").count() == 1
 
 
 def test_distill_stage_rejects_unverified_evidence(task_record):
@@ -99,9 +99,9 @@ def test_failed_verification_does_not_create_reusable_lesson(task_record):
         service.record_learning_failure(
             project_id, task_id, [{"id": "T1", "passed": False, "exit": 1}])
 
-        assert db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.task_id == task_id,
-            HermesMemoryItem.memory_type == "learning_distill").count() == 0
+        assert db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.task_id == task_id,
+            ForgeMemoryItem.memory_type == "learning_distill").count() == 0
         assert service.build_context_pack(project_id)["LESSONS_AND_MISTAKES"] == []
 
 
@@ -117,10 +117,10 @@ def test_passing_reverification_promotes_one_deduplicated_lesson(task_record):
 
         assert first is not None
         assert second.id == first.id
-        active = db.query(HermesMemoryItem).filter(
-            HermesMemoryItem.task_id == task_id,
-            HermesMemoryItem.memory_type == "learning_distill",
-            HermesMemoryItem.status == "active").all()
+        active = db.query(ForgeMemoryItem).filter(
+            ForgeMemoryItem.task_id == task_id,
+            ForgeMemoryItem.memory_type == "learning_distill",
+            ForgeMemoryItem.status == "active").all()
         assert len(active) == 1
         payload = __import__("json").loads(active[0].content)
         assert payload["evidence"]["verification_passed"] is True
@@ -135,16 +135,16 @@ def test_executor_has_bounded_in_turn_tool_loop():
 
 
 def test_pge_planner_and_executor_use_role_specific_models():
-    tools = (Path(__file__).parent / "hermes_tools.py").read_text()
+    tools = (Path(__file__).parent / "forge_runtime.llm.py").read_text()
     planner = (Path(__file__).parent / "src/nodes/planner_node.py").read_text()
     executor = (Path(__file__).parent / "src/nodes/executor_node.py").read_text()
     evaluator = (Path(__file__).parent / "src/nodes/evaluator_node.py").read_text()
 
     assert 'PGE_PLANNER_MODEL' in tools
     assert 'PGE_EXECUTOR_MODEL' in tools
-    assert 'from hermes_tools import planner_llm' in planner
-    assert 'from hermes_tools import executor_llm' in executor
-    assert 'from hermes_tools import llm' in evaluator
+    assert 'from forge_runtime.llm import planner_llm' in planner
+    assert 'from forge_runtime.llm import executor_llm' in executor
+    assert 'from forge_runtime.llm import llm' in evaluator
 
 
 def test_detached_runner_recovers_transient_model_failures_from_postgres():
@@ -163,7 +163,7 @@ def test_detached_lifecycle_is_persisted_to_control_plane_postgres():
 
 
 def test_executor_does_not_mirror_tools_to_latest_gateway_session(monkeypatch, tmp_path):
-    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
+    monkeypatch.delenv("FORGE_SESSION_ID", raising=False)
     db_path = tmp_path / "state.db"
     import sqlite3
     with sqlite3.connect(db_path) as conn:
@@ -186,7 +186,7 @@ def test_goal_tests_are_not_recorded_as_task_progress():
 
 
 def test_model_cannot_manufacture_evidence_records():
-    tools = (Path(__file__).parent / "hermes_tools.py").read_text()
+    tools = (Path(__file__).parent / "forge_runtime.llm.py").read_text()
     executor = (Path(__file__).parent / "src/nodes/executor_node.py").read_text()
     schema_section = tools.split("EXECUTOR_SCHEMA =", 1)[1].split("class LLM", 1)[0]
     assert '"record_test_run"' not in schema_section
@@ -202,7 +202,7 @@ def test_executor_recognizes_forge_tool_result_contract():
 
 
 def test_notebook_is_scratch_only_not_completion_evidence():
-    tools = (Path(__file__).parent / "hermes_tools.py").read_text()
+    tools = (Path(__file__).parent / "forge_runtime.llm.py").read_text()
     executor = (Path(__file__).parent / "src/nodes/executor_node.py").read_text()
     schema_section = tools.split("EXECUTOR_SCHEMA =", 1)[1].split("class LLM", 1)[0]
     assert '"notebook_cell"' in schema_section
@@ -216,7 +216,7 @@ def test_dynamic_auditor_context_is_failure_focused_and_bounded(task_record):
     project_id, task_id = task_record
     from src.nodes.auditor_node import build_dynamic_audit_context
     with SessionLocal() as db:
-        task = db.get(HermesTask, task_id)
+        task = db.get(ForgeTask, task_id)
         task.description = "Implement parser behavior"
         db.commit()
         MemoryService(db).record_test_run(

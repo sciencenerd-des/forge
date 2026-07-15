@@ -1,0 +1,64 @@
+{
+  "model": "gemma4:12b-mlx",
+  "score": 3,
+  "total": 8,
+  "pass_rate": 0.375,
+  "results": [
+    {
+      "fixture": "valid_structured_output",
+      "passed": true,
+      "reason": "valid, exact executor action",
+      "response": "json\n{\"```json\n{\"type\":\"tool_call\",\"name\":\"read_file\",\"arguments\":{\"path\":\"src/app.py\"}}\n```",
+      "latency_ms": 5128
+    },
+    {
+      "fixture": "correct_tool_selection",
+      "passed": true,
+      "reason": "inspects source before editing",
+      "response": "json\n{```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"read_file\",\n  \"arguments\": {\n    \"path\": \"src/parser.py\"\n  },\n  \"progress_summary\": \"Reading the source file to identify the failing assertion.\",\n  \"next_task_description\": \"Analyze the code around line 41 to understand why the assertion is failing.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Once the file content is retrieved, examine the logic at line 41.\"\n}\n```",
+      "latency_ms": 6089
+    },
+    {
+      "fixture": "no_repeated_action",
+      "passed": true,
+      "reason": "selected distinct requested evidence",
+      "response": "json\n{```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"read_file\",\n  \"arguments\": {\n    \"path\": \"tests/test_parser.py\"\n  },\n  \"progress_summary\": \"Reading the regression test file to identify the failing test case.\",\n  \"next_task_description\": \"Analyze the test cases in tests/test_parser.py and identify which one is failing.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Read the content of tests/test_parser.py.\"\n}\n```",
+      "latency_ms": 6051
+    },
+    {
+      "fixture": "tool_result_interpretation",
+      "passed": false,
+      "reason": "did not verify after successful write",
+      "response": "json```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"run_command\",\n  \"arguments\": {\n    \"command\": \"pytest src/parser.py\"\n  },\n  \"progress_summary\": \"Running tests for the parser to verify the fix.\",\n  \"next_task_description\": \"Analyze test results and fix any remaining issues.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Run the test command and check if all tests pass.\"\n}\n```",
+      "latency_ms": 27606
+    },
+    {
+      "fixture": "failed_command_recovery",
+      "passed": false,
+      "reason": "type must be tool_call or heartbeat",
+      "response": "json```json\n{\n  \"type\": \"shell\",\n  \"name\": \"list_root_contents\",\n  \"arguments\": {\n    \"command\": \"ls -F\"\n  },\n  \"progress_summary\": \"Listing root directory contents to identify test locations.\",\n  \"next_task_description\": \"Identify the directory containing tests based on the file list.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Continue by exploring the identified test directory.\"\n}\n```",
+      "latency_ms": 12460
+    },
+    {
+      "fixture": "heartbeat_progress_reporting",
+      "passed": false,
+      "reason": "invalid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+      "response": "json\n{{\n  \"type\": \"heartbeat\",\n  \"name\": \"status_update\",\n  \"arguments\": {},\n  \"progress_summary\": \"Batch 45/100 of data processing is complete. Currently processing batch 46.\",\n  \"next_task_description\": \"Continue processing remaining batches until completion.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Wait for the current background process to finish before proceeding.\"\n}",
+      "latency_ms": 17734
+    },
+    {
+      "fixture": "notebook_tool_selection",
+      "passed": false,
+      "reason": "type must be tool_call or heartbeat",
+      "response": "json\n{```json\n{\n  \"type\": \"tool\",\n  \"name\": \"edit_file\",\n  \"arguments\": {\n    \"path\": \"notebooks/report.ipynb\",\n    \"content\": \"# Findings\\n\\nThe analysis of the current system reveals that the core logic is functioning as expected, but there are opportunities to optimize the data processing pipeline for better scalability.\"\n  },\n  \"progress_summary\": \"Documenting findings in notebooks/report.ipynb.\",\n  \"next_task_description\": \"Continue with further edits as specified in the task requirements.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Proceed to the next set of modifications.\"\n}\n```",
+      "latency_ms": 78674
+    },
+    {
+      "fixture": "single_action_discipline",
+      "passed": false,
+      "reason": "unknown executor tool",
+      "response": "json\n{```json\n{\n  \"type\": \"tool_call\",\n  \"name\": \"ls\",\n  \"arguments\": {\n    \"path\": \"src\"\n  },\n  \"progress_summary\": \"Identified two independent fixes needed in src/a.py and src/b.py.\",\n  \"next_task_description\": \"List files in the src directory to confirm the existence of a.py and b.py.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Continue with analyzing src/a.py.\"\n}\n```",
+      "latency_ms": 16394
+    }
+  ]
+}

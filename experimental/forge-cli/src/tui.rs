@@ -35,19 +35,32 @@ pub fn run(state: &HarnessState) -> Result<()> {
 }
 
 fn event_loop(terminal: &mut DefaultTerminal, state: &HarnessState) -> Result<()> {
+    let mut setup_mode = false;
+    let mut setup_message = String::new();
     loop {
         let runtime_runs = load_runtime_runs();
-        terminal.draw(|frame| draw(frame, state, &runtime_runs))?;
+        terminal.draw(|frame| draw(frame, state, &runtime_runs, setup_mode, &setup_message))?;
         if event::poll(Duration::from_millis(250))?
             && let InputEvent::Key(key) = event::read()?
-            && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
         {
-            return Ok(());
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                KeyCode::Char('p') => { setup_mode = !setup_mode; setup_message.clear(); }
+                KeyCode::Char('1' | '2' | '3' | '4') if setup_mode => {
+                    let preset = match key.code { KeyCode::Char('1') => "http://localhost:1234/v1", KeyCode::Char('2') => "http://localhost:11434/v1", KeyCode::Char('3') => "http://localhost:8000/v1", _ => "https://api.openai.com/v1" };
+                    let key = std::env::var("FORGE_PROVIDER_API_KEY").unwrap_or_else(|_| "not-needed".into());
+                    match crate::setup::save_profile("default", preset, "auto", &key, "api_key") {
+                        Ok(path) => setup_message = format!("Saved default provider to {}", path.display()),
+                        Err(error) => setup_message = format!("Setup failed: {error}"),
+                    }
+                }
+                _ => {}
+            }
         }
     }
 }
 
-fn draw(frame: &mut Frame, state: &HarnessState, runtime_runs: &[RuntimeRun]) {
+fn draw(frame: &mut Frame, state: &HarnessState, runtime_runs: &[RuntimeRun], setup_mode: bool, setup_message: &str) {
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(10),
@@ -105,6 +118,21 @@ fn draw(frame: &mut Frame, state: &HarnessState, runtime_runs: &[RuntimeRun]) {
         runs,
     );
 
+    if setup_mode {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from("Provider setup"),
+                Line::from("1  LM Studio   2  Ollama   3  vLLM   4  OpenAI-compatible"),
+                Line::from("Press a number to save the default profile."),
+                Line::from("Set FORGE_PROVIDER_API_KEY before saving a cloud profile."),
+                Line::from(setup_message),
+            ]).block(Block::default().title(" Setup ").borders(Borders::ALL)),
+            detail,
+        );
+        frame.render_widget(Paragraph::new(" p toggle setup   q / esc quit ").block(Block::default().borders(Borders::TOP)), footer);
+        return;
+    }
+
     let detail_text = runtime_runs
         .first()
         .map(|run| {
@@ -147,7 +175,7 @@ fn draw(frame: &mut Frame, state: &HarnessState, runtime_runs: &[RuntimeRun]) {
         detail,
     );
     frame.render_widget(
-        Paragraph::new(" q / esc quit   live PGE state refreshes every 250ms ")
+            Paragraph::new(" p provider setup   q / esc quit   live PGE state refreshes every 250ms ")
             .block(Block::default().borders(Borders::TOP)),
         footer,
     );

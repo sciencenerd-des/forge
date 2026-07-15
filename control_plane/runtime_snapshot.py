@@ -9,10 +9,10 @@ from sqlalchemy import func
 
 import forge_config
 from app.database import SessionLocal
-from app.models import HermesFileChange, HermesGoal, HermesProject, HermesTask, HermesTestRun
+from app.models import ForgeFileChange, ForgeGoal, ForgeProject, ForgeTask, ForgeTestRun
 from pge_launcher import load_run_state, process_is_alive
 
-GATEWAY_PROCESS_MARKER = "hermes_cli.main gateway run"
+GATEWAY_PROCESS_MARKER = os.getenv("FORGE_GATEWAY_PROCESS_MARKER", "forge gateway run")
 
 
 def get_config_snapshot() -> dict[str, Any]:
@@ -61,10 +61,10 @@ def _list_project_snapshots() -> list[dict[str, Any]]:
     """Projects with their newest goal and task progress — for the Projects view."""
     out: list[dict[str, Any]] = []
     with SessionLocal() as db:
-        for project in db.query(HermesProject).order_by(HermesProject.created_at.desc()).all():
-            goals = (db.query(HermesGoal).filter(HermesGoal.project_id == project.id)
-                     .order_by(HermesGoal.created_at.desc()).all())
-            tasks = db.query(HermesTask).filter(HermesTask.project_id == project.id).all()
+        for project in db.query(ForgeProject).order_by(ForgeProject.created_at.desc()).all():
+            goals = (db.query(ForgeGoal).filter(ForgeGoal.project_id == project.id)
+                     .order_by(ForgeGoal.created_at.desc()).all())
+            tasks = db.query(ForgeTask).filter(ForgeTask.project_id == project.id).all()
             completed = sum(1 for t in tasks if t.status == "completed")
             active_goal = next((g for g in goals if g.status == "active"), goals[0] if goals else None)
             out.append({
@@ -106,22 +106,22 @@ def _list_runtime_snapshots() -> list[dict[str, Any]]:
     manifests = load_run_state()
     snapshots: list[dict[str, Any]] = []
     with SessionLocal() as db:
-        projects = {row.id: row for row in db.query(HermesProject).all()}
+        projects = {row.id: row for row in db.query(ForgeProject).all()}
         for project_id, manifest in manifests.items():
             project = projects.get(project_id)
-            goal = (db.query(HermesGoal).filter(HermesGoal.project_id == project_id)
-                    .order_by(HermesGoal.created_at.desc()).first())
-            tasks = (db.query(HermesTask).filter(
-                HermesTask.project_id == project_id,
-                HermesTask.goal_id == goal.id if goal else False,
-            ).order_by(HermesTask.created_at.asc()).all()) if goal else []
+            goal = (db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id)
+                    .order_by(ForgeGoal.created_at.desc()).first())
+            tasks = (db.query(ForgeTask).filter(
+                ForgeTask.project_id == project_id,
+                ForgeTask.goal_id == goal.id if goal else False,
+            ).order_by(ForgeTask.created_at.asc()).all()) if goal else []
             task_ids = [task.id for task in tasks]
             file_count = test_count = 0
             if task_ids:
-                file_count = db.query(func.count(HermesFileChange.id)).filter(
-                    HermesFileChange.task_id.in_(task_ids)).scalar() or 0
-                test_count = db.query(func.count(HermesTestRun.id)).filter(
-                    HermesTestRun.task_id.in_(task_ids)).scalar() or 0
+                file_count = db.query(func.count(ForgeFileChange.id)).filter(
+                    ForgeFileChange.task_id.in_(task_ids)).scalar() or 0
+                test_count = db.query(func.count(ForgeTestRun.id)).filter(
+                    ForgeTestRun.task_id.in_(task_ids)).scalar() or 0
             active = next((task for task in tasks if task.status == "active"), None)
             completed = sum(task.status == "completed" for task in tasks)
             status = manifest.get("status", "unknown")

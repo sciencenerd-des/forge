@@ -1,7 +1,7 @@
 import os
 
 import forge_config
-from app.models import HermesGoal, HermesProject
+from app.models import ForgeGoal, ForgeProject
 
 
 # A per-project workspaces ROOT, resolved from config. We NEVER fall back to the
@@ -14,10 +14,10 @@ DEFAULT_WORKSPACE = WORKSPACES_ROOT  # retained name; no longer the framework di
 
 def active_goal_query(db, project_id: str):
     """Return the newest unfinished goal, falling back to the newest goal."""
-    query = db.query(HermesGoal).filter(HermesGoal.project_id == project_id)
-    goal = (query.filter(HermesGoal.status != "completed")
-            .order_by(HermesGoal.created_at.desc()).first())
-    return goal or query.order_by(HermesGoal.created_at.desc()).first()
+    query = db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id)
+    goal = (query.filter(ForgeGoal.status != "completed")
+            .order_by(ForgeGoal.created_at.desc()).first())
+    return goal or query.order_by(ForgeGoal.created_at.desc()).first()
 
 
 # Directories the loop must NEVER treat as a project workspace — operating
@@ -33,7 +33,7 @@ def project_workspace(db, project_id: str) -> str:
     directory under WORKSPACES_ROOT is used. The framework's own source trees
     are forbidden as workspaces.
     """
-    project = db.query(HermesProject).filter(HermesProject.id == project_id).first()
+    project = db.query(ForgeProject).filter(ForgeProject.id == project_id).first()
     candidate = project.repo_path if project else None
     if candidate:
         candidate = os.path.abspath(os.path.expanduser(candidate))

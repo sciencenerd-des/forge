@@ -2,8 +2,8 @@
 
 Flow: planner generates the plan (task queue) → auditor reads the goal, the
 ORIGINAL user request, and the planner's plan → derives:
-  - checklist -> ``HermesGoal.success_criteria`` (executor contract)
-  - tests     -> HermesMemoryItem(memory_type='audit_tests')
+  - checklist -> ``ForgeGoal.success_criteria`` (executor contract)
+  - tests     -> ForgeMemoryItem(memory_type='audit_tests')
                  (evaluator contract — the evaluator RUNS these itself)
 
 The contract validates the USER REQUEST (the plan only informs it); once
@@ -18,8 +18,8 @@ from src.state.schema import AgentState, Goal
 from src.auditor import generate_contract, checklist_to_criteria
 from app.database import SessionLocal
 from app.services import MemoryService
-from app.models import (HermesFileChange, HermesGoal, HermesMemoryItem,
-                        HermesTask, HermesTestRun)
+from app.models import (ForgeFileChange, ForgeGoal, ForgeMemoryItem,
+                        ForgeTask, ForgeTestRun)
 from src.runtime import active_goal_query, project_workspace
 
 _AUDIT_MARK = "|| VERIFY:"
@@ -62,26 +62,26 @@ def build_dynamic_audit_context(project_id: str, test_results: list | None = Non
     db = SessionLocal()
     try:
         goal = active_goal_query(db, project_id)
-        task = (db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == goal.id if goal else False,
-            HermesTask.status == "active",
-        ).order_by(HermesTask.updated_at.desc()).first()) if goal else None
+        task = (db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == goal.id if goal else False,
+            ForgeTask.status == "active",
+        ).order_by(ForgeTask.updated_at.desc()).first()) if goal else None
         workspace = project_workspace(db, project_id)
         files = []
         tests = []
         memories = []
         if task:
-            files = (db.query(HermesFileChange).filter(
-                HermesFileChange.task_id == task.id)
-                .order_by(HermesFileChange.created_at.desc()).limit(5).all())
-            tests = (db.query(HermesTestRun).filter(
-                HermesTestRun.task_id == task.id)
-                .order_by(HermesTestRun.created_at.desc()).limit(5).all())
-            memories = (db.query(HermesMemoryItem).filter(
-                HermesMemoryItem.task_id == task.id,
-                HermesMemoryItem.memory_type.in_(("mistake", "learning_distill", "blocker")))
-                .order_by(HermesMemoryItem.created_at.desc()).limit(4).all())
+            files = (db.query(ForgeFileChange).filter(
+                ForgeFileChange.task_id == task.id)
+                .order_by(ForgeFileChange.created_at.desc()).limit(5).all())
+            tests = (db.query(ForgeTestRun).filter(
+                ForgeTestRun.task_id == task.id)
+                .order_by(ForgeTestRun.created_at.desc()).limit(5).all())
+            memories = (db.query(ForgeMemoryItem).filter(
+                ForgeMemoryItem.task_id == task.id,
+                ForgeMemoryItem.memory_type.in_(("mistake", "learning_distill", "blocker")))
+                .order_by(ForgeMemoryItem.created_at.desc()).limit(4).all())
 
         failures = [r for r in (test_results or []) if not r.get("passed")][:4]
         failure_text = " ".join(
@@ -163,12 +163,12 @@ def load_audit_tests(db, project_id: str) -> list:
     goal = active_goal_query(db, project_id)
     if not goal:
         return []
-    row = (db.query(HermesMemoryItem)
-           .filter(HermesMemoryItem.project_id == project_id,
-                   HermesMemoryItem.memory_type == "audit_tests",
-                   HermesMemoryItem.status == "active",
-                   HermesMemoryItem.tags.any(f"goal:{goal.id}"))
-           .order_by(HermesMemoryItem.created_at.desc()).first())
+    row = (db.query(ForgeMemoryItem)
+           .filter(ForgeMemoryItem.project_id == project_id,
+                   ForgeMemoryItem.memory_type == "audit_tests",
+                   ForgeMemoryItem.status == "active",
+                   ForgeMemoryItem.tags.any(f"goal:{goal.id}"))
+           .order_by(ForgeMemoryItem.created_at.desc()).first())
     if not row:
         return []
     try:
@@ -208,11 +208,11 @@ def _contract_poisoned(db, project_id: str, goal) -> bool:
 def _retire_audit_tests(db, project_id: str, goal) -> None:
     """Mark this goal's persisted audit_tests obsolete so load_audit_tests
     (status=='active' only) ignores them and the auditor regenerates."""
-    rows = (db.query(HermesMemoryItem)
-            .filter(HermesMemoryItem.project_id == project_id,
-                    HermesMemoryItem.memory_type == "audit_tests",
-                    HermesMemoryItem.status == "active",
-                    HermesMemoryItem.tags.any(f"goal:{goal.id}")).all())
+    rows = (db.query(ForgeMemoryItem)
+            .filter(ForgeMemoryItem.project_id == project_id,
+                    ForgeMemoryItem.memory_type == "audit_tests",
+                    ForgeMemoryItem.status == "active",
+                    ForgeMemoryItem.tags.any(f"goal:{goal.id}")).all())
     for r in rows:
         r.status = "obsolete"
     # Drop the contract criteria too so has_criteria flips false and the fresh
@@ -255,17 +255,17 @@ def auditor_node(state: AgentState) -> Dict:
         # improves its contract each run (user request 2026-06-13).
         lessons_text = ""
         try:
-            from app.models import HermesMemoryItem
-            rows = (db.query(HermesMemoryItem)
-                    .filter(HermesMemoryItem.project_id == project_id,
-                            HermesMemoryItem.memory_type == "lesson")
-                    .order_by(HermesMemoryItem.importance.desc(),
-                              HermesMemoryItem.created_at.desc()).limit(6).all())
+            from app.models import ForgeMemoryItem
+            rows = (db.query(ForgeMemoryItem)
+                    .filter(ForgeMemoryItem.project_id == project_id,
+                            ForgeMemoryItem.memory_type == "lesson")
+                    .order_by(ForgeMemoryItem.importance.desc(),
+                              ForgeMemoryItem.created_at.desc()).limit(6).all())
             # also pull a few GLOBAL lessons (any project) about contract/hallucination
-            glob = (db.query(HermesMemoryItem)
-                    .filter(HermesMemoryItem.memory_type == "lesson",
-                            HermesMemoryItem.content.ilike("%contract%"))
-                    .order_by(HermesMemoryItem.importance.desc()).limit(4).all())
+            glob = (db.query(ForgeMemoryItem)
+                    .filter(ForgeMemoryItem.memory_type == "lesson",
+                            ForgeMemoryItem.content.ilike("%contract%"))
+                    .order_by(ForgeMemoryItem.importance.desc()).limit(4).all())
             seen, picked = set(), []
             for r in rows + glob:
                 if r.content[:80] not in seen:

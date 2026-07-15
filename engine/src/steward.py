@@ -44,15 +44,15 @@ def _chat(prompt: str, max_tokens: int = 400, timeout: int = 90) -> str:
 def _db_snapshot(project_id: str) -> dict:
     """Fresh, minimal DB state — queried live, never cached."""
     from app.database import SessionLocal
-    from app.models import HermesGoal, HermesTask, HermesFileChange, HermesTestRun
+    from app.models import ForgeGoal, ForgeTask, ForgeFileChange, ForgeTestRun
     db = SessionLocal()
     try:
-        g = db.query(HermesGoal).filter(HermesGoal.project_id == project_id).first()
-        tasks = db.query(HermesTask).filter(HermesTask.project_id == project_id).all()
-        fcs = (db.query(HermesFileChange).filter(HermesFileChange.project_id == project_id)
-               .order_by(HermesFileChange.created_at.desc()).limit(5).all())
-        trs = (db.query(HermesTestRun).filter(HermesTestRun.project_id == project_id)
-               .order_by(HermesTestRun.created_at.desc()).limit(5).all())
+        g = db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id).first()
+        tasks = db.query(ForgeTask).filter(ForgeTask.project_id == project_id).all()
+        fcs = (db.query(ForgeFileChange).filter(ForgeFileChange.project_id == project_id)
+               .order_by(ForgeFileChange.created_at.desc()).limit(5).all())
+        trs = (db.query(ForgeTestRun).filter(ForgeTestRun.project_id == project_id)
+               .order_by(ForgeTestRun.created_at.desc()).limit(5).all())
         return {
             "goal": {"title": g.title, "status": g.status,
                      "criteria": g.success_criteria or []} if g else None,

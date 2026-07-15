@@ -1,7 +1,7 @@
 """Planner -> Generator(Executor) -> Evaluator autonomous loop runner.
 
 Persistence model: the Postgres DB *is* the durable state. Goals, tasks and
-their statuses live in `hermes_*` tables, so re-running this script resumes
+their statuses live in `forge_*` tables, so re-running this script resumes
 the work in progress — the planner reloads the open tasks and continues. The
 graph itself terminates cleanly (turn ceiling / no actionable tasks / blocked)
 instead of spinning, so you do not have to babysit it.
@@ -38,10 +38,11 @@ from src.state.schema import Goal  # noqa: E402
 import forge_config  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.models import (
-    HermesFileChange,
-    HermesMemoryItem,
-    HermesTask,
-    HermesTestRun,  # noqa: E402
+    ForgeFileChange,
+    ForgeGoal,
+    ForgeMemoryItem,
+    ForgeTask,
+    ForgeTestRun,  # noqa: E402
 )
 from app.services import MemoryService  # noqa: E402
 from pge_launcher import load_run_state, update_run  # noqa: E402
@@ -127,11 +128,11 @@ def run_batch_hygiene(project_id: str, batch: int) -> None:
                     replay_state(db, project_id, checkpoint.goal_id), checkpoint)
                 for divergence in divergences[:8]:
                     content = f"REPLAY DIVERGENCE: {divergence}"
-                    exists = db.query(HermesMemoryItem).filter(
-                        HermesMemoryItem.project_id == project_id,
-                        HermesMemoryItem.memory_type == "mistake",
-                        HermesMemoryItem.content == content,
-                        HermesMemoryItem.status == "active",
+                    exists = db.query(ForgeMemoryItem).filter(
+                        ForgeMemoryItem.project_id == project_id,
+                        ForgeMemoryItem.memory_type == "mistake",
+                        ForgeMemoryItem.content == content,
+                        ForgeMemoryItem.status == "active",
                     ).first()
                     if not exists:
                         service.record_memory_item(
@@ -160,36 +161,55 @@ def resolve_default_project() -> str:
         db.close()
 
 
+def create_new_project(name: str) -> str:
+    """Create an isolated project/workspace for a one-shot goal run."""
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("project name must not be empty")
+    workspace = forge_config.workspaces_root() / clean_name
+    workspace.mkdir(parents=True, exist_ok=True)
+    db = SessionLocal()
+    try:
+        project = MemoryService(db).create_project(
+            name=clean_name,
+            repo_path=str(workspace),
+            description="Fresh isolated project created for a Forge goal run.",
+        )
+        return project.id
+    finally:
+        db.close()
+
+
 def _load_progress(project_id: str):
     db = SessionLocal()
     try:
         goal = active_goal_query(db, project_id)
         if not goal:
             return None, ()
-        tasks = db.query(HermesTask).filter(
-            HermesTask.project_id == project_id,
-            HermesTask.goal_id == goal.id,
-        ).order_by(HermesTask.created_at.asc()).all()
+        tasks = db.query(ForgeTask).filter(
+            ForgeTask.project_id == project_id,
+            ForgeTask.goal_id == goal.id,
+        ).order_by(ForgeTask.created_at.asc()).all()
         task_ids = [t.id for t in tasks]
         evidence = (0, None, 0, None, 0, None)
         if task_ids:
-            file_count = db.query(HermesFileChange).filter(
-                HermesFileChange.task_id.in_(task_ids)).count()
-            latest_file = db.query(HermesFileChange.created_at).filter(
-                HermesFileChange.task_id.in_(task_ids)).order_by(
-                    HermesFileChange.created_at.desc()).first()
-            test_count = db.query(HermesTestRun).filter(
-                HermesTestRun.task_id.in_(task_ids)).count()
-            latest_test = db.query(HermesTestRun.created_at).filter(
-                HermesTestRun.task_id.in_(task_ids)).order_by(
-                    HermesTestRun.created_at.desc()).first()
-            memory_count = db.query(HermesMemoryItem).filter(
-                HermesMemoryItem.task_id.in_(task_ids),
-                HermesMemoryItem.status == "active").count()
-            latest_memory = db.query(HermesMemoryItem.updated_at).filter(
-                HermesMemoryItem.task_id.in_(task_ids),
-                HermesMemoryItem.status == "active").order_by(
-                    HermesMemoryItem.updated_at.desc()).first()
+            file_count = db.query(ForgeFileChange).filter(
+                ForgeFileChange.task_id.in_(task_ids)).count()
+            latest_file = db.query(ForgeFileChange.created_at).filter(
+                ForgeFileChange.task_id.in_(task_ids)).order_by(
+                    ForgeFileChange.created_at.desc()).first()
+            test_count = db.query(ForgeTestRun).filter(
+                ForgeTestRun.task_id.in_(task_ids)).count()
+            latest_test = db.query(ForgeTestRun.created_at).filter(
+                ForgeTestRun.task_id.in_(task_ids)).order_by(
+                    ForgeTestRun.created_at.desc()).first()
+            memory_count = db.query(ForgeMemoryItem).filter(
+                ForgeMemoryItem.task_id.in_(task_ids),
+                ForgeMemoryItem.status == "active").count()
+            latest_memory = db.query(ForgeMemoryItem.updated_at).filter(
+                ForgeMemoryItem.task_id.in_(task_ids),
+                ForgeMemoryItem.status == "active").order_by(
+                    ForgeMemoryItem.updated_at.desc()).first()
             evidence = (
                 file_count, latest_file[0] if latest_file else None,
                 test_count, latest_test[0] if latest_test else None,
@@ -265,14 +285,31 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
 
     goal = None
     if goal_title:
-        goal = Goal(
-            id=str(uuid.uuid4()),
-            title=goal_title,
-            description=goal_desc or goal_title,
-            status="active",
-            success_criteria=["Task produces a verifiable file change or successful test run"],
-            priority=1,
-        )
+        db = SessionLocal()
+        try:
+            goal_row = (db.query(ForgeGoal)
+                        .filter(ForgeGoal.project_id == project_id,
+                                ForgeGoal.title == goal_title,
+                                ForgeGoal.status != "completed")
+                        .order_by(ForgeGoal.created_at.desc()).first())
+            if goal_row is None:
+                goal_row = MemoryService(db).create_goal(
+                    project_id=project_id,
+                    title=goal_title,
+                    description=goal_desc or goal_title,
+                    success_criteria=["Task produces a verifiable file change or successful test run"],
+                    priority=1,
+                )
+            goal = Goal(
+                id=goal_row.id,
+                title=goal_row.title,
+                description=goal_row.description or goal_row.title,
+                status=goal_row.status,
+                success_criteria=goal_row.success_criteria or [],
+                priority=goal_row.priority,
+            )
+        finally:
+            db.close()
 
     config = {"recursion_limit": MAX_TURNS * 3 + 10}
     stagnant_batches = 0
@@ -445,11 +482,17 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Run the PGE autonomy loop")
     ap.add_argument("--project", default=None,
                     help="Project UUID (omit to use/create FORGE_DEFAULT_PROJECT)")
+    ap.add_argument("--new-project", default=None, metavar="NAME",
+                    help="Create a fresh isolated project/workspace with this name")
     ap.add_argument("--goal", default=None, help="Goal title (omit to resume DB goal)")
     ap.add_argument("--desc", default=None, help="Goal description")
     ap.add_argument("--run-id", default=None, help="Lifecycle manifest run UUID")
     args = ap.parse_args()
-    if not args.project:
+    if args.new_project and args.project:
+        ap.error("--project and --new-project are mutually exclusive")
+    if args.new_project:
+        args.project = create_new_project(args.new_project)
+    elif not args.project:
         args.project = resolve_default_project()
     try:
         result = run_pge(args.project, args.goal, args.desc, args.run_id)
