@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import SessionLocal
 from app.services import MemoryService
+from evals.contracts import is_legal_state_pair, state_pair_reason
 from evals.goal_suite import (
     GOALS,
     _build_report,
@@ -34,7 +35,7 @@ from evals.goal_suite import (
     reconcile_status,
 )
 from forge_config import DEFAULT_BASE_URL, ROLES
-from pge_launcher import load_run_state, process_is_alive
+from pge_launcher import load_run_state, process_is_alive, terminate_run
 
 POLL_SECONDS = 5
 
@@ -61,12 +62,7 @@ def configure_suite_provider(*, model: str, base_url: str) -> None:
 
 
 def _terminal(status: str) -> bool:
-    return status in {"completed", "failed", "blocked", "stopped"}
-
-
-def _consistent_terminal_status(manifest_status: str, goal_status: str | None) -> bool:
-    """A launcher terminal state is evidence only when durable state agrees."""
-    return _terminal(manifest_status) and goal_status == manifest_status
+    return status in {"completed", "failed", "blocked", "stopped", "timeout"}
 
 
 def run_suite(*, model: str, base_url: str, timeout: int, max_turns: int, output: Path,
@@ -91,6 +87,7 @@ def run_suite(*, model: str, base_url: str, timeout: int, max_turns: int, output
         launch = launch_pge(project_id, source="eval-tui", invocation={"goal": goal})
         status, error = "failed", launch.get("message")
         if launch.get("status") == "success":
+            run_id = launch.get("run_id", "")
             deadline = begin + timeout
             while time.monotonic() < deadline:
                 manifest = load_run_state().get(project_id, {})
@@ -103,13 +100,19 @@ def run_suite(*, model: str, base_url: str, timeout: int, max_turns: int, output
                     break
                 time.sleep(POLL_SECONDS)
             else:
+                # The suite owns the budget: a timeout must terminate the whole
+                # detached process group and finalize the manifest, or the
+                # orphan keeps running and contends with the next goal (the
+                # recorded July-13 sandbox failure mode).
+                terminate_run(project_id, run_id, f"eval_timeout_{timeout}s",
+                              status="timeout")
                 status, error = "timeout", f"exceeded {timeout}s"
         durable = _verdict(project_name, slug)
-        if _terminal(status) and not _consistent_terminal_status(status, durable.get("goal_status")):
-            status, error = (
-                "inconsistent",
-                f"launcher reported terminal state but durable goal is {durable.get('goal_status')!r}",
-            )
+        # Only an impossible pairing is corruption: a launcher that claims
+        # "completed" while the durable goal is unfinished. blocked/timeout/
+        # stopped + active is a legitimately resumable run, not inconsistency.
+        if _terminal(status) and not is_legal_state_pair(status, durable.get("goal_status")):
+            status, error = "inconsistent", state_pair_reason(status, durable.get("goal_status"))
         # The launcher's terminal "completed" is only a claim. The acceptance
         # contract's independent re-run is the arbiter: rejected -> false
         # completion; unverifiable/error on a claimed completion -> "unverified".

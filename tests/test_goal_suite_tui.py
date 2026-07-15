@@ -40,3 +40,64 @@ def test_suite_provider_overrides_role_specific_environment(_restore_environ):
         assert os.environ[f"FORGE_{upper}_BASE_URL"] == "http://127.0.0.1:1234/v1"
         assert provider_for(role)["model"] == "google/gemma-4-12b-qat"
         assert provider_for(role)["base_url"] == "http://127.0.0.1:1234/v1"
+
+
+def test_suite_timeout_terminates_the_detached_run(monkeypatch, tmp_path, _restore_environ):
+    """The recorded July-13 P0: a suite timeout must stop the whole process
+    group and finalize the manifest — never leave the orphan contending with
+    the next goal."""
+    import evals.goal_suite_tui as tui
+
+    terminated = {}
+
+    class _FakeProject:
+        id = "proj-1"
+
+    class _FakeService:
+        def __init__(self, db):
+            pass
+
+        def create_project(self, name, repo_path):
+            return _FakeProject()
+
+        def create_goal(self, **kwargs):
+            return None
+
+    class _FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(tui, "SessionLocal", lambda: _FakeSession())
+    monkeypatch.setattr(tui, "MemoryService", _FakeService)
+    monkeypatch.setattr(tui, "configure_suite_provider", lambda **kw: None)
+    monkeypatch.setattr(tui, "load_run_state",
+                        lambda: {"proj-1": {"status": "running", "pid": 4242}})
+    monkeypatch.setattr(tui, "process_is_alive", lambda pid: True)
+    monkeypatch.setattr(
+        tui, "terminate_run",
+        lambda project_id, run_id, reason, **kw: terminated.update(
+            {"project_id": project_id, "run_id": run_id, "reason": reason, **kw}) or {},
+    )
+    monkeypatch.setattr(
+        tui, "_verdict",
+        lambda project, slug: {"slug": slug, "goal_status": "active",
+                               "acceptance_verdict": "unverifiable", "accepted": False,
+                               "acceptance_reason": "not finished"},
+    )
+    import pge_launcher
+    monkeypatch.setattr(pge_launcher, "launch_pge",
+                        lambda *a, **k: {"status": "success", "run_id": "run-9"})
+
+    report = tui.run_suite(model="m", base_url="http://x/v1", timeout=0,
+                           max_turns=1, output=tmp_path / "out.json", only=1)
+
+    assert terminated["project_id"] == "proj-1"
+    assert terminated["run_id"] == "run-9"
+    assert terminated["status"] == "timeout"
+    goal = report["goals"][0]
+    # timeout + active goal is a legitimate resumable pair, NOT "inconsistent".
+    assert goal["status"] == "timeout"
+    assert goal["outcome"] == "blocked"
