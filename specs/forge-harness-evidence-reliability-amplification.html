@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Forge Harness Evidence and Reliability Amplification</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --panel: #151a21;
+  --panel-2: #1b222c;
+  --ink: #e8edf2;
+  --ink-dim: #9aa7b4;
+  --accent: #f0ad3d;
+  --accent-2: #4cc9b0;
+  --danger: #ef735e;
+  --warn: #d6a84a;
+  --ok: #71c491;
+  --new: #4cc9b0;
+  --existing: #8aa4c3;
+  --border: #2a3440;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 1080px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.55rem); letter-spacing: -.03em; border-bottom: 2px solid var(--accent); padding-bottom: .7rem; }
+h2 { color: var(--accent); font-size: 1.45rem; margin-top: 3.2rem; }
+h3 { font-size: 1.16rem; margin-top: 2rem; }
+h4 { color: var(--accent-2); margin-top: 1.6rem; }
+p, li { max-width: 96ch; }
+code { font-family: var(--mono); font-size: .86em; background: var(--panel-2); padding: .12em .4em; border-radius: 4px; }
+pre { background: #0a0e13; border: 1px solid var(--border); border-radius: 9px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent-2); }
+figure { margin: 2rem 0; text-align: center; }
+figure img { width: 100%; max-width: 100%; border-radius: 12px; border: 1px solid var(--border); background: #090d12; }
+figcaption { color: var(--ink-dim); font-size: .86rem; margin-top: .6rem; }
+details.meta, #amendments details { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .65rem 1rem; margin: .8rem 0; }
+details summary { cursor: pointer; color: var(--accent-2); font-weight: 650; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .35rem 1rem; margin: .8rem 0 0; }
+dt { color: var(--ink-dim); font-family: var(--mono); font-size: .8rem; }
+dd { margin: 0; font-family: var(--mono); font-size: .8rem; word-break: break-word; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 999px; margin-right: .4em; text-transform: uppercase; letter-spacing: .05em; }
+.tag.new { background: rgba(76,201,176,.12); color: var(--new); border: 1px solid var(--new); }
+.tag.existing { background: rgba(138,164,195,.12); color: var(--existing); border: 1px solid var(--existing); }
+.phase { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 9px; padding: 1rem 1.4rem 1.4rem; margin: 1.7rem 0; }
+.phase h3 { margin-top: .35rem; }
+ul.checklist { list-style: none; padding-left: .15rem; }
+ul.checklist li { margin: .48rem 0; }
+code.status { color: var(--accent); font-weight: 750; min-width: 2.5em; display: inline-block; }
+.loop { background: rgba(240,173,61,.07); border: 1px dashed var(--accent); border-radius: 8px; padding: .85rem 1rem; margin-top: 1rem; font-size: .92rem; }
+.callout { background: var(--panel-2); border-left: 4px solid var(--accent-2); border-radius: 7px; padding: .9rem 1rem; margin: 1rem 0; }
+.callout.warn { border-left-color: var(--danger); }
+.callout.ok { border-left-color: var(--ok); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: .9rem 1rem; }
+.card h3 { margin-top: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .87rem; }
+th, td { border: 1px solid var(--border); padding: .58rem .65rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-2); color: var(--accent-2); }
+.p0 { color: var(--danger); font-weight: 700; }
+.p1 { color: var(--warn); font-weight: 700; }
+.p2 { color: var(--existing); font-weight: 700; }
+.good { color: var(--ok); font-weight: 700; }
+.bad { color: var(--danger); font-weight: 700; }
+.muted { color: var(--ink-dim); }
+@media (max-width: 720px) {
+  main { padding: 2rem 1rem 4rem; }
+  dl { grid-template-columns: 1fr; }
+  table { display: block; overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Plan: Forge Harness Evidence and Reliability Amplification</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt><dd>2026-07-14T15:18:43Z</dd>
+        <dt>modified</dt><dd>2026-07-14T15:18:43Z</dd>
+        <dt>commits</dt><dd>6902ea8 (working tree also contains uncommitted harness changes)</dd>
+        <dt>agent name</dt><dd>Codex (GPT-5)</dd>
+        <dt>session id</dt><dd>019f612c-eb98-7883-8a81-8fd7f76f04e9</dd>
+        <dt>back refs</dt><dd>specs/gemma-ollama-pge-8-goal-suite.html, specs/convergent-autonomous-harness.html, specs/forge-rust-tui-cycle2.html, docs/LESSONS.md, docs/PI_TOOL_BENCHMARK.md, evals/results/goal-suite-gemma-4-12b-qat-goal-2-2026-07-13.json, evals/results/goal-suite-gemma-4-12b-qat-goal-3-2026-07-13.json, evals/results/goal-suite-gemma-4-12b-qat-goal-4-2026-07-13.json, evals/results/goal-suite-gemma-4-12b-qat-goal-2-sandbox-2026-07-13.json</dd>
+        <dt>forward refs</dt><dd>(none)</dd>
+      </dl>
+    </details>
+  </header>
+
+  <figure>
+    <img src="forge-harness-evidence-reliability-amplification/hero.png" alt="Pipeline from run artifacts through lifecycle, sandbox, acceptance verification, and a strict gate">
+    <figcaption>The target system: raw runs become comparable evidence only after lifecycle control, isolated replay, and an explicit gate.</figcaption>
+  </figure>
+
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>Turn Forge's recent harness work into a trustworthy measurement system. Preserve what already works well—fresh projects, durable launcher manifests, bounded execution, resource-contained sandboxes, deterministic evaluator tests, and a false-completion gate—while removing the paths that currently produce false greens, orphaned runs, unsafe verification, incomparable metrics, or misleading benchmark statistics.</p>
+    <div class="callout"><strong>Completion definition:</strong> this plan is successful when every attempted goal produces an auditable and reproducible terminal verdict. A low model success rate can be honest. A high rate derived from weak contracts, missing metrics, or stale lifecycle state is a harness failure.</div>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>The latest artifacts show real model capability, but they also prove that the current green count is not a reliable benchmark. The July 13 non-sandbox runs report three completions; independent goal-specific checks performed during this review accept only RPN, reject LRU, and cannot verify digits because the verifier runtime lacks sklearn. The sandbox rerun exposes important safety and tooling defects, then times out without terminating the detached child or closing its manifest.</p>
+
+    <h3>Observed recent results</h3>
+    <table>
+      <thead><tr><th>Artifact</th><th>Recorded result</th><th>What the evidence actually supports</th></tr></thead>
+      <tbody>
+        <tr><td><code>goal-2-2026-07-13.json</code><br><span class="muted">digits, host-era path</span></td><td><span class="good">completed</span>, 435.79 s, 2 file changes, latest test success</td><td><span class="bad">Not verified.</span> The log shows a generic Node contract passing after the agent wrote dataset metadata, not an experiment loop with reproduced accuracy &gt; 0.95. The new contract returns <code>error</code> because its own runtime lacks sklearn.</td></tr>
+        <tr><td><code>goal-3-2026-07-13.json</code><br><span class="muted">LRU, host-era path</span></td><td><span class="good">completed</span>, 666.17 s, 2 file changes, latest test success</td><td><span class="bad">False green.</span> The implementation still has <code>get</code>/<code>put</code> bodies containing <code>pass</code>. The new behavioral contract rejects 4 of 7 checks.</td></tr>
+        <tr><td><code>goal-4-2026-07-13.json</code><br><span class="muted">RPN, host-era path</span></td><td><span class="good">completed</span>, 846.33 s, 1 file change, latest test success</td><td><span class="good">Behaviorally accepted.</span> The current independent CLI battery reproduces all five expected results.</td></tr>
+        <tr><td><code>goal-2-sandbox-2026-07-13.json</code><br><span class="muted">digits, container path</span></td><td><span class="bad">timeout</span>, 1802.59 s, goal active, 2 file changes, latest test success</td><td>The sandbox correctly prevented host execution, but the run repeated PEP 668 failures, mangled a legitimate <code>python3 -c</code> argv token into shell syntax, then experienced 120 s Docker command timeouts. The suite did not terminate the child; its manifest remained <code>running</code>.</td></tr>
+        <tr><td><code>goal-suite-...-rerun[-2].json</code></td><td>8/8 <code>inconsistent</code> in about 43.6 s</td><td>The harness detected disagreement, which is valuable, but its equality rule is wrong: a run may be <code>blocked</code> while its durable goal correctly remains <code>active</code>. That legal pair must not be classified as corruption.</td></tr>
+        <tr><td><code>pi-tool-bench-2026-07-12.json</code></td><td>Tool calls measured at roughly 2–20 ms; no turn durations</td><td>Useful provisional evidence that tool execution is cheap, but the run listened for an obsolete terminal event and the p95 formula can report a value below the median for two samples. The end-to-end claim is withdrawn until a corrected rerun.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Strong suits to preserve and amplify</h3>
+    <div class="grid">
+      <article class="card"><h3>Fresh, sequential projects</h3><p>The canonical eight-goal driver creates a new project per goal and sequences work within one process, reducing state leakage and local-model contention.</p></article>
+      <article class="card"><h3>Durable launcher evidence</h3><p><code>goal_suite_tui.py</code> uses the real detached launcher path, giving each run a run ID, manifest, log, process group, and control-plane visibility.</p></article>
+      <article class="card"><h3>Fail-honest instincts</h3><p>Missing backends become skips, false completion is intended to hard-fail the gate, and lifecycle disagreement is surfaced instead of silently greened.</p></article>
+      <article class="card"><h3>Sandbox boundary</h3><p>The default container is non-root, capability-dropped, no-new-privileges, volume-backed, and resource limited. This is the right execution boundary to strengthen.</p></article>
+      <article class="card"><h3>Behavioral acceptance direction</h3><p>The uncommitted <code>evals/acceptance.py</code> adds goal-specific, artifact-aware checks and already catches the recorded LRU false green.</p></article>
+      <article class="card"><h3>Focused test coverage</h3><p>The current acceptance, manifest, TUI, runtime-snapshot, command, and sandbox slice passes <strong>65 tests</strong> with 4 Docker-gated skips; Ruff is clean on the reviewed files.</p></article>
+    </div>
+
+    <figure>
+      <img src="forge-harness-evidence-reliability-amplification/failure-modes.png" alt="Split diagram contrasting false-green completion with sandbox and lifecycle timeout failures">
+      <figcaption>Two bug families must be fixed independently: wrong success criteria and unreliable execution/lifecycle plumbing.</figcaption>
+    </figure>
+
+    <h3>Bug ledger</h3>
+    <table>
+      <thead><tr><th>Priority</th><th>Bug</th><th>Concrete impact</th><th>Required correction</th></tr></thead>
+      <tbody>
+        <tr><td class="p0">P0</td><td>Generic auditor contracts can certify the wrong deliverable.</td><td>Digits and LRU were marked complete while the actual goal behavior was absent.</td><td>Make goal-specific acceptance the only benchmark pass authority; retain the in-loop contract as progress evidence, not final truth.</td></tr>
+        <tr><td class="p0">P0</td><td>Acceptance currently executes untrusted agent code with host <code>subprocess.run</code>.</td><td>Copying to a temp directory does not create a security boundary.</td><td>Run every acceptance command inside a separate no-network, resource-limited verifier container; fail closed on the claim if that verifier is unavailable.</td></tr>
+        <tr><td class="p0">P0</td><td>TUI suite timeout does not stop the detached process.</td><td>Orphan work continues, manifests remain <code>running</code>, later runs contend for the same local model and Docker daemon.</td><td>Centralize process-group termination with TERM, bounded wait, KILL escalation, and an atomic terminal manifest update.</td></tr>
+        <tr><td class="p0">P0</td><td>Acceptance reads the host mirror while container mode owns the real workspace.</td><td>The sandbox digits host directory contains only Git metadata, so the harness can call a real artifact unverifiable or inspect stale bytes.</td><td>Freeze and export an immutable snapshot from the authoritative <code>Workspace</code> after terminalization, including timeout paths.</td></tr>
+        <tr><td class="p1">P1</td><td>Terminal consistency is defined as string equality.</td><td><code>blocked</code> run + <code>active</code> goal becomes <code>inconsistent</code> even though that is the expected resumable state.</td><td>Use a documented legal state-pair matrix; only impossible pairs are inconsistent.</td></tr>
+        <tr><td class="p1">P1</td><td>Argv and shell semantics are conflated.</td><td>A semicolon inside the single <code>python3 -c</code> argument triggers shell routing and loses quoting.</td><td>Introduce an explicit command kind and quote non-operator argv tokens; embedded metacharacters remain data.</td></tr>
+        <tr><td class="p1">P1</td><td>Dependency setup is non-deterministic.</td><td>The model retries system <code>pip install</code> under PEP 668; the independent digits verifier also lacks sklearn.</td><td>Preflight and pin canonical suite dependencies in the sandbox/verifier image; normalize simple install requests to <code>install_deps</code>.</td></tr>
+        <tr><td class="p1">P1</td><td>Sequentiality is only intra-process.</td><td>Three July 13 launcher runs overlapped across processes, invalidating latency and increasing Docker/model pressure.</td><td>Add a global evaluation lease plus stale-manifest reconciliation before launch.</td></tr>
+        <tr><td class="p1">P1</td><td>Core metrics are placeholders.</td><td><code>turns_used</code> is always null; runner cycles, D-AUC, and token cost default to zero, which can look artificially optimal.</td><td>Populate from durable events/sessions or store null with a reason; the gate must reject missing comparison metrics.</td></tr>
+        <tr><td class="p1">P1</td><td>Result files lack comparability metadata and are written only at suite end.</td><td>Legacy, host, sandbox, acceptance-v1/v2, dirty-tree, and provider variants can be compared as if equivalent; crashes lose partial results.</td><td>Version the schema, hash contracts/config, record run IDs and environment fingerprints, and checkpoint atomically after every goal.</td></tr>
+        <tr><td class="p2">P2</td><td>Pi benchmark protocol/statistics are under-validated.</td><td>Wrong terminal event erased turn time; nearest-rank p95 is wrong for small samples; scenario success is not proven.</td><td>Pin protocol fixtures, validate final side effects/tool identity, fix quantiles, retain raw events/errors, and mark aborted scenarios invalid.</td></tr>
+        <tr><td class="p2">P2</td><td>Two live suite drivers and one manifest runner are drifting.</td><td>Provider setup, timeout behavior, lifecycle tracking, and result shapes differ across <code>goal_suite.py</code>, <code>goal_suite_tui.py</code>, and <code>runner.py</code>.</td><td>Keep one canonical orchestration service and make each CLI a thin adapter.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>Build a versioned evidence pipeline around the existing launcher and sandbox. One orchestration service acquires an evaluation lease, performs deterministic preflight, launches a run, owns its total budget, terminates it cleanly, exports the authoritative container snapshot, executes a goal-specific contract in a second verifier container, and atomically records a schema-validated result. The gate compares only compatible evidence and refuses missing metrics. The Pi benchmark follows the same evidence rules: validated protocol, validated scenarios, raw measurements, and no claim from aborted turns.</p>
+    <figure>
+      <img src="forge-harness-evidence-reliability-amplification/reliability-layers.png" alt="Layered roadmap for lifecycle control, sandbox execution, acceptance verification, and reproducible metrics">
+      <figcaption>Amplification happens in layers: lifecycle first, execution boundary second, acceptance truth third, and comparative metrics last.</figcaption>
+    </figure>
+  </section>
+
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+    <h3>Existing files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span><code>evals/goal_suite.py</code> — goal catalog, current subprocess runner, report aggregation, and acceptance reconciliation.</li>
+      <li><span class="tag existing">existing</span><code>evals/goal_suite_tui.py</code> — real detached-launcher suite path; should become the canonical CLI adapter.</li>
+      <li><span class="tag existing">existing</span><code>evals/runner.py</code> — manifest-suite adapter; currently emits placeholder convergence/cost metrics.</li>
+      <li><span class="tag existing">existing</span><code>evals/acceptance.py</code> — uncommitted behavioral contracts; preserve the contract batteries while replacing host execution.</li>
+      <li><span class="tag existing">existing</span><code>evals/gate.py</code> — result comparator and false-completion hard gate.</li>
+      <li><span class="tag existing">existing</span><code>pge_launcher.py</code> — launch manifest, process group, lifecycle persistence; natural home for shared termination/reconciliation.</li>
+      <li><span class="tag existing">existing</span><code>run_pge.py</code> and <code>engine/src/graph.py</code> — per-batch turn budget and final lifecycle updates.</li>
+      <li><span class="tag existing">existing</span><code>forge_runtime/sandbox.py</code> — authoritative workspace, resource controls, snapshot export seam, and verifier-container primitives.</li>
+      <li><span class="tag existing">existing</span><code>forge_runtime/tools.py</code> and <code>engine/src/nodes/executor_node.py</code> — typed tool boundary and argv/shell normalization.</li>
+      <li><span class="tag existing">existing</span><code>docker/sandbox/Dockerfile</code> — pin the canonical suite/verifier runtime, including sklearn/numpy.</li>
+      <li><span class="tag existing">existing</span><code>control_plane/runtime_snapshot.py</code> — stale process reconciliation and DB-outage visibility.</li>
+      <li><span class="tag existing">existing</span><code>scripts/pi_tool_bench.py</code> and <code>docs/PI_TOOL_BENCHMARK.md</code> — Pi protocol measurement and its provisional conclusion.</li>
+      <li><span class="tag existing">existing</span><code>tests/test_acceptance_contracts.py</code>, <code>tests/test_goal_suite_tui.py</code>, <code>tests/test_manifest_contracts.py</code>, <code>tests/test_runtime_snapshot.py</code>, <code>tests/regression/test_run_command_shell.py</code>, <code>tests/regression/test_sandbox.py</code> — current focused regression suite.</li>
+    </ul>
+
+    <h3>New files</h3>
+    <ul>
+      <li><span class="tag new">new</span><code>evals/contracts.py</code> — Pydantic result schema, verdict enums, legal lifecycle matrix, and comparability fingerprint.</li>
+      <li><span class="tag new">new</span><code>evals/orchestrator.py</code> — shared preflight, evaluation lease, launch/stop/snapshot/verify/checkpoint workflow used by all CLIs.</li>
+      <li><span class="tag new">new</span><code>evals/preflight.py</code> — read-only DB, model endpoint, Docker image, runtime, disk, and active-run checks.</li>
+      <li><span class="tag new">new</span><code>evals/fixtures/recorded_failures/</code> — minimal LRU/digits/command/lifecycle fixtures derived from the July 13 artifacts, with no private data.</li>
+      <li><span class="tag new">new</span><code>tests/test_eval_orchestrator.py</code> — timeout termination, partial checkpoint, legal state pairs, lease behavior, and snapshot authority.</li>
+      <li><span class="tag new">new</span><code>tests/test_eval_result_schema.py</code> — legacy quarantine, required metadata, null-metric rejection, and comparability.</li>
+      <li><span class="tag new">new</span><code>tests/test_pi_tool_bench.py</code> — Pi 0.80.2 event fixtures, scenario validation, quantiles, aborts, and raw-event retention.</li>
+      <li><span class="tag new">new</span><code>evals/results/baseline-v2.json</code> — generated only after the full acceptance-v2 qualification run; never hand-authored.</li>
+    </ul>
+  </section>
+
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task in order. Do not run a new full eight-goal suite until Phases 1–5 are green; otherwise the expensive run will generate evidence that still cannot be trusted.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed.</p>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 1: Version the Evidence Contract</h3>
+      <p>Make it impossible to compare unlike runs or reward unmeasured values. This phase changes data contracts only; no live model run is needed.</p>
+      <h4>1. Define the result schema</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add <code>schema_version="2"</code>, suite/contract hash, Git SHA, dirty-diff hash, model/provider/dialect, redacted endpoint identity, sandbox mode/image digest/resource limits, Python/Pi versions, start/end timestamps, and host architecture.</li>
+        <li><code class="status">[]</code> Require <code>run_id</code>, <code>project_id</code>, launcher status, durable goal status, terminal reason, acceptance verdict, infrastructure verdict, snapshot digest, and per-goal error/evidence tails.</li>
+        <li><code class="status">[]</code> Store unmeasured cycles, turns, D-AUC, tokens, and cost as <code>null</code> plus <code>measurement_unavailable_reason</code>; never default them to zero.</li>
+        <li><code class="status">[]</code> Define verdicts mechanically: <code>verified</code>, <code>complete_unverified</code>, <code>blocked</code>, <code>timeout</code>, <code>runtime_error</code>, <code>harness_error</code>, <code>skipped</code>. Only <code>verified</code> counts as completion.</li>
+      </ul>
+      <h4>2. Quarantine legacy evidence</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Parse old JSON read-only and label it <code>legacy_uncomparable</code>; do not rewrite the recorded files.</li>
+        <li><code class="status">[]</code> Make the gate require matching schema, suite hash, contract hash, model/provider, sandbox image digest, and budget before calculating deltas.</li>
+        <li><code class="status">[]</code> Write every result via temp file + <code>os.replace</code> after each goal so interruption retains a valid partial report.</li>
+      </ul>
+      <h4>3. Testing Strategy</h4>
+      <p>Use canned V1/V2 results. Include missing fields, null metrics, different contract hashes, a dirty-tree candidate, truncated JSON, and interrupted partial suites.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_eval_result_schema.py tests/regression/test_self_improvement_gate.py</code> — schema and comparison rules are deterministic.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev ruff check evals/contracts.py evals/gate.py tests/test_eval_result_schema.py</code> — result contract code is lint clean.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> Fix failures and rerun.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 2: Own the Full Run Lifecycle</h3>
+      <p>One orchestrator must own launch, total budget, termination, snapshot, and final status. A suite timeout must never leave work running.</p>
+      <h4>1. Preflight and global lease</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Check Postgres connectivity/schema, Docker daemon, sandbox image digest, model endpoint/model identity, free disk, verifier runtimes, and required canonical dependencies before launch.</li>
+        <li><code class="status">[]</code> Reconcile stale manifests by checking process liveness; record the reconciliation event rather than silently editing history.</li>
+        <li><code class="status">[]</code> Acquire an OS-level <code>fcntl.flock</code> evaluation lease under <code>FORGE_HOME</code>, recording owner PID/start time. Refuse concurrent suites; do not rely on Postgres being healthy to enforce the lock.</li>
+      </ul>
+      <h4>2. Central termination and legal state pairs</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add <code>terminate_run(project_id, run_id, reason, grace_seconds)</code> in <code>pge_launcher.py</code>: signal the process group with SIGTERM, poll, escalate to SIGKILL, then atomically persist <code>finished_at</code>, exit state, and terminal reason.</li>
+        <li><code class="status">[]</code> Reuse that function from the control-plane stop endpoint and every eval timeout/error path.</li>
+        <li><code class="status">[]</code> Replace exact status equality with a legal matrix. In particular, <code>blocked|timeout|stopped</code> + durable goal <code>active</code> is resumable and valid; <code>completed</code> + goal <code>active</code> is inconsistent.</li>
+        <li><code class="status">[]</code> Track a cumulative per-goal turn/batch/wall-clock budget across graph batches. Do not reset the effective max-turn budget when <code>run_pge</code> reloads durable state.</li>
+      </ul>
+      <h4>3. Consolidate orchestration</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Move shared logic into <code>evals/orchestrator.py</code>; keep <code>goal_suite_tui.py</code>, <code>goal_suite.py</code>, and <code>runner.py</code> as thin goal-catalog/CLI adapters.</li>
+        <li><code class="status">[]</code> Pass provider configuration as a child environment map; do not mutate or persist the user's provider files. Detect dialect from the selected endpoint instead of forcing <code>openai</code>.</li>
+      </ul>
+      <h4>4. Testing Strategy</h4>
+      <p>Use fake child processes and temporary manifests. Test normal completion, startup failure, timeout, TERM ignored then KILL, already-dead PID, stale PID, concurrent lease, DB-down preflight, and each legal/illegal status pair.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_eval_orchestrator.py tests/test_goal_suite_tui.py tests/test_runtime_snapshot.py tests/regression/test_launcher_lifecycle.py</code> — lifecycle is bounded and observable.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev ruff check evals/orchestrator.py evals/preflight.py pge_launcher.py control_plane/api.py</code> — lifecycle changes are lint clean.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> Confirm no test leaves a child process or lock behind.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 3: Make Sandbox Tooling Deterministic</h3>
+      <p>Preserve the strong container boundary while removing the argument, dependency, and daemon-health loops exposed by the sandbox digits run.</p>
+      <h4>1. Preserve argv versus shell semantics</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Normalize model output into an explicit internal <code>CommandSpec(kind="argv"|"shell")</code>. A list remains argv; a string is shell.</li>
+        <li><code class="status">[]</code> Treat only standalone operator tokens (<code>&amp;&amp;</code>, <code>||</code>, <code>|</code>, redirects) as a malformed shell-packed list. Quote every non-operator token when converting it. A semicolon inside <code>python3 -c "..."</code> remains data.</li>
+        <li><code class="status">[]</code> Route all execution through <code>Workspace.run</code>; remove duplicate host/shell subprocess branches from the executor.</li>
+      </ul>
+      <h4>2. Deterministic dependencies and failure feedback</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Pin numpy/scikit-learn in the sandbox/verifier image used by the canonical suite, and record its digest in every result.</li>
+        <li><code class="status">[]</code> Translate only simple, allowlisted <code>pip install PACKAGE...</code> requests into <code>install_deps</code>; reject unsupported flags with a precise message. Do not execute system-pip mutation.</li>
+        <li><code class="status">[]</code> Detect repeated identical tool failures by normalized action + error class. After two repeats, inject the deterministic recovery instruction or block honestly; do not spend the entire goal budget on PEP 668.</li>
+        <li><code class="status">[]</code> Classify Docker command timeout/daemon unresponsiveness as infrastructure failure, capture container resource state when possible, terminate the run, and prevent the next goal from starting until preflight is healthy.</li>
+      </ul>
+      <h4>3. Snapshot authority</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add a read-only <code>export_snapshot()</code> method to <code>Workspace</code> that stages an immutable copy without overwriting the project's host mirror.</li>
+        <li><code class="status">[]</code> Export only after the child is terminal; strip <code>.git</code>, internal probes, caches, and dependency directories; calculate a content digest.</li>
+      </ul>
+      <h4>4. Testing Strategy</h4>
+      <p>Pin the exact July 13 command shapes: Python <code>-c</code> with semicolon, argv with standalone <code>&amp;&amp;</code>, shell string, malformed empty command, PEP 668 repeat, Docker timeout, and export after forced termination.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/regression/test_run_command_shell.py tests/regression/test_sandbox.py tests/test_eval_orchestrator.py</code> — command semantics and failure handling are pinned.</li>
+        <li><code class="status">[]</code><code>RUN_DOCKER_TESTS=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/regression/test_sandbox.py</code> — real container behavior, limits, sync, and snapshot export pass.</li>
+        <li><code class="status">[]</code><code>docker build -t forge-sandbox:eval-v2 -f docker/sandbox/Dockerfile .</code> — the pinned canonical image builds.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> A Docker-gated skip is not enough for the snapshot and command paths changed here.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 4: Make Acceptance Independent and Safe</h3>
+      <p>Keep the new behavioral batteries, but run them against the exported snapshot in a separate verifier container. The verifier must be independent of both the agent's own tests and the agent's mutable sandbox.</p>
+      <h4>1. Introduce an isolated acceptance runner</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Refactor contract functions to accept a typed runner instead of calling host <code>subprocess.run</code>.</li>
+        <li><code class="status">[]</code> Default to an ephemeral verifier container with <code>--network none</code>, non-root UID, cap-drop, no-new-privileges, read-only root, bounded memory/CPU/PIDs, writable tempfs, and a disposable snapshot volume.</li>
+        <li><code class="status">[]</code> Never silently fall back to host execution. An explicitly enabled developer-only host mode must be labeled unsafe and may not produce a gateable benchmark result.</li>
+      </ul>
+      <h4>2. Strengthen the eight contracts</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add recorded false-green fixtures: incomplete LRU, metadata-only digits, stale results.json, self-authored vacuous tests, and generic package.json success.</li>
+        <li><code class="status">[]</code> Digits: remove stale output, rerun with pinned sklearn/numpy, require a numeric reproduced accuracy strictly above 0.95, and record the artifact digest/config.</li>
+        <li><code class="status">[]</code> LRU/RPN/JSON/Dijkstra/tic-tac-toe/email/Snake: keep goal-specific behavioral batteries, add malformed/boundary cases, and distinguish artifact rejection from verifier infrastructure error.</li>
+        <li><code class="status">[]</code> Hash the contract registry and injected drivers. Store the exact commands, exit codes, clipped stdout/stderr, and check results in the report.</li>
+      </ul>
+      <h4>3. Testing Strategy</h4>
+      <p>Every contract needs at least one known-good fixture, one plausible false-green fixture, and one missing-runtime/harness-error fixture. Tests must prove verifier commands never call the host subprocess seam.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py tests/test_manifest_contracts.py</code> — all contract batteries classify the fixture corpus correctly.</li>
+        <li><code class="status">[]</code><code>RUN_DOCKER_TESTS=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py</code> — independent verifier execution works in the real boundary.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev ruff check evals/acceptance.py tests/test_acceptance_contracts.py tests/test_manifest_contracts.py</code> — verifier code is lint clean.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> Only <code>accepted</code> may map to benchmark completion.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 5: Populate Real Metrics and Harden the Gate</h3>
+      <p>The gate must compare real work under matching conditions. Missing data is a failure to measure, not a free improvement.</p>
+      <h4>1. Derive metrics from durable sources</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Persist and report total turns and batches across resumes, not only the final graph batch.</li>
+        <li><code class="status">[]</code> Read convergence snapshots/test outcomes to compute cycles-to-done and D-AUC; include the formula and flaky-test weights in the suite hash.</li>
+        <li><code class="status">[]</code> Aggregate input/output/cache/reasoning tokens and cost from session/model-call records when available. Otherwise emit null with a reason.</li>
+        <li><code class="status">[]</code> Separate model time, tool time, verifier time, queue/lease wait, and infrastructure retry time.</li>
+      </ul>
+      <h4>2. Gate only comparable complete evidence</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Require the same goal IDs, contract/config/image fingerprints, budgets, and replicate count.</li>
+        <li><code class="status">[]</code> Hard-fail any false completion, harness error, missing goal, missing required metric, or candidate-only skip.</li>
+        <li><code class="status">[]</code> Report model failures separately from harness failures; do not hide infrastructure instability inside <code>blocked</code>.</li>
+        <li><code class="status">[]</code> For self-improvement comparisons, run paired baseline/candidate trials under the same environment and use at least three replicates for stochastic local-model results. Report median and spread; never gate on one lucky run.</li>
+      </ul>
+      <h4>3. Testing Strategy</h4>
+      <p>Canned reports cover null metrics, false completions, harness errors, incompatible images, unequal replicates, ties, regressions, and a valid paired improvement.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_eval_result_schema.py tests/regression/test_self_improvement_gate.py tests/test_manifest_contracts.py</code> — metrics and gate cannot be gamed by missing data.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev python evals/gate.py --candidate evals/results/sample-v2.json --baseline evals/results/sample-v2.json</code> — a valid identity comparison passes.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> Delete any placeholder zero that still enters a gateable result.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 6: Repair and Extend the Pi Tool Benchmark</h3>
+      <p>Preserve the useful finding that built-in tool execution is likely cheap, but regenerate it with a protocol-correct, scenario-valid harness.</p>
+      <h4>1. Protocol and scenario validity</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Parse the pinned Pi 0.80.2 <code>agent_start</code>, <code>tool_execution_start</code>, <code>tool_execution_end</code>, and <code>agent_end</code> events from fixtures; unknown terminal protocols fail preflight.</li>
+        <li><code class="status">[]</code> Capture stderr and invalid JSON lines; retain raw events with monotonic timestamps and pair every tool start/end by ID.</li>
+        <li><code class="status">[]</code> Validate each scenario: expected tool identity/count, expected read/search targets, final edit file content, command success, exact final answer, and clean <code>agent_end</code>. An abort retains diagnostics but is excluded from latency claims.</li>
+      </ul>
+      <h4>2. Correct statistics and artifact output</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Replace the p95 index with nearest-rank <code>ceil(0.95 * n) - 1</code>; assert <code>median &lt;= p95 &lt;= max</code>.</li>
+        <li><code class="status">[]</code> Add CLI options for timeout, runs, seed/temperature where supported, and output path. Write schema-versioned JSON atomically.</li>
+        <li><code class="status">[]</code> Record Pi version, provider/model, scenario validity, sample counts, turn durations, tool share, and failure reasons.</li>
+      </ul>
+      <h4>3. Testing and rerun strategy</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_pi_tool_bench.py</code> — event parsing, quantiles, abort handling, and scenario contracts pass.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev python scripts/pi_tool_bench.py --provider lmstudio --model google/gemma-4-12b-qat --runs 5 --output docs/pi-tool-bench-v2.json</code> — at least five valid completed runs are captured.</li>
+        <li><code class="status">[]</code> Update <code>docs/PI_TOOL_BENCHMARK.md</code> only from the generated V2 artifact. Keep the forge-tools decision provisional if completed turn evidence is still insufficient.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> Tool samples from an invalid scenario may be diagnostic, never decision evidence.</div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 7: Qualify the Harness and Establish Baseline V2</h3>
+      <p>Prove the repaired harness with cheap fixture gates first, then targeted live smokes, then one full sequential suite. Do not tune the model during qualification.</p>
+      <h4>1. Targeted live qualification</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Run RPN as a known behaviorally accepted smoke; require verified acceptance from the exported container snapshot.</li>
+        <li><code class="status">[]</code> Replay the recorded incomplete LRU fixture; require <code>complete_unverified</code> and <code>false_completion=true</code>.</li>
+        <li><code class="status">[]</code> Run digits with the pinned image; require no PEP 668 loop, a usable verifier runtime, and a truthful accepted/rejected verdict.</li>
+        <li><code class="status">[]</code> Force a short timeout; prove the process group is dead, manifest terminal, snapshot exported, lease released, and no stale <code>running</code> entry remains.</li>
+      </ul>
+      <h4>2. Full eight-goal run</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Run all goals sequentially with no other active Forge/model benchmark. Checkpoint the report after every goal.</li>
+        <li><code class="status">[]</code> Inspect every acceptance command and artifact digest; the suite is valid even if the model fails goals, provided every verdict is reproducible and no harness error remains.</li>
+        <li><code class="status">[]</code> Generate <code>evals/results/baseline-v2.json</code> from the qualifying run. Record the verified completion rate as the baseline; do not copy the legacy 5/8 or 7/8 headline.</li>
+      </ul>
+      <h4>3. Testing Strategy</h4>
+      <p>Run the focused Python/Docker gates, the complete Python suite, Rust workspace tests, and the live smoke/full qualification in that order.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py tests/test_goal_suite_tui.py tests/test_manifest_contracts.py tests/test_eval_orchestrator.py tests/test_eval_result_schema.py tests/test_pi_tool_bench.py tests/regression/test_run_command_shell.py tests/regression/test_sandbox.py</code> — focused harness suite is green.</li>
+        <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests</code> — full Python suite is green.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev ruff check .</code> — repository lint is green.</li>
+        <li><code class="status">[]</code><code>cargo test --workspace --manifest-path experimental/Cargo.toml</code> — Rust TUI/control-plane consumers still honor the lifecycle/result contracts.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev python evals/goal_suite_tui.py --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --output evals/results/baseline-v2.json</code> — full live qualification produces V2 evidence.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If a live model or database is unavailable, mark the live gate failed and do not create a baseline.</div>
+    </div>
+  </section>
+
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands after all phases to validate the complete plan:</p>
+    <ul class="checklist">
+      <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests</code> — all Python contracts and regressions pass.</li>
+      <li><code class="status">[]</code><code>RUN_DOCKER_TESTS=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/regression/test_sandbox.py tests/test_acceptance_contracts.py tests/test_eval_orchestrator.py</code> — the real execution and verifier boundaries pass.</li>
+      <li><code class="status">[]</code><code>uv run --extra dev ruff check .</code> — lint passes without unrelated reformatting.</li>
+      <li><code class="status">[]</code><code>cargo test --workspace --manifest-path experimental/Cargo.toml</code> — Rust consumers pass.</li>
+      <li><code class="status">[]</code><code>uv run --extra dev python evals/gate.py --candidate evals/results/baseline-v2.json --baseline evals/results/baseline-v2.json</code> — the generated V2 baseline is self-consistent and gateable.</li>
+      <li><code class="status">[]</code><code>uv run --extra dev python scripts/pi_tool_bench.py --provider lmstudio --model google/gemma-4-12b-qat --runs 5 --output docs/pi-tool-bench-v2.json</code> — Pi benchmark V2 contains only valid scenarios.</li>
+    </ul>
+    <div class="loop">🔁 <strong>The plan is not complete until every command passes or is explicitly marked [f] with evidence.</strong> Never generate or publish a V2 baseline from a skipped live gate.</div>
+  </section>
+
+  <section id="notes">
+    <h2>Notes</h2>
+    <h3>Acceptance criteria</h3>
+    <ul>
+      <li>Every suite goal has a schema-valid result with run/project IDs, terminal reason, snapshot digest, acceptance evidence, and environment fingerprint.</li>
+      <li>A timeout leaves no live child/process group, no held lease, and no stale <code>running</code> manifest.</li>
+      <li>No agent-produced code is executed on the host by a gateable acceptance run.</li>
+      <li>The recorded incomplete LRU solution cannot pass; the recorded RPN solution can pass; digits yields a behavioral verdict rather than a missing-dependency error.</li>
+      <li><code>blocked</code> run + <code>active</code> goal is classified as resumable, while <code>completed</code> run + <code>active</code> goal is inconsistent.</li>
+      <li>Argv-form <code>python3 -c "import sklearn; print(...)"</code> executes with the code string intact.</li>
+      <li>Missing cycles/D-AUC/token metrics remain null and cause a comparison failure; they never become favorable zeros.</li>
+      <li>Pi V2 reports p95 greater than or equal to median, completed <code>agent_end</code> turns, scenario validity, raw sample counts, and explicit abort exclusions.</li>
+      <li>The V2 baseline describes harness truth; it does not promise 8/8 model completion.</li>
+    </ul>
+
+    <h3>Implementation assumptions</h3>
+    <ul>
+      <li>The current dirty working tree is user-owned and must be preserved. Integrate with the uncommitted acceptance/TUI/sandbox changes rather than replacing them wholesale.</li>
+      <li>No persistent LM Studio, Ollama, provider, context-length, or model-load configuration is changed. Live qualification receives process-local arguments only.</li>
+      <li>The canonical suite remains sequential because the machine has one primary local-model capacity pool. The global lease extends that guarantee across processes.</li>
+      <li>Pydantic is already a project dependency, so the V2 result schema requires no new Python dependency.</li>
+      <li>Pinning sklearn/numpy in the canonical image is justified because the suite explicitly contains a sklearn goal and reproducible verification requires that runtime.</li>
+    </ul>
+
+    <h3>Risk controls</h3>
+    <table>
+      <thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Verifier container makes acceptance too slow.</td><td>Build one pinned image, reuse the image layers, keep each goal snapshot small, and measure verifier time separately from model time.</td></tr>
+        <tr><td>Snapshot export races with a still-mutating run.</td><td>Terminalize first, verify the process group is dead, then export and hash. Never snapshot concurrently for a final verdict.</td></tr>
+        <tr><td>Goal-specific contracts overfit exact filenames.</td><td>Retain signature-based discovery, but pair it with adversarial fixtures and exact behavioral drivers.</td></tr>
+        <tr><td>Three replicates make full gates expensive.</td><td>Use fixture tests on every change, targeted live smoke during development, and paired replicated full gates only for baseline/release/self-improvement decisions.</td></tr>
+        <tr><td>Legacy result headlines remain tempting.</td><td>Render them in reports under a visibly separate <code>legacy_uncomparable</code> section and prevent the V2 gate from reading them as baselines.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Learning note</h3>
+    <p>A benchmark is a product boundary, not a reporting script. Its state machine, execution sandbox, acceptance contract, and statistics all participate in correctness. A strong harness does not maximize green results; it maximizes the amount of trustworthy information each expensive run produces.</p>
+  </section>
+
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <p>No amendments yet.</p>
+  </section>
+</main>
+</body>
+</html>
