@@ -209,6 +209,20 @@ def test_stage_dir_snapshot_empty_workspace_has_stable_digest(tmp_path: Path):
     assert stage_dir_snapshot(a, tmp_path / "sa").digest == stage_dir_snapshot(b, tmp_path / "sb").digest
 
 
+@pytest.mark.parametrize("relative", [False, True])
+def test_stage_dir_snapshot_never_follows_symlinks(tmp_path: Path, relative: bool):
+    src = _make_empty(tmp_path / "src")
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("host secret")
+    target = Path("../outside-secret.txt") if relative else outside
+    (src / "leak.txt").symlink_to(target)
+
+    snapshot = stage_dir_snapshot(src, tmp_path / "snapshot")
+
+    assert not (Path(snapshot.path) / "leak.txt").exists()
+    assert snapshot.file_count == 0
+
+
 def _make_empty(p: Path) -> Path:
     p.mkdir(parents=True)
     return p

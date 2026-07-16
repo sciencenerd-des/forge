@@ -87,6 +87,11 @@ def _stage_dir_snapshot(src: Path, dest: Path) -> SnapshotResult:
     for path in sorted(src.rglob("*")):
         if any(part in _SNAPSHOT_PRUNE for part in path.relative_to(src).parts):
             continue
+        # The workspace is untrusted. ``is_file`` and ``read_bytes`` follow
+        # symlinks, which would turn a link to a host file into verifier input.
+        # A snapshot contains only regular files physically rooted under src.
+        if path.is_symlink():
+            continue
         rel = path.relative_to(src)
         target = dest / rel
         if path.is_dir():
@@ -559,15 +564,26 @@ class ContainerSandbox(Workspace):
         against a terminal container — the caller guarantees termination first."""
         dest_path = Path(dest).expanduser().resolve(strict=False)
         stage = Path(tempfile.mkdtemp(prefix="forge-snap-src-"))
+        archive = stage.parent / f".{stage.name}.tar"
         try:
-            copied = subprocess.run(
-                ["docker", "cp", f"{self.container_name}:/workspace/.", str(stage)],
+            command = ["docker", "exec", self.container_name, "tar", "-C", "/workspace"]
+            for name in sorted(_SNAPSHOT_PRUNE):
+                command.extend(["--exclude", f"./{name}", "--exclude", f"*/{name}"])
+            command.extend(["-cf", "-", "."])
+            with archive.open("wb") as output:
+                copied = subprocess.run(command, stdout=output, stderr=subprocess.PIPE, timeout=120)
+            if copied.returncode != 0:
+                detail = copied.stderr.decode("utf-8", "replace")[:300]
+                raise SandboxError(f"snapshot export failed: {detail}")
+            extracted = subprocess.run(
+                ["tar", "-xf", str(archive), "-C", str(stage)],
                 capture_output=True, text=True, timeout=120,
             )
-            if copied.returncode != 0:
-                raise SandboxError(f"snapshot export failed: {copied.stderr[:300]}")
+            if extracted.returncode != 0:
+                raise SandboxError(f"snapshot extraction failed: {extracted.stderr[:300]}")
             return _stage_dir_snapshot(stage, dest_path)
         finally:
+            archive.unlink(missing_ok=True)
             shutil.rmtree(stage, ignore_errors=True)
 
 
