@@ -21,13 +21,30 @@ from evals.orchestrator import (
     GoalPlan,
     LaunchHandle,
     LeaseHeld,
+    SnapshotArtifact,
     orchestrate_goal,
+    run_suite,
+    suite_exit_code,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Real process-group termination
 # --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("report", "expected"),
+    [
+        ({"preflight": {"ok": False}, "completed": 0, "total": 0}, 1),
+        ({"completed": 0, "total": 0}, 1),
+        ({"preflight": {"ok": True}, "completed": 1, "total": 1}, 0),
+        ({"preflight": {"ok": True}, "completed": 0, "total": 1}, 1),
+    ],
+)
+def test_suite_exit_code_requires_a_real_completed_run(report, expected):
+    assert suite_exit_code(report) == expected
+
+
 def _spawn(code: str) -> subprocess.Popen:
     return subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
 
@@ -209,3 +226,127 @@ def test_blocked_run_with_active_goal_is_not_inconsistent():
         verify=lambda gid, snap: {"verdict": "rejected", "reason": "not done"},
     )
     assert result.infrastructure_verdict is None  # resumable, legitimate
+
+
+def test_stopped_active_goal_is_not_verified_by_a_partial_passing_snapshot():
+    result = orchestrate_goal(
+        _plan(),
+        launch=lambda p: _handle(),
+        poll=lambda pid, rid: {
+            "status": "stopped",
+            "goal_status": "active",
+            "terminal_reason": "operator_stop",
+        },
+        terminate=lambda *a: {},
+        snapshot=lambda pid: "d",
+        verify=lambda gid, snap: {"verdict": "accepted", "reason": "partial works"},
+    )
+
+    assert result.acceptance_verdict == "accepted"
+    assert result.outcome == Verdict.BLOCKED.value
+
+
+def test_stopped_active_goal_with_rejected_snapshot_remains_blocked():
+    result = orchestrate_goal(
+        _plan(),
+        launch=lambda p: _handle(),
+        poll=lambda pid, rid: {"status": "stopped", "goal_status": "active"},
+        terminate=lambda *a: {},
+        snapshot=lambda pid: "d",
+        verify=lambda gid, snap: {"verdict": "rejected", "reason": "partial"},
+    )
+
+    assert result.outcome == Verdict.BLOCKED.value
+    assert result.false_completion is False
+
+
+def test_poll_failure_best_effort_terminates_and_becomes_harness_error():
+    terminated = []
+    result = orchestrate_goal(
+        _plan(),
+        launch=lambda p: _handle(),
+        poll=lambda pid, rid: (_ for _ in ()).throw(RuntimeError("manifest unavailable")),
+        terminate=lambda pid, rid, reason: terminated.append((pid, rid, reason)) or {},
+        snapshot=lambda pid: SnapshotArtifact("/snapshot", "digest"),
+        verify=lambda gid, snap: {"verdict": "accepted", "reason": "ok", "gateable": True},
+    )
+
+    assert terminated == [("p1", "r1", "eval_poll_failed")]
+    assert result.outcome == Verdict.HARNESS_ERROR.value
+    assert result.infrastructure_verdict == "harness_error"
+    assert "poll failed" in (result.error or "")
+    assert result.snapshot_digest == "digest"
+
+
+def test_eight_verified_goals_with_metrics_promote_baseline(tmp_path):
+    goals = [(f"g{i}", f"goal {i}") for i in range(8)]
+    projects = iter((f"name-{i}", f"p{i}") for i in range(8))
+    output = tmp_path / "baseline-v2.json"
+
+    report = run_suite(
+        goals=goals,
+        model="m",
+        base_url="http://localhost:1234/v1",
+        timeout=1,
+        max_turns=2,
+        output=output,
+        preflight=lambda: {"ok": True, "checks": []},
+        create_project=lambda plan: next(projects),
+        launch=lambda plan: LaunchHandle("run", "placeholder", True),
+        poll=lambda pid, rid: {
+            "status": "completed",
+            "goal_status": "completed",
+            "turns_used": 2,
+            "batches_used": 1,
+            "cycles_to_done": 1,
+            "distance_auc": 0.0,
+            "token_cost": 10,
+        },
+        terminate=lambda *args: {},
+        snapshot=lambda pid: SnapshotArtifact(f"/{pid}", f"digest-{pid}"),
+        verify=lambda gid, snap: {"verdict": "accepted", "reason": "ok", "gateable": True},
+        lease_path=tmp_path / "eval.lock",
+        suite_hash="suite",
+        sandbox_image_digest="sha256:image",
+    )
+
+    assert report["baseline_status"] == "created"
+    assert output.exists()
+    assert not (tmp_path / "baseline-v2.partial.json").exists()
+    assert report["mean_cycles_to_done"] == 1.0
+    assert report["mean_distance_auc"] == 0.0
+    assert report["token_cost"] == 80
+
+
+def test_model_failure_never_promotes_baseline(tmp_path):
+    goals = [(f"g{i}", f"goal {i}") for i in range(8)]
+    projects = iter((f"name-{i}", f"p{i}") for i in range(8))
+    output = tmp_path / "baseline-v2.json"
+
+    report = run_suite(
+        goals=goals,
+        model="m",
+        base_url="http://localhost:1234/v1",
+        timeout=1,
+        max_turns=2,
+        output=output,
+        preflight=lambda: {"ok": True},
+        create_project=lambda plan: next(projects),
+        launch=lambda plan: LaunchHandle("run", "placeholder", True),
+        poll=lambda pid, rid: {
+            "status": "completed", "goal_status": "completed", "turns_used": 2,
+            "cycles_to_done": 1, "distance_auc": 0.5, "token_cost": 10,
+        },
+        terminate=lambda *args: {},
+        snapshot=lambda pid: SnapshotArtifact(f"/{pid}", f"digest-{pid}"),
+        verify=lambda gid, snap: {
+            "verdict": "rejected" if gid == "g7" else "accepted",
+            "reason": "fixture", "gateable": True,
+        },
+        lease_path=tmp_path / "eval.lock",
+        sandbox_image_digest="sha256:image",
+    )
+
+    assert report["baseline_status"] == "not_created_qualification_failed"
+    assert not output.exists()
+    assert (tmp_path / "baseline-v2.partial.json").exists()

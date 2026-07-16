@@ -53,6 +53,14 @@ from typing import Any, Callable
 PYTHON = os.environ.get("SUITE_PYTHON", sys.executable)
 RESULT_SENTINEL = "@@ACCEPTANCE_RESULT@@"
 
+_INFRA_MARKERS = (
+    "docker:",
+    "oci runtime",
+    "cannot connect to the docker daemon",
+    "no such file or directory: unknown",
+    "container init",
+)
+
 # Directories that are agent-run byproducts, not source. Copying them into the
 # independent re-run would let cached state (compiled bytecode, a virtualenv,
 # installed node_modules) mask a workspace that is not actually self-contained.
@@ -290,17 +298,53 @@ def _looks_like_test(name: str) -> bool:
 
 
 def _parse_driver_output(stdout: str) -> dict[str, Any] | None:
-    for line in stdout.splitlines():
-        if line.startswith(RESULT_SENTINEL):
-            try:
-                return json.loads(line[len(RESULT_SENTINEL):].strip())
-            except json.JSONDecodeError:
-                return None
-    return None
+    records = [line for line in stdout.splitlines() if line.startswith(RESULT_SENTINEL)]
+    if len(records) != 1:
+        return None
+    try:
+        return json.loads(records[0][len(RESULT_SENTINEL):].strip())
+    except json.JSONDecodeError:
+        return None
+
+
+def _attribute_failure(driver_error: str) -> str:
+    """Attribute a failed exercise to agent code, the harness, or neither.
+
+    Tracebacks can include stdlib frames after the useful frame, so attribution
+    is based on the deepest frame inside the verifier workspace. The injected
+    driver identifies that workspace without relying on a host-specific path.
+    """
+
+    frames = re.findall(r'File "([^"]+)"', driver_error or "")
+    driver_frames = [path for path in frames if "_acceptance_driver" in Path(path).name]
+    if driver_frames:
+        driver_root = str(PurePosixPath(driver_frames[0]).parent)
+        workspace_frames = [
+            path for path in frames
+            if path == driver_root or path.startswith(driver_root.rstrip("/") + "/")
+        ]
+        if workspace_frames:
+            deepest = workspace_frames[-1]
+            return "harness" if "_acceptance_driver" in Path(deepest).name else "artifact"
+
+    verify_frames = [path for path in frames if path.startswith("/verify/")]
+    if verify_frames:
+        deepest = verify_frames[-1]
+        return "harness" if "_acceptance_driver" in Path(deepest).name else "artifact"
+
+    lowered = (driver_error or "").lower()
+    if any(marker in lowered for marker in _INFRA_MARKERS):
+        return "harness"
+    return "unknown"
 
 
 _PY_PREAMBLE = f"""
 import importlib.util, json, sys, traceback
+
+_driver_stdout = sys.stdout
+# Candidate imports and function calls may print arbitrary bytes. Keep those
+# diagnostics on stderr so only the trusted driver can emit the result record.
+sys.stdout = sys.stderr
 
 def _load(path):
     spec = importlib.util.spec_from_file_location("agent_mod", path)
@@ -309,10 +353,18 @@ def _load(path):
     return mod
 
 def _emit(cases, error=None, extra=None):
+    for case in cases:
+        if "got" in case:
+            case["got"] = _plain(case["got"])
+        if "want" in case:
+            case["want"] = _plain(case["want"])
     payload = {{"cases": cases, "error": error}}
     if extra:
         payload.update(extra)
-    print("{RESULT_SENTINEL} " + json.dumps(payload))
+    print("{RESULT_SENTINEL} " + json.dumps(payload, default=str), file=_driver_stdout, flush=True)
+
+def _plain(v):
+    return getattr(v, "value", v)
 
 def _find(mod, names):
     for n in names:
@@ -342,9 +394,10 @@ def _cases_to_checks(cmd: list[str], proc: subprocess.CompletedProcess,
                      payload: dict[str, Any] | None) -> tuple[list[Check], str | None]:
     """Translate driver output into checks; return (checks, driver_error)."""
     if payload is None:
+        driver_error = proc.stderr if _attribute_failure(proc.stderr) == "harness" else "no result"
         return ([Check("driver produced parseable result", False,
                        detail="no @@ACCEPTANCE_RESULT@@ line in stdout",
-                       command=cmd, stdout=proc.stdout, stderr=proc.stderr)], "no result")
+                       command=cmd, stdout=proc.stdout, stderr=proc.stderr)], driver_error)
     if payload.get("error"):
         return ([Check("driver ran without error", False, detail=str(payload["error"]),
                        command=cmd, stdout=proc.stdout, stderr=proc.stderr)], str(payload["error"]))
@@ -366,8 +419,16 @@ def _cases_to_checks(cmd: list[str], proc: subprocess.CompletedProcess,
 def _finalize(result: ContractResult, checks: list[Check], driver_error: str | None) -> ContractResult:
     result.checks.extend(checks)
     if driver_error:
-        result.verdict = "unverifiable"
-        result.reason = f"could not exercise artifact: {driver_error}"
+        attribution = _attribute_failure(driver_error)
+        if attribution == "artifact":
+            result.verdict = "rejected"
+            result.reason = f"artifact defect: {driver_error}"
+        elif attribution == "harness":
+            result.verdict = "error"
+            result.reason = f"harness failure: {driver_error}"
+        else:
+            result.verdict = "unverifiable"
+            result.reason = f"could not exercise artifact: {driver_error}"
     elif not checks:
         result.verdict = "unverifiable"
         result.reason = "no behavioral checks produced"
@@ -713,9 +774,14 @@ try:
     if f is None:
         _emit([], error="no winner-detection callable found"); sys.exit(0)
     def as_x(v):
-        return v in ("X", "x", True, 1) or v == "X"
+        plain = _plain(v)
+        return plain in ("X", "x", True, 1) or str(v) in ("X", "Player.X")
+    def as_o(v):
+        plain = _plain(v)
+        return plain in ("O", "o", True) or str(v) in ("O", "Player.O")
     def as_none(v):
-        return v in (None, "", " ", 0, False, "draw", "Draw", "DRAW", "tie", "Tie", "none", "None")
+        plain = _plain(v)
+        return plain in (None, "", " ", 0, False, "draw", "Draw", "DRAW", "tie", "Tie", "none", "None") or str(v) in ("None", "Player.NONE")
     x_row_flat = ["X", "X", "X", "O", "O", " ", " ", " ", " "]
     x_row_grid = [["X", "X", "X"], ["O", "O", " "], [" ", " ", " "]]
     o_col_grid = [["O", "X", "X"], ["O", "X", " "], ["O", " ", " "]]
@@ -733,7 +799,7 @@ try:
     cases.append({"name": "detects X row win", "ok": tag == "ok" and as_x(xw), "got": xw, "want": "X"})
     # O wins down the left column.
     tag, ow = call(o_col_grid)
-    cases.append({"name": "detects O column win", "ok": tag == "ok" and (ow in ("O", "o", True) or ow == "O"), "got": ow, "want": "O"})
+    cases.append({"name": "detects O column win", "ok": tag == "ok" and as_o(ow), "got": ow, "want": "O"})
     # Full board, no line: must not report a winner.
     tag, dr = call(draw_grid)
     cases.append({"name": "no winner on drawn board", "ok": tag == "ok" and as_none(dr), "got": dr, "want": "no winner"})

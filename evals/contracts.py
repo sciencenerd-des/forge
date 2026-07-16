@@ -107,6 +107,9 @@ class EnvironmentFingerprint(BaseModel):
     pi_version: str | None = None
     host_arch: str | None = None
     max_turns: int | None = None
+    reasoning_effort: str | None = None
+    llm_request_timeout_s: float | None = None
+    llm_max_retries: int | None = None
     replicate_count: int = 1
 
 
@@ -184,6 +187,30 @@ class SuiteResultV2(BaseModel):
         for g in self.goals:
             counts[g.outcome] = counts.get(g.outcome, 0) + 1
         self.summary = counts
+        verified = [g for g in self.goals if is_completion(g.outcome)]
+
+        def mean(field: str) -> float | None:
+            values = [getattr(g, field) for g in verified]
+            if not verified or any(value is None for value in values):
+                return None
+            return sum(values) / len(values)
+
+        self.mean_cycles_to_done = mean("cycles_to_done")
+        self.mean_distance_auc = mean("distance_auc")
+        self.mean_turns = mean("turns_used")
+        token_values = [g.token_cost for g in self.goals]
+        self.token_cost = (
+            sum(token_values) if self.goals and all(value is not None for value in token_values)
+            else None
+        )
+        missing = [
+            field for field in ("mean_cycles_to_done", "mean_distance_auc", "token_cost")
+            if getattr(self, field) is None
+        ]
+        self.measurement_unavailable_reason = (
+            "required aggregate metrics unavailable: " + ", ".join(missing)
+            if missing else None
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -193,7 +220,8 @@ class SuiteResultV2(BaseModel):
 # on purpose: these are conditions of the experiment, not its outcome.
 COMPARABILITY_FIELDS = (
     "schema_version", "suite_hash", "contract_hash", "model", "provider",
-    "sandbox_image_digest", "max_turns", "replicate_count",
+    "sandbox_image_digest", "max_turns", "reasoning_effort",
+    "llm_request_timeout_s", "llm_max_retries", "replicate_count",
 )
 
 

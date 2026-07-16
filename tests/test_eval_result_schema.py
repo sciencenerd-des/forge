@@ -83,7 +83,9 @@ def _v2(**env_overrides):
     env = {
         "schema_version": SCHEMA_VERSION, "suite_hash": "s1", "contract_hash": "c1",
         "model": "m", "provider": "p", "sandbox_image_digest": "d1",
-        "max_turns": 24, "replicate_count": 3,
+        "max_turns": 24, "reasoning_effort": "none",
+        "llm_request_timeout_s": 300.0, "llm_max_retries": 0,
+        "replicate_count": 3,
     }
     env.update(env_overrides)
     return {"schema_version": SCHEMA_VERSION, "environment": env,
@@ -99,6 +101,11 @@ def test_matching_v2_reports_are_comparable():
 def test_mismatched_image_digest_is_incomparable():
     reasons = comparability_reasons(_v2(), _v2(sandbox_image_digest="d2"))
     assert any("sandbox_image_digest" in r for r in reasons)
+
+
+def test_mismatched_reasoning_profile_is_incomparable():
+    reasons = comparability_reasons(_v2(), _v2(reasoning_effort="low"))
+    assert any("reasoning_effort" in r for r in reasons)
 
 
 def test_legacy_dicts_skip_comparability():

@@ -97,7 +97,8 @@ still require a human to merge the PR the gate produces.
 
 ```bash
 uv run pytest tests/regression -v      # all pins, including the six new ones
-make evals                             # benchmark suite (fails if any goal is skipped)
+make evals                             # local Gemma + LM Studio defaults
+make evals EVAL_MODEL=<id> EVAL_BASE_URL=<url>  # override without changing provider files
 python evals/gate.py --candidate evals/results/<sha>.json --baseline evals/results/baseline.json
 ```
 

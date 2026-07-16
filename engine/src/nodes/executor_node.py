@@ -1,6 +1,7 @@
 import forge_config
 import os
 import json
+import re
 import shlex
 import subprocess
 import sqlite3
@@ -14,6 +15,23 @@ from app.services import MemoryService
 from src.runtime import project_workspace
 from forge_runtime.tools import ToolContext, ToolRequest, default_registry
 from forge_runtime.sandbox import get_workspace
+
+_SAFE_GIT_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@{}^~:+-]*$")
+
+
+def _git_diff(sandbox, ref: str, path: str) -> dict:
+    """Inspect changes inside the active workspace without invoking a shell."""
+    if not _SAFE_GIT_REF.fullmatch(ref):
+        return {"status": "error", "message": "git_diff: invalid revision"}
+    diff_cmd = ["git", "diff", "--no-ext-diff", "--end-of-options", ref]
+    if path:
+        diff_cmd.extend(["--", path])
+    diff = sandbox.run(diff_cmd, timeout=20)
+    recent = sandbox.run(["git", "log", "--oneline", "-8"], timeout=20)
+    output = (diff.stdout or diff.stderr or "(no diff)")[:6000]
+    if recent.returncode == 0 and recent.stdout:
+        output += "\n--- recent checkpoints ---\n" + recent.stdout[:1000]
+    return {"status": "success" if diff.returncode in {0, 1} else "error", "diff": output}
 
 def record_tool_msg(tool_name: str, content: str, session_id: str | None = None):
     """Mirror a tool result only when the caller owns an explicit session.
@@ -710,16 +728,10 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # Let the model SEE what changed — its own last edit and
                         # the ratchet's reverts. Critical for self-correction:
                         # without it the 12B re-derives state blindly each turn.
-                        import subprocess as _dsp
                         _ref = str(args.get("ref", "HEAD"))
                         _gp = str(args.get("path", ""))
-                        _cmd = f"git diff {_ref} -- {_gp}".strip() if _gp else f"git diff {_ref}"
                         try:
-                            _d = _dsp.run(["/bin/bash", "-lc",
-                                f"{_cmd} 2>&1 | head -200; echo '--- recent checkpoints ---'; "
-                                "git log --oneline -8 2>/dev/null"],
-                                capture_output=True, text=True, timeout=20, cwd=workspace)
-                            tool_result = json.dumps({"status": "success", "diff": (_d.stdout or "(no diff)")[:6000]})
+                            tool_result = json.dumps(_git_diff(sandbox, _ref, _gp))
                         except Exception as _de:
                             tool_result = json.dumps({"status": "error", "message": f"git_diff: {_de}"})
                         record_tool_msg("git_diff", tool_result[:200])
@@ -732,6 +744,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # PATH. Full network.
                         from forge_runtime.tools import host_execution_allowed as _host_exec
                         import subprocess as _isp
+                        import shlex as _shlex
                         _mgr = (args.get("manager") or "pip").lower()
                         _pkgs = args.get("packages") or []
                         if isinstance(_pkgs, str): _pkgs = _pkgs.split()
@@ -740,24 +753,36 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                             if not _host_exec():
                                 raise ValueError("dependency installation is disabled outside an isolated container")
                             if _mgr in ("pip", "python", "pip3"):
-                                _vpy = _ensure_venv(workspace)
-                                _cmd = [_vpy, "-m", "pip", "install", *_pkgs]
+                                # The project path is only a host-side display
+                                # path in container mode. Run the install via
+                                # the same Workspace object as every later
+                                # command; a host subprocess here creates the
+                                # PEP 668 loop and leaves the container without
+                                # the dependency it just reported installing.
+                                _pkg_text = " ".join(_shlex.quote(str(p)) for p in _pkgs)
+                                _cmd = ["/bin/bash", "-lc",
+                                        f"python3 -m venv .venv && .venv/bin/python -m pip install {_pkg_text}"]
                             elif _mgr in ("npm", "node"):
-                                _cmd = ["npm", "install", *_pkgs]
+                                _cmd = ["npm", "install", *[str(p) for p in _pkgs]]
                             elif _mgr == "brew":
                                 _cmd = ["brew", "install", *_pkgs]
                             elif _mgr == "cargo":
                                 _cmd = ["cargo", "add", *_pkgs]
                             else:
                                 _cmd = [_mgr, "install", *_pkgs]
-                            _ir = _isp.run(_cmd, capture_output=True, text=True,
-                                           timeout=600, cwd=workspace, env=_envp)
+                            if type(sandbox).__name__ == "ContainerSandbox":
+                                _ir = sandbox.run(_cmd, timeout=600)
+                                _returncode, _stdout, _stderr = _ir.returncode, _ir.stdout, _ir.stderr
+                            else:
+                                _ir = _isp.run(_cmd, capture_output=True, text=True,
+                                               timeout=600, cwd=workspace, env=_envp)
+                                _returncode, _stdout, _stderr = _ir.returncode, _ir.stdout, _ir.stderr
                             tool_result = json.dumps({
-                                "status": "success" if _ir.returncode == 0 else "error",
+                                "status": "success" if _returncode == 0 else "error",
                                 "manager": _mgr, "packages": _pkgs,
-                                "exit_code": _ir.returncode,
-                                "stdout": (_ir.stdout or "")[-3000:],
-                                "stderr": (_ir.stderr or "")[-3000:],
+                                "exit_code": _returncode,
+                                "stdout": (_stdout or "")[-3000:],
+                                "stderr": (_stderr or "")[-3000:],
                                 "note": "pip packages installed into ./.venv — tests run with .venv on PATH automatically."})
                         except _isp.TimeoutExpired:
                             tool_result = json.dumps({"status": "error", "message": "install timed out (600s)"})

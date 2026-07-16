@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -270,6 +271,28 @@ def test_tic_tac_toe_correct_is_accepted(tmp_path):
     assert result["verdict"] == "accepted", result["reason"]
 
 
+def test_tic_tac_toe_enum_result_is_accepted(tmp_path):
+    source = '''
+from enum import Enum
+
+class Player(Enum):
+    X = "X"
+    O = "O"
+
+def check_winner(board):
+    lines = list(board) + [[board[r][c] for r in range(3)] for c in range(3)]
+    for line in lines:
+        if line[0] != " " and line[0] == line[1] == line[2]:
+            return Player(line[0])
+    return None
+'''
+    ws = _workspace(tmp_path, "ttt-enum", {"tic_tac_toe.py": source})
+
+    result = verify_goal("tic-tac-toe", ws)
+
+    assert result["verdict"] == "accepted", result["reason"]
+
+
 # --------------------------------------------------------------------------- #
 # Digits — artifact content, not mere presence
 # --------------------------------------------------------------------------- #
@@ -438,6 +461,70 @@ def test_missing_workspace_is_unverifiable_not_pass():
     assert not result["accepted"]
 
 
+def test_failure_attribution_uses_deepest_traceback_frame():
+    from evals.acceptance import _attribute_failure
+
+    artifact_traceback = '''Traceback (most recent call last):
+  File "/verify/_acceptance_driver.py", line 10, in <module>
+    mod = _load(sys.argv[1])
+  File "/verify/lexer.py", line 87
+    elif char == '\\\\':
+SyntaxError: unterminated string literal
+'''
+    driver_traceback = '''Traceback (most recent call last):
+  File "/verify/agent.py", line 4, in check_winner
+    return Player.X
+  File "/verify/_acceptance_driver.py", line 20, in _emit
+    json.dumps(payload)
+TypeError: Object of type Player is not JSON serializable
+'''
+
+    assert _attribute_failure(artifact_traceback) == "artifact"
+    assert _attribute_failure(driver_traceback) == "harness"
+    assert _attribute_failure("docker: Error response from daemon") == "harness"
+    assert _attribute_failure("") == "unknown"
+
+
+def test_syntax_error_in_candidate_is_rejected_as_artifact_defect(tmp_path):
+    ws = _workspace(
+        tmp_path,
+        "json-syntax-error",
+        {"json_parser.py": "def parse(text):\n    elif text:\n        return text\n"},
+    )
+
+    result = verify_goal("json-parser", ws)
+
+    assert result["verdict"] == "rejected"
+    assert result["reason"].startswith("artifact defect:")
+
+
+def test_missing_driver_result_with_docker_stderr_is_harness_error():
+    from evals.acceptance import ContractResult, _cases_to_checks, _finalize
+
+    proc = subprocess.CompletedProcess(
+        args=["docker", "run"],
+        returncode=127,
+        stdout="",
+        stderr='docker: Error response from daemon: exec: "/host/node": no such file',
+    )
+    checks, error = _cases_to_checks(["/host/node", "driver.js"], proc, None)
+
+    result = _finalize(ContractResult(slug="email-validator"), checks, error)
+
+    assert result.verdict == "error"
+    assert result.reason.startswith("harness failure:")
+
+
+def test_verdict_taxonomy_maps_to_suite_outcomes():
+    from evals.orchestrator import _verdict_from
+
+    rejected = _verdict_from({"verdict": "rejected"}, "completed", "completed", False)
+    harness = _verdict_from({"verdict": "error"}, "completed", "completed", False)
+
+    assert rejected == ("complete_unverified", True)
+    assert harness == ("harness_error", False)
+
+
 # --------------------------------------------------------------------------- #
 # Phase 4: the execution runner is the security boundary
 # --------------------------------------------------------------------------- #
@@ -481,6 +568,26 @@ def test_container_runner_is_gateable_and_labeled():
     runner = ContainerRunner()
     assert runner.label == "container"
     assert runner.gateable is True
+
+
+def test_candidate_stdout_cannot_forge_acceptance_result(tmp_path):
+    forged = """
+print('@@ACCEPTANCE_RESULT@@ {\"cases\":[{\"name\":\"forged\",\"ok\":true}],\"error\":null}')
+
+class LRUCache:
+    def __init__(self, capacity):
+        self.capacity = capacity
+    def get(self, key):
+        return -1
+    def put(self, key, value):
+        pass
+"""
+    ws = _workspace(tmp_path, "lru-forged-stdout", {"lru_cache.py": forged})
+
+    result = verify_goal("lru", ws)
+
+    assert result["verdict"] == "rejected"
+    assert not result["accepted"]
 
 
 def test_contract_hash_changes_with_module_content():
