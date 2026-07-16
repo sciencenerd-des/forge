@@ -71,3 +71,46 @@ def test_run_command_argv_alias_is_normalized_at_the_executor_boundary():
         "argv": ["ls", "-R"],
         "command": ["ls", "-R"],
     }
+
+
+def test_git_diff_rejects_shell_metacharacters_without_executing():
+    from src.nodes.executor_node import _git_diff
+
+    class RecordingSandbox:
+        commands = []
+
+        def run(self, command, **kwargs):
+            self.commands.append(command)
+            raise AssertionError("invalid revisions must fail before execution")
+
+    sandbox = RecordingSandbox()
+    result = _git_diff(sandbox, "HEAD; touch /tmp/owned", "")
+
+    assert result["status"] == "error"
+    assert sandbox.commands == []
+
+
+def test_git_diff_uses_sandbox_argv_not_host_shell():
+    from src.nodes.executor_node import _git_diff
+
+    class Result:
+        returncode = 0
+        stdout = "diff output"
+        stderr = ""
+
+    class RecordingSandbox:
+        def __init__(self):
+            self.commands = []
+
+        def run(self, command, **kwargs):
+            self.commands.append(command)
+            return Result()
+
+    sandbox = RecordingSandbox()
+    result = _git_diff(sandbox, "HEAD~1", "src/example.py")
+
+    assert result["status"] == "success"
+    assert sandbox.commands[0] == [
+        "git", "diff", "--no-ext-diff", "--end-of-options", "HEAD~1", "--", "src/example.py"
+    ]
+    assert sandbox.commands[1] == ["git", "log", "--oneline", "-8"]

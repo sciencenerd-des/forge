@@ -31,3 +31,40 @@ def test_manifest_roundtrip(tmp_path, monkeypatch):
     pge_launcher.save_run_state({"proj-1": {"run_id": "r1", "status": "running"}})
     loaded = pge_launcher.load_run_state()
     assert loaded["proj-1"]["status"] == "running"
+
+
+def test_launcher_passes_provider_overrides_only_to_child(tmp_path, monkeypatch):
+    captured = {}
+
+    class Process:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(pge_launcher, "RUN_DIR", tmp_path)
+    monkeypatch.setattr(pge_launcher, "RUN_STATE", tmp_path / "runs.json")
+    monkeypatch.setattr(pge_launcher, "_persist_lifecycle", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pge_launcher.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        pge_launcher.subprocess,
+        "Popen",
+        lambda *args, **kwargs: captured.update(kwargs) or Process(),
+    )
+
+    result = pge_launcher.launch_pge(
+        "project-1",
+        source="test",
+        env={
+            "LLM_MODEL": "qualified-model",
+            "PGE_PLANNER_MODEL": "qualified-model",
+            "FORGE_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
+        },
+    )
+
+    assert result["status"] == "success"
+    assert captured["env"]["LLM_MODEL"] == "qualified-model"
+    assert captured["env"]["PGE_PLANNER_MODEL"] == "qualified-model"
+    assert captured["env"]["FORGE_LLM_BASE_URL"] == "http://127.0.0.1:1234/v1"
+    assert captured["env"]["FORGE_PROJECT_ID"] == "project-1"
+    assert captured["env"]["FORGE_RUN_ID"] == result["run_id"]

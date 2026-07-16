@@ -10,7 +10,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import forge_config
 
@@ -112,6 +112,21 @@ def update_run(project_id: str, run_id: str, **changes: Any) -> bool:
     return True
 
 
+def increment_run_metric(project_id: str, run_id: str, metric: str, amount: int) -> bool:
+    """Increment one numeric manifest metric without emitting a DB event per LLM call."""
+    if metric not in {"token_cost"} or not isinstance(amount, int) or amount < 0:
+        raise ValueError("unsupported run metric increment")
+    state = load_run_state()
+    current = state.get(project_id)
+    if not current or current.get("run_id") != run_id:
+        return False
+    current[metric] = int(current.get(metric) or 0) + amount
+    current["updated_at"] = _now()
+    state[project_id] = current
+    save_run_state(state)
+    return True
+
+
 def _signal_group(pgid: int, sig: int) -> bool:
     """Signal a whole process group; return False if it no longer exists."""
     try:
@@ -184,7 +199,13 @@ def terminate_run(project_id: str, run_id: str, reason: str, *,
             "termination": disposition, "reason": reason}
 
 
-def launch_pge(project_id: str, source: str, invocation: dict[str, Any] | None = None) -> dict[str, Any]:
+def launch_pge(
+    project_id: str,
+    source: str,
+    invocation: dict[str, Any] | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Launch PGE independently of the gateway and verify that startup succeeded."""
     if not project_id:
         return {"status": "error", "message": "project_id is required"}
@@ -226,9 +247,18 @@ def launch_pge(project_id: str, source: str, invocation: dict[str, Any] | None =
                 cwd=ROOT,
                 env={
                     **os.environ,
-                    "LLM_MODEL": os.getenv("LLM_MODEL", "google/gemma-4-12b-qat"),
-                    "PGE_PLANNER_MODEL": os.getenv("PGE_PLANNER_MODEL", "omnicoder-9b-q8"),
-                    "PGE_EXECUTOR_MODEL": os.getenv("PGE_EXECUTOR_MODEL", "omnicoder-9b-q8"),
+                    **(env or {}),
+                    "LLM_MODEL": (env or {}).get(
+                        "LLM_MODEL", os.getenv("LLM_MODEL", "google/gemma-4-12b-qat")
+                    ),
+                    "PGE_PLANNER_MODEL": (env or {}).get(
+                        "PGE_PLANNER_MODEL", os.getenv("PGE_PLANNER_MODEL", "omnicoder-9b-q8")
+                    ),
+                    "PGE_EXECUTOR_MODEL": (env or {}).get(
+                        "PGE_EXECUTOR_MODEL", os.getenv("PGE_EXECUTOR_MODEL", "omnicoder-9b-q8")
+                    ),
+                    "FORGE_PROJECT_ID": project_id,
+                    "FORGE_RUN_ID": run_id,
                 },
                 start_new_session=True,
                 close_fds=True,
