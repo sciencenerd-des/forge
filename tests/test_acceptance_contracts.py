@@ -432,7 +432,15 @@ def test_email_validator_permissive_is_rejected(tmp_path):
 # Framework guarantees
 # --------------------------------------------------------------------------- #
 def test_isolate_strips_agent_byproducts(tmp_path):
-    ws = _workspace(tmp_path, "iso", {"main.py": "x = 1\n"})
+    ws = _workspace(
+        tmp_path,
+        "iso",
+        {
+            "main.py": "x = 1\n",
+            ".forge-home/site-packages/decoy.py": "secret = True\n",
+            ".forge-internal/state.json": "{}\n",
+        },
+    )
     (ws / ".git").mkdir()
     (ws / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
     (ws / "__pycache__").mkdir()
@@ -442,10 +450,38 @@ def test_isolate_strips_agent_byproducts(tmp_path):
         assert (rerun / "main.py").exists()
         assert not (rerun / ".git").exists()
         assert not (rerun / "__pycache__").exists()
+        assert not (rerun / ".forge-home").exists()
+        assert not (rerun / ".forge-internal").exists()
         # And it really is outside the agent's workspace tree.
         assert ws not in rerun.parents
     finally:
         shutil.rmtree(rerun.parent, ignore_errors=True)
+
+
+def test_discover_skips_hidden_decoy_and_prefers_shallow_match(tmp_path):
+    from evals.acceptance import discover
+
+    ws = _workspace(
+        tmp_path,
+        "discover-hidden",
+        {
+            "main.py": "print('real')\n",
+            "nested/main.py": "print('nested')\n",
+            ".forge-home/lib/python/site-packages/scipy/main.py": "print('decoy')\n",
+        },
+    )
+
+    target = discover(ws, name_hints=("main.py",), content_any=("print",))
+
+    assert target == ws / "main.py"
+
+
+def test_discover_does_not_consider_hidden_only_source(tmp_path):
+    from evals.acceptance import discover
+
+    ws = _workspace(tmp_path, "discover-hidden-only", {".hidden/main.py": "x = 1\n"})
+
+    assert discover(ws, name_hints=("main.py",), content_any=("x =",)) is None
 
 
 def test_unknown_slug_is_unverifiable_not_pass(tmp_path):

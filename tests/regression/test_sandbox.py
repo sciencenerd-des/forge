@@ -185,6 +185,10 @@ def test_export_snapshot_strips_prune_dirs_and_is_content_addressed(tmp_path: Pa
     (src / ".git" / "HEAD").write_text("ref: refs/heads/main")
     (src / "__pycache__").mkdir()
     (src / "__pycache__" / "x.pyc").write_bytes(b"\x00")
+    (src / ".forge-home" / "site-packages").mkdir(parents=True)
+    (src / ".forge-home" / "site-packages" / "decoy.py").write_text("version = 1\n")
+    (src / ".forge-internal").mkdir()
+    (src / ".forge-internal" / "state.json").write_text("{}\n")
     (src / "main.py").write_text("print('hi')\n")
     ws = HostWorkspace(str(src))
 
@@ -193,11 +197,16 @@ def test_export_snapshot_strips_prune_dirs_and_is_content_addressed(tmp_path: Pa
     assert (staged / "main.py").exists()
     assert not (staged / ".git").exists()          # VCS metadata pruned
     assert not (staged / "__pycache__").exists()    # caches pruned
+    assert not (staged / ".forge-home").exists()
+    assert not (staged / ".forge-internal").exists()
     assert snap.file_count == 1
 
     # Byte-identical content -> identical digest; a change -> different digest.
     snap_again = ws.export_snapshot(str(tmp_path / "snap2"))
     assert snap_again.digest == snap.digest
+    (src / ".forge-home" / "site-packages" / "decoy.py").write_text("version = 2\n")
+    snap_after_hidden_change = ws.export_snapshot(str(tmp_path / "snap-hidden-change"))
+    assert snap_after_hidden_change.digest == snap.digest
     (src / "main.py").write_text("print('changed')\n")
     snap_changed = HostWorkspace(str(src)).export_snapshot(str(tmp_path / "snap3"))
     assert snap_changed.digest != snap.digest
