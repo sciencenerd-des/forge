@@ -5,8 +5,9 @@ import json
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Security
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -76,13 +77,18 @@ def get_db():
         db.close()
 
 
-def require_control_token(authorization: str | None = Header(default=None)) -> None:
+_control_bearer = HTTPBearer(auto_error=False)
+
+
+def require_control_token(
+    credentials: HTTPAuthorizationCredentials | None = Security(_control_bearer),
+) -> None:
     try:
         expected, _ = load_or_create_control_token()
     except RuntimeError as exc:
         raise HTTPException(503, "control-plane credential is unavailable") from exc
-    scheme, _, supplied = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
+    supplied = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else ""
+    if not secrets.compare_digest(supplied, expected):
         raise HTTPException(401, "invalid control-plane credential", headers={"WWW-Authenticate": "Bearer"})
 
 

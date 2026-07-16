@@ -78,6 +78,9 @@ def create_task(params: dict[str, Any]) -> dict[str, Any]:
         document["tasks"][task_id]["status"] = "failed"
         _save(document)
         raise RuntimeError(launch.get("message", "run failed to start"))
+    document["tasks"][task_id]["run_id"] = launch.get("run_id")
+    document["tasks"][task_id]["status"] = "working"
+    _save(document)
     return task(task_id)
 
 
@@ -106,14 +109,15 @@ def cancel(task_id: str) -> dict[str, Any]:
     record = document["tasks"].get(task_id)
     if record is None:
         raise KeyError(task_id)
-    from pge_launcher import load_run_state, process_is_alive, update_run
+    if record.get("status") in {"completed", "failed", "canceled"}:
+        return task(task_id)
+    from pge_launcher import load_run_state, process_is_alive, terminate_run
     manifest = load_run_state().get(record["context_id"])
-    if manifest and manifest.get("pid") and process_is_alive(manifest["pid"]):
-        import signal
-        os.kill(int(manifest["pid"]), signal.SIGTERM)
-        update_run(record["context_id"], manifest.get("run_id"), status="stopped", terminal_reason="a2a_cancel")
+    run_id = record.get("run_id")
+    if (run_id and manifest and manifest.get("run_id") == run_id
+            and manifest.get("pid") and process_is_alive(manifest["pid"])):
+        terminate_run(record["context_id"], run_id, "a2a_cancel", status="stopped")
     record["status"] = "canceled"
     document["tasks"][task_id] = record
     _save(document)
     return task(task_id)
-
