@@ -1,6 +1,13 @@
-use std::{collections::VecDeque, fs, time::Duration};
+use std::{
+    collections::VecDeque,
+    fs,
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use crossterm::event::{self, Event as InputEvent, KeyCode, KeyEvent, KeyModifiers};
 use forge_api::{
     Approval, ApprovalDecision, ForgeApi, ForgeConfig, OfflineRunManifests, ProjectId, RunEvent,
@@ -13,15 +20,25 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 use tokio::{
+    process::{Child, Command},
     sync::{mpsc, watch},
     time::Instant,
 };
 use tui_textarea::{Input as EditorInput, Key as EditorKey, TextArea};
 
 const MAX_SCROLLBACK: usize = 10_000;
+const CONTROL_PLANE_STARTUP_TIMEOUT: Duration = Duration::from_secs(8);
+const CONTROL_PLANE_RETRY_INTERVAL: Duration = Duration::from_millis(200);
+
+/// A local Python control plane launched by this TUI. We retain the child so
+/// closing the operator UI does not leave an untracked server behind.
+struct ManagedControlPlane {
+    child: Child,
+    log_path: PathBuf,
+}
 
 #[derive(Clone, Copy)]
 struct Theme {
@@ -48,6 +65,11 @@ enum Bulk {
     SessionStats(String),
     Offline(OfflineRunManifests),
     Error(String),
+}
+
+enum PickerUpdate {
+    Loaded(Vec<SessionEntry>),
+    Failed(String),
 }
 
 enum InputMode {
@@ -85,6 +107,7 @@ struct SessionEntry {
     path: String,
     name: String,
     modified: String,
+    entries: String,
 }
 
 struct SessionPicker {
@@ -131,6 +154,7 @@ enum Action {
     PiFollowUp(String),
     PiSwitchSession(String),
     PiForkSession(String),
+    LoadSessionPicker,
     LoadProviders,
     PiControl {
         command: PiCommand,
@@ -154,12 +178,14 @@ struct App {
     pi_dialog: Option<PiDialog>,
     session_menu: bool,
     session_picker: Option<SessionPicker>,
+    session_directory: Option<PathBuf>,
     session: Option<PiClient>,
     mode: Mode,
     selected: usize,
     offline_mode: bool,
     help: bool,
     input: Option<InputMode>,
+    show_evidence: bool,
     dirty: bool,
     message: String,
     session_footer: String,
@@ -175,7 +201,11 @@ struct PiDialog {
 
 fn new_editor() -> TextArea<'static> {
     let mut editor = TextArea::default();
-    editor.set_block(Block::default().title(" Prompt ").borders(Borders::ALL));
+    editor.set_block(
+        Block::default()
+            .title(" Pi prompt · Tab focus · Enter send ")
+            .borders(Borders::ALL),
+    );
     editor
 }
 
@@ -205,7 +235,12 @@ fn editor_input(event: KeyEvent) -> EditorInput {
 }
 
 impl App {
+    #[cfg(test)]
     fn new() -> Self {
+        Self::with_session_directory(default_session_directory())
+    }
+
+    fn with_session_directory(session_directory: Option<PathBuf>) -> Self {
         Self {
             runs: Vec::new(),
             offline: OfflineRunManifests::new(),
@@ -216,12 +251,14 @@ impl App {
             pi_dialog: None,
             session_menu: false,
             session_picker: None,
+            session_directory,
             session: None,
             mode: Mode::Operator,
             selected: 0,
             offline_mode: false,
             help: false,
             input: None,
+            show_evidence: false,
             dirty: true,
             message: "Loading control plane…".into(),
             session_footer: "stats unavailable".into(),
@@ -276,6 +313,14 @@ impl App {
             KeyCode::Char('p') => {
                 return Some(UiEvent::Action(Action::LoadProviders));
             }
+            KeyCode::Char('e') => {
+                self.show_evidence = !self.show_evidence;
+                self.message = if self.show_evidence {
+                    "Showing selected-run evidence".into()
+                } else {
+                    "Showing selected-run summary".into()
+                };
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.selected = self
                     .selected
@@ -314,8 +359,9 @@ impl App {
                 ),
                 KeyCode::Char('k') => (PiCommand::Compact { id: None }, "Context compaction"),
                 KeyCode::Char('r') => {
-                    self.open_session_picker();
-                    return None;
+                    self.message = "Loading saved Pi sessions…".into();
+                    self.dirty = true;
+                    return Some(UiEvent::Action(Action::LoadSessionPicker));
                 }
                 KeyCode::Char('q') => return Some(UiEvent::Quit),
                 _ => return self.handle_key(event.code),
@@ -459,8 +505,7 @@ impl App {
         }
     }
 
-    fn open_session_picker(&mut self) {
-        let entries = list_pi_sessions();
+    fn open_session_picker(&mut self, entries: Vec<SessionEntry>) {
         if entries.is_empty() {
             self.message = "No saved Pi sessions for this directory".into();
         }
@@ -631,10 +676,22 @@ impl App {
     }
     fn visible_len(&self) -> usize {
         if self.offline_mode {
-            self.offline.len()
+            self.offline_runs().len()
         } else {
             self.runs.len()
         }
+    }
+
+    /// Offline manifests are historical by nature. Rank live work first so an
+    /// operator never lands on an unrelated old blocked run after opening TUI.
+    fn offline_runs(&self) -> Vec<&forge_api::OfflineRunManifest> {
+        let mut runs: Vec<_> = self.offline.values().collect();
+        runs.sort_by(|left, right| {
+            offline_status_rank(&left.status)
+                .cmp(&offline_status_rank(&right.status))
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+        });
+        runs
     }
     fn selected_run_id(&self) -> Option<forge_api::RunId> {
         if self.offline_mode {
@@ -798,10 +855,128 @@ impl App {
     }
 }
 
+/// Start the source-checkout control plane only for the default loopback
+/// endpoint. Remote control planes are never started locally, and operators
+/// can opt out with `FORGE_TUI_AUTOSTART_CONTROL_PLANE=0`.
+async fn maybe_start_local_control_plane(
+    api: &ForgeApi,
+    config: &ForgeConfig,
+) -> Result<Option<ManagedControlPlane>> {
+    let disabled = matches!(
+        std::env::var("FORGE_TUI_AUTOSTART_CONTROL_PLANE"),
+        Ok(value) if value == "0" || value.eq_ignore_ascii_case("false")
+    );
+    let port = config.control_url.port_or_known_default();
+    if !is_local_default_control_url(config.control_url.host_str(), port, disabled)
+        || api.authenticated_ready().await.is_ok()
+    {
+        return Ok(None);
+    }
+
+    let root = forge_project_root().context(
+        "automatic startup requires a Forge source checkout; start the configured control plane manually",
+    )?;
+    let log_path = config.home.join("logs/tui-control-plane.log");
+    let parent = log_path
+        .parent()
+        .context("control-plane log path has no parent")?;
+    fs::create_dir_all(parent).context("create control-plane log directory")?;
+    let log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("open control-plane log {}", log_path.display()))?;
+    let error_log = log.try_clone().context("clone control-plane log handle")?;
+    let control_database = config.home.join("control-plane.db");
+    let control_database_url = format!("sqlite:///{}", control_database.display());
+
+    let mut child = Command::new("uv")
+        .args(["run", "forge", "serve"])
+        .current_dir(root)
+        .env("FORGE_HOME", &config.home)
+        .env("FORGE_CONTROL_TOKEN", &config.control_token)
+        .env("FORGE_CONTROL_HOST", "127.0.0.1")
+        .env("FORGE_CONTROL_PORT", port.unwrap_or(8787).to_string())
+        // Keep control-plane approvals independent from a temporarily
+        // unavailable engine Postgres. Runtime snapshots still read the
+        // durable manifests and label any missing database enrichment.
+        .env("FORGE_CONTROL_DATABASE_URL", control_database_url)
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(error_log))
+        .spawn()
+        .context("spawn `uv run forge serve`")?;
+
+    let deadline = Instant::now() + CONTROL_PLANE_STARTUP_TIMEOUT;
+    while Instant::now() < deadline {
+        if api.authenticated_ready().await.is_ok() {
+            return Ok(Some(ManagedControlPlane { child, log_path }));
+        }
+        if let Some(status) = child
+            .try_wait()
+            .context("check local control-plane process")?
+        {
+            bail!(
+                "local control plane exited with {status}; inspect {}",
+                log_path.display()
+            );
+        }
+        tokio::time::sleep(CONTROL_PLANE_RETRY_INTERVAL).await;
+    }
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    bail!(
+        "local control plane did not become healthy within {} seconds; inspect {}",
+        CONTROL_PLANE_STARTUP_TIMEOUT.as_secs(),
+        log_path.display()
+    );
+}
+
+fn is_local_default_control_url(host: Option<&str>, port: Option<u16>, disabled: bool) -> bool {
+    !disabled && matches!(host, Some("127.0.0.1" | "localhost" | "::1")) && port == Some(8787)
+}
+
+fn forge_project_root() -> Option<PathBuf> {
+    let mut starting_points = Vec::new();
+    if let Ok(current) = std::env::current_dir() {
+        starting_points.push(current);
+    }
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(parent) = executable.parent()
+    {
+        starting_points.push(parent.to_path_buf());
+    }
+    starting_points.into_iter().find_map(|start| {
+        start
+            .ancestors()
+            .find(|directory| {
+                directory.join("pyproject.toml").is_file()
+                    && directory.join("control_plane").is_dir()
+            })
+            .map(Path::to_path_buf)
+    })
+}
+
 pub async fn run(api: ForgeApi, config: ForgeConfig, session_options: SpawnOptions) -> Result<()> {
     install_terminal_panic_hook();
+    let (managed_control_plane, startup_message) =
+        match maybe_start_local_control_plane(&api, &config).await {
+            Ok(Some(managed)) => (
+                Some(managed),
+                Some(
+                    "Started local control plane for this TUI; loading live operator state…".into(),
+                ),
+            ),
+            Ok(None) => (None, None),
+            Err(error) => (
+                None,
+                Some(format!("Could not start local control plane: {error}")),
+            ),
+        };
     let (priority_tx, mut priority_rx) = mpsc::channel(64);
     let (bulk_tx, mut bulk_rx) = mpsc::channel(1);
+    let (pi_tx, mut pi_rx) = mpsc::channel(256);
+    let (picker_tx, mut picker_rx) = mpsc::channel(1);
     let (stream_tx, mut stream_rx) = mpsc::channel(64);
     let (selection_tx, selection_rx) = watch::channel(None);
     spawn_input(priority_tx);
@@ -831,15 +1006,25 @@ pub async fn run(api: ForgeApi, config: ForgeConfig, session_options: SpawnOptio
         &api,
         &selection_tx,
         session_options,
+        startup_message,
         LoopChannels {
             bulk_tx: bulk_tx.clone(),
+            pi_tx,
+            picker_tx,
             stream: &mut stream_rx,
             priority: &mut priority_rx,
             bulk: &mut bulk_rx,
+            pi: &mut pi_rx,
+            picker: &mut picker_rx,
         },
     )
     .await;
     ratatui::restore();
+    if let Some(mut managed) = managed_control_plane {
+        tracing::info!(log = %managed.log_path.display(), "stopping TUI-managed control plane");
+        let _ = managed.child.kill().await;
+        let _ = managed.child.wait().await;
+    }
     result
 }
 
@@ -881,9 +1066,13 @@ fn spawn_input(sender: mpsc::Sender<Priority>) {
 /// loop signature stable as feeds are added.
 struct LoopChannels<'a> {
     bulk_tx: mpsc::Sender<Bulk>,
+    pi_tx: mpsc::Sender<PiIncoming>,
+    picker_tx: mpsc::Sender<PickerUpdate>,
     stream: &'a mut mpsc::Receiver<Vec<RunEvent>>,
     priority: &'a mut mpsc::Receiver<Priority>,
     bulk: &'a mut mpsc::Receiver<Bulk>,
+    pi: &'a mut mpsc::Receiver<PiIncoming>,
+    picker: &'a mut mpsc::Receiver<PickerUpdate>,
 }
 
 async fn event_loop<B: ratatui::backend::Backend>(
@@ -891,15 +1080,28 @@ async fn event_loop<B: ratatui::backend::Backend>(
     api: &ForgeApi,
     selection: &watch::Sender<Option<forge_api::RunId>>,
     session_options: SpawnOptions,
+    startup_message: Option<String>,
     channels: LoopChannels<'_>,
 ) -> Result<()> {
     let LoopChannels {
         bulk_tx,
+        pi_tx,
+        picker_tx,
         stream,
         priority,
         bulk,
+        pi,
+        picker,
     } = channels;
-    let mut app = App::new();
+    let session_directory = session_options
+        .session_dir
+        .clone()
+        .and_then(session_directory_for_root)
+        .or_else(default_session_directory);
+    let mut app = App::with_session_directory(session_directory);
+    if let Some(message) = startup_message {
+        app.message = message;
+    }
     loop {
         if app.dirty {
             terminal.draw(|frame| draw(frame, &app))?;
@@ -920,7 +1122,7 @@ async fn event_loop<B: ratatui::backend::Backend>(
                         if app.mode == Mode::Session && app.session.is_none() {
                             match PiClient::spawn_with_options(&session_options).await {
                                 Ok(client) => {
-                                    spawn_pi_events(client.clone(), bulk_tx.clone());
+                                    spawn_pi_events(client.clone(), pi_tx.clone());
                                     spawn_session_stats(client.clone(), bulk_tx.clone());
                                     app.session = Some(client);
                                     app.transcript.push_back("Pi session ready.".into());
@@ -949,6 +1151,20 @@ async fn event_loop<B: ratatui::backend::Backend>(
                         };
                         app.open_promote(context, projects);
                     }
+                    Some(UiEvent::Action(Action::LoadSessionPicker)) => {
+                        let directory = app.session_directory.clone();
+                        let picker_tx = picker_tx.clone();
+                        tokio::spawn(async move {
+                            let update = tokio::task::spawn_blocking(move || {
+                                list_pi_sessions(directory.as_deref())
+                            })
+                            .await
+                            .unwrap_or_else(|error| Err(format!("session scan task failed: {error}")))
+                            .map(PickerUpdate::Loaded)
+                            .unwrap_or_else(PickerUpdate::Failed);
+                            let _ = picker_tx.send(update).await;
+                        });
+                    }
                     Some(UiEvent::Action(Action::PiForkSession(path))) => {
                         // Forking a *different* session file is a spawn-time
                         // flag, not an RPC command: replace the child process.
@@ -961,7 +1177,7 @@ async fn event_loop<B: ratatui::backend::Backend>(
                         };
                         match PiClient::spawn_with_options(&fork_options).await {
                             Ok(client) => {
-                                spawn_pi_events(client.clone(), bulk_tx.clone());
+                                spawn_pi_events(client.clone(), pi_tx.clone());
                                 spawn_session_stats(client.clone(), bulk_tx.clone());
                                 app.session = Some(client);
                                 app.message = format!("Forked session {}", short_path(&path));
@@ -989,16 +1205,31 @@ async fn event_loop<B: ratatui::backend::Backend>(
                         }
                         app.dirty = true;
                     }
-                    None => { let _ = selection.send(app.selected_run_id()); }
+                    None => {
+                        let next = app.selected_run_id();
+                        selection.send_if_modified(|current| {
+                            if *current == next { false } else { *current = next; true }
+                        });
+                    }
                 },
             },
             Some(update) = bulk.recv() => {
-                let refresh_stats = matches!(&update, Bulk::Pi(PiIncoming::AgentEnd { .. }));
                 app.apply(update);
+                let next = app.selected_run_id();
+                selection.send_if_modified(|current| {
+                    if *current == next { false } else { *current = next; true }
+                });
+            },
+            Some(event) = pi.recv() => {
+                let refresh_stats = matches!(event, PiIncoming::AgentEnd { .. });
+                app.apply(Bulk::Pi(event));
                 if refresh_stats && let Some(client) = app.session.clone() {
                     spawn_session_stats(client, bulk_tx.clone());
                 }
-                let _ = selection.send(app.selected_run_id());
+            },
+            Some(update) = picker.recv() => match update {
+                PickerUpdate::Loaded(entries) => app.open_session_picker(entries),
+                PickerUpdate::Failed(error) => { app.message = format!("Could not load Pi sessions: {error}"); app.dirty = true; }
             },
             Some(events) = stream.recv() => { app.apply(Bulk::Stream(events)); },
             _ = dialog_timeout => app.expire_dialog_if_due(Instant::now()),
@@ -1014,8 +1245,9 @@ fn spawn_selected_stream(
     notice_tx: mpsc::Sender<Bulk>,
 ) {
     tokio::spawn(async move {
-        while selection.changed().await.is_ok() {
-            let Some(run_id) = selection.borrow().clone() else {
+        loop {
+            let Some(run_id) = selection.borrow_and_update().clone() else {
+                if selection.changed().await.is_err() { return; }
                 continue;
             };
             let mut cursor = 0_u64;
@@ -1035,10 +1267,14 @@ fn spawn_selected_stream(
                         let _ = notice_tx
                             .try_send(Bulk::Error(format!("Event stream reconnecting… ({error})")));
                         attempt += 1;
-                        if attempt > 5 {
-                            break;
+                        let delay = Duration::from_millis(250 * u64::from(attempt.min(5)));
+                        tokio::select! {
+                            changed = selection.changed() => {
+                                if changed.is_err() { return; }
+                                break 'selected;
+                            }
+                            _ = tokio::time::sleep(delay) => {}
                         }
-                        tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
                         continue;
                     }
                 };
@@ -1076,11 +1312,13 @@ fn spawn_selected_stream(
     });
 }
 
-fn spawn_pi_events(client: PiClient, bulk: mpsc::Sender<Bulk>) {
+fn spawn_pi_events(client: PiClient, pi: mpsc::Sender<PiIncoming>) {
     tokio::spawn(async move {
         let mut events = client.events();
         while let Ok(event) = events.recv().await {
-            let _ = bulk.try_send(Bulk::Pi(event));
+            if pi.send(event).await.is_err() {
+                return;
+            }
         }
     });
 }
@@ -1124,7 +1362,12 @@ async fn execute(api: &ForgeApi, session: Option<&PiClient>, action: Action) -> 
             })
             .await
         {
-            Ok(result) => format!("Run {} started", short(&result.run_id.0)),
+            Ok(result) if result.started => format!("Run {} started", short(&result.run_id.0)),
+            Ok(result) if result.already_running => format!(
+                "Run not started: project already has an active run ({})",
+                short(&result.run_id.0)
+            ),
+            Ok(result) => format!("Run not started (status: {})", result.status),
             Err(error) => format!("Start failed: {error}"),
         },
         Action::Stop(project_id) => match api.stop_run(&project_id).await {
@@ -1233,7 +1476,7 @@ async fn execute(api: &ForgeApi, session: Option<&PiClient>, action: Action) -> 
             },
             None => "Pi is not available".into(),
         },
-        Action::BeginPromote { .. } | Action::PiForkSession(_) => {
+        Action::BeginPromote { .. } | Action::PiForkSession(_) | Action::LoadSessionPicker => {
             unreachable!("handled by the event loop before execute")
         }
         Action::Promote {
@@ -1305,25 +1548,31 @@ fn project_has_active_run(runs: &[RuntimeRunSnapshot], project_id: &ProjectId) -
     })
 }
 
-/// Pi stores sessions under `~/.pi/agent/sessions/<sanitized cwd>/` where the
-/// directory name is `-` + cwd with `/` replaced by `-` + `--`.
-fn pi_session_dir() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let cwd = std::env::current_dir().ok()?;
-    let sanitized = format!("-{}--", cwd.display().to_string().replace('/', "-"));
-    Some(
-        std::path::PathBuf::from(home)
-            .join(".pi/agent/sessions")
-            .join(sanitized),
-    )
+/// Pi stores sessions under `<root>/<sanitized cwd>/`, where the root respects
+/// the same CLI option and environment variable as the spawned Pi process.
+fn default_session_directory() -> Option<PathBuf> {
+    let root = std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pi/agent/sessions"))
+        })?;
+    session_directory_for_root(root)
 }
 
-fn list_pi_sessions() -> Vec<SessionEntry> {
-    let Some(directory) = pi_session_dir() else {
-        return Vec::new();
+fn session_directory_for_root(root: PathBuf) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    let sanitized = format!("-{}--", cwd.display().to_string().replace('/', "-"));
+    Some(root.join(sanitized))
+}
+
+fn list_pi_sessions(directory: Option<&Path>) -> Result<Vec<SessionEntry>, String> {
+    let Some(directory) = directory else {
+        return Ok(Vec::new());
     };
-    let Ok(reader) = fs::read_dir(&directory) else {
-        return Vec::new();
+    let reader = match fs::read_dir(directory) {
+        Ok(reader) => reader,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
     };
     let mut entries: Vec<SessionEntry> = reader
         .filter_map(|entry| entry.ok())
@@ -1335,11 +1584,12 @@ fn list_pi_sessions() -> Vec<SessionEntry> {
         })
         .map(|entry| {
             let path = entry.path();
-            let name = path
+            let fallback_name = path
                 .file_stem()
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("session")
                 .to_owned();
+            let (name, entries) = session_summary(&path, fallback_name);
             let modified = entry
                 .metadata()
                 .ok()
@@ -1351,11 +1601,43 @@ fn list_pi_sessions() -> Vec<SessionEntry> {
                 path: path.display().to_string(),
                 name,
                 modified,
+                entries,
             }
         })
         .collect();
     entries.sort_by(|a, b| b.name.cmp(&a.name)); // timestamped names: newest first
-    entries
+    Ok(entries)
+}
+
+/// Read at most 2 MiB so a corrupt or exceptionally large transcript cannot
+/// monopolize the TUI's background scanner.
+fn session_summary(path: &Path, fallback_name: String) -> (String, String) {
+    let Ok(file) = fs::File::open(path) else {
+        return (fallback_name, "unknown entries".into());
+    };
+    let mut reader = BufReader::new(file).take(2 * 1024 * 1024);
+    let mut first = String::new();
+    let first_read = reader.read_line(&mut first).ok().unwrap_or_default();
+    let name = serde_json::from_str::<serde_json::Value>(&first)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("name")
+                .and_then(|name| name.as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or(fallback_name);
+    let count = usize::from(first_read > 0) + reader.lines().map_while(Result::ok).count();
+    let capped = path
+        .metadata()
+        .map(|metadata| metadata.len() > 2 * 1024 * 1024)
+        .unwrap_or(false);
+    let entries = if capped {
+        format!("{count}+ entries")
+    } else {
+        format!("{count} entries")
+    };
+    (name, entries)
 }
 
 fn short_path(path: &str) -> &str {
@@ -1366,18 +1648,28 @@ fn short_path(path: &str) -> &str {
 }
 
 fn draw(frame: &mut Frame, app: &App) {
-    if app.mode == Mode::Session {
-        draw_session(frame, app);
-        return;
-    }
-    let [header, body, footer] = Layout::vertical([
+    // Pi is deliberately part of the operator surface rather than a separate
+    // screen. Tab only changes keyboard focus, so run state and the evidence
+    // behind it remain visible while an operator steers a session.
+    // Preserve enough vertical space for the selected-run audit on normal
+    // laptop terminals. The activity strip appears only when it can do so
+    // without hiding the next action and evidence in the detail pane.
+    let show_pi_activity = frame.area().height >= 32;
+    let [header, summary, body, pi_activity, editor, footer] = Layout::vertical([
+        Constraint::Length(3),
         Constraint::Length(3),
         Constraint::Min(10),
+        Constraint::Length(if show_pi_activity { 3 } else { 0 }),
         Constraint::Length(3),
+        Constraint::Length(2),
     ])
     .areas(frame.area());
-    let [runs, detail] =
-        Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(body);
+    let compact = frame.area().width < 100;
+    let [runs, detail] = if compact {
+        Layout::vertical([Constraint::Percentage(42), Constraint::Percentage(58)]).areas(body)
+    } else {
+        Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)]).areas(body)
+    };
     let banner = if app.offline_mode {
         Span::styled(
             " OFFLINE ",
@@ -1405,20 +1697,51 @@ fn draw(frame: &mut Frame, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
             banner,
-            Span::raw("  operator"),
+            Span::raw(if app.offline_mode {
+                format!("  operator · {}", offline_summary(app))
+            } else {
+                "  operator".into()
+            }),
+            Span::styled(
+                if app.mode == Mode::Session {
+                    "  ·  PI PROMPT FOCUS"
+                } else {
+                    "  ·  RUN LIST FOCUS"
+                },
+                Style::default().fg(THEME.dim),
+            ),
         ]))
         .block(Block::default().borders(Borders::BOTTOM)),
         header,
     );
+    let summary_text = if app.offline_mode {
+        let counts = offline_counts(app);
+        format!(
+            "  RUNS  [ACTIVE {}]  [ATTENTION {}]  [COMPLETE {}]   |   select with j/k · inspect with e",
+            counts.active, counts.attention, counts.completed
+        )
+    } else {
+        format!(
+            "  LIVE CONTROL PLANE  [RUNS {}]  [PENDING APPROVALS {}]",
+            app.runs.len(),
+            app.approvals.len()
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(summary_text)
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .block(Block::default().title(" Status ").borders(Borders::ALL)),
+        summary,
+    );
     let items: Vec<ListItem> = if app.offline_mode {
-        app.offline
-            .values()
+        app.offline_runs()
+            .into_iter()
             .map(|run| {
                 ListItem::new(format!(
-                    "{}  {}  batch {}",
-                    run.status,
+                    "{}  {}  {}",
+                    status_label(&run.status),
                     short(&run.run_id.0),
-                    run.batch
+                    offline_goal(run).unwrap_or("(goal unavailable)")
                 ))
             })
             .collect()
@@ -1428,34 +1751,39 @@ fn draw(frame: &mut Frame, app: &App) {
             .map(|run| {
                 ListItem::new(format!(
                     "{}  {}  {}",
-                    run.status,
+                    status_label(&run.status),
                     short(&run.id.0),
                     run.current_node
                 ))
             })
             .collect()
     };
+    let has_runs = !items.is_empty();
     let items = if items.is_empty() {
         vec![ListItem::new("No runs.")]
     } else {
         items
     };
-    frame.render_widget(
+    let runs_title = if app.offline_mode {
+        format!(" Runs · {} ", offline_summary(app))
+    } else {
+        " Runs ".into()
+    };
+    let mut run_list_state = ListState::default();
+    run_list_state.select(has_runs.then_some(app.selected));
+    frame.render_stateful_widget(
         List::new(items)
-            .block(Block::default().title(" Runs ").borders(Borders::ALL))
-            .highlight_style(Style::default().bg(Color::DarkGray))
-            .highlight_symbol("› "),
+            .block(Block::default().title(runs_title).borders(Borders::ALL))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▶ "),
         runs,
+        &mut run_list_state,
     );
-    let mut lines = vec![Line::from(app.message.as_str()), Line::from("")];
-    lines.extend(
-        app.events
-            .iter()
-            .rev()
-            .take(12)
-            .rev()
-            .map(|line| Line::styled(line, Style::default().fg(THEME.dim))),
-    );
+    let mut lines = operator_detail_lines(app);
     if let Some(approval) = app.approvals.first() {
         lines.push(Line::from(""));
         lines.push(Line::styled(
@@ -1469,75 +1797,314 @@ fn draw(frame: &mut Frame, app: &App) {
         ));
     }
     frame.render_widget(
-        Paragraph::new(lines).block(Block::default().title(" Detail ").borders(Borders::ALL)),
+        Paragraph::new(lines).block(
+            Block::default()
+                .title(if app.show_evidence {
+                    " Audit trail · selected run · e hide evidence "
+                } else {
+                    " Audit trail · selected run · e show evidence "
+                })
+                .borders(Borders::ALL),
+        ),
         detail,
     );
-    let footer_text = if app.help {
-        " j/k select  q quit  ? close help  |  s start  x stop  a approvals  y/n decide "
+    if show_pi_activity {
+        frame.render_widget(
+            Paragraph::new(pi_activity_lines(app)).block(
+                Block::default()
+                    .title(" Pi activity · recent session evidence ")
+                    .borders(Borders::ALL),
+            ),
+            pi_activity,
+        );
+    }
+    frame.render_widget(&app.editor, editor);
+    let footer_text = if app.mode == Mode::Session {
+        format!(
+            " PI PROMPT FOCUS · {} · Esc actions · Ctrl+M model · Ctrl+T thinking · Ctrl+K compact · Ctrl+R sessions · Ctrl+G promote · Tab run list · Ctrl+Q quit ",
+            app.session_footer
+        )
+    } else if app.offline_mode {
+        " OFFLINE READ-ONLY · RUN LIST FOCUS · j/k select · e evidence · Tab Pi prompt · q quit "
+            .into()
+    } else if app.help {
+        " RUN LIST FOCUS · j/k select · q quit · ? close help · s start · x stop · a approvals · y/n decide · Tab Pi prompt ".into()
     } else {
-        " ? help  q quit  j/k select  s start  x stop  a approvals "
+        " RUN LIST FOCUS · ? help · q quit · j/k select · s start · x stop · a approvals · Tab Pi prompt ".into()
     };
     frame.render_widget(
         Paragraph::new(footer_text).block(Block::default().borders(Borders::TOP)),
         footer,
     );
+    draw_session_overlays(frame, app);
 }
 
-fn draw_session(frame: &mut Frame, app: &App) {
-    let [header, transcript, editor, footer] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(8),
-        Constraint::Length(3),
-        Constraint::Length(2),
-    ])
-    .areas(frame.area());
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                " FORGE ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(THEME.amber)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " PI SESSION ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(THEME.verdigris)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]))
-        .block(Block::default().borders(Borders::BOTTOM)),
-        header,
-    );
-    let lines: Vec<Line> = if app.transcript.is_empty() {
-        vec![Line::styled(
-            "Pi session loading…",
+/// Only the latest session observation is shown in the dashboard.
+/// The full Pi transcript remains available through the saved session, while
+/// this bounded excerpt makes model/tool activity auditable without crowding
+/// the run evidence or letting an unbounded stream dominate the render loop.
+fn pi_activity_lines(app: &App) -> Vec<Line<'static>> {
+    if app.transcript.is_empty() {
+        return vec![Line::styled(
+            "No Pi session activity yet. Press Tab to focus this prompt; Pi starts on first focus.",
             Style::default().fg(THEME.dim),
-        )]
+        )];
+    }
+    app.transcript
+        .iter()
+        .rev()
+        .take(1)
+        .rev()
+        .map(|line| Line::styled(line.clone(), Style::default().fg(THEME.dim)))
+        .collect()
+}
+
+#[derive(Default)]
+struct OfflineCounts {
+    active: usize,
+    attention: usize,
+    completed: usize,
+}
+
+fn offline_counts(app: &App) -> OfflineCounts {
+    let mut counts = OfflineCounts::default();
+    for run in app.offline.values() {
+        match run.status.as_str() {
+            "running" | "starting" | "launching" => counts.active += 1,
+            "failed" | "blocked" => counts.attention += 1,
+            "completed" => counts.completed += 1,
+            _ => {}
+        }
+    }
+    counts
+}
+
+/// Status is always textually explicit. Color is a secondary affordance so
+/// monochrome terminals and screen readers retain the same meaning.
+fn status_label(status: &str) -> String {
+    match status {
+        "running" | "starting" | "launching" => "[RUN]".into(),
+        "completed" => "[OK]".into(),
+        "blocked" => "[BLOCKED]".into(),
+        "failed" => "[FAILED]".into(),
+        "stopped" => "[STOPPED]".into(),
+        other => format!("[{}]", other.to_uppercase()),
+    }
+}
+
+/// Show the evidence behind the selected run, including offline log output.
+/// Offline mode deliberately remains read-only, but it must not be opaque: an
+/// operator needs enough provenance to decide whether to restart, investigate,
+/// or wait for the control plane to return.
+fn operator_detail_lines(app: &App) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(app.message.clone()), Line::from("")];
+    if app.offline_mode {
+        if let Some(run) = app.offline_runs().get(app.selected).copied() {
+            lines.push(Line::styled(
+                "audit source durable offline manifest · evidence is read-only",
+                Style::default().fg(THEME.dim),
+            ));
+            lines.push(Line::styled(
+                format!(
+                    "run {} · project {}",
+                    short(&run.run_id.0),
+                    short(&run.project_id.0)
+                ),
+                Style::default()
+                    .fg(THEME.verdigris)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            lines.push(Line::from(format!(
+                "status {} · batch {} · pid {}",
+                run.status,
+                run.batch,
+                run.pid
+                    .map_or_else(|| "unknown".into(), |pid| pid.to_string()),
+            )));
+            if let Some(decision) = &run.final_decision {
+                lines.push(Line::styled(
+                    format!(
+                        "outcome {decision} · exit {}",
+                        run.exit_code
+                            .map_or_else(|| "unknown".into(), |code| code.to_string())
+                    ),
+                    if decision == "complete" {
+                        Style::default().fg(THEME.verdigris)
+                    } else {
+                        Style::default().fg(THEME.danger)
+                    },
+                ));
+            }
+            if let Some(finished_at) = &run.finished_at {
+                lines.push(Line::styled(
+                    format!("finished {finished_at}"),
+                    Style::default().fg(THEME.dim),
+                ));
+            }
+            if let Some(goal) = offline_goal(run) {
+                lines.push(Line::styled(
+                    format!("goal {goal}"),
+                    Style::default().fg(THEME.amber),
+                ));
+            }
+            if let Some(source) = &run.source {
+                lines.push(Line::styled(
+                    format!("source {source}"),
+                    Style::default().fg(THEME.dim),
+                ));
+            }
+            if let Some(heartbeat) = &run.heartbeat_at {
+                lines.push(Line::styled(
+                    format!("heartbeat {heartbeat}"),
+                    Style::default().fg(THEME.dim),
+                ));
+            }
+            if let Some(reason) = &run.terminal_reason {
+                lines.push(Line::styled(
+                    format!("terminal reason {reason}"),
+                    Style::default().fg(THEME.danger),
+                ));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::styled(
+                format!("next action: {}", offline_next_action(run)),
+                Style::default()
+                    .fg(THEME.verdigris)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            if let Some(updated_at) = &run.updated_at {
+                lines.push(Line::styled(
+                    format!("updated {updated_at}"),
+                    Style::default().fg(THEME.dim),
+                ));
+            }
+            if app.show_evidence
+                && let Some(log) = &run.log
+            {
+                lines.push(Line::styled(
+                    format!("log {log}"),
+                    Style::default().fg(THEME.dim),
+                ));
+                let tail = bounded_log_tail(Path::new(log), 8);
+                if !tail.is_empty() {
+                    lines.push(Line::from(""));
+                    lines.push(Line::styled(
+                        "recent evidence",
+                        Style::default().fg(THEME.amber),
+                    ));
+                    lines.extend(
+                        tail.into_iter()
+                            .map(|line| Line::styled(line, Style::default().fg(THEME.dim))),
+                    );
+                }
+            }
+        } else {
+            lines.push(Line::styled(
+                "No selected manifest.",
+                Style::default().fg(THEME.dim),
+            ));
+        }
     } else {
-        app.transcript
-            .iter()
-            .rev()
-            .take(500)
-            .rev()
-            .map(|line| Line::from(line.as_str()))
-            .collect()
+        if let Some(run) = app.runs.get(app.selected) {
+            lines.push(Line::styled(
+                "audit source control-plane snapshot · recent event stream",
+                Style::default().fg(THEME.dim),
+            ));
+            lines.push(Line::styled(
+                format!("{} · {}", run.project_name, run.goal_title),
+                Style::default()
+                    .fg(THEME.verdigris)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            lines.push(Line::from(format!(
+                "node {} · batch {} · pid {:?}",
+                run.current_node, run.batch, run.pid
+            )));
+            lines.extend(
+                run.log_tail
+                    .iter()
+                    .rev()
+                    .take(8)
+                    .rev()
+                    .cloned()
+                    .map(|line| Line::styled(line, Style::default().fg(THEME.dim))),
+            );
+        }
+        lines.extend(
+            app.events
+                .iter()
+                .rev()
+                .take(8)
+                .rev()
+                .map(|line| Line::styled(line.clone(), Style::default().fg(THEME.dim))),
+        );
+    }
+    lines
+}
+
+fn offline_status_rank(status: &str) -> u8 {
+    match status {
+        "running" | "starting" | "launching" => 0,
+        "failed" | "blocked" => 1,
+        _ => 2,
+    }
+}
+
+fn offline_summary(app: &App) -> String {
+    let counts = offline_counts(app);
+    format!(
+        "{} active · {} attention · {} complete",
+        counts.active, counts.attention, counts.completed
+    )
+}
+
+fn offline_goal(run: &forge_api::OfflineRunManifest) -> Option<&str> {
+    run.invocation.get("goal")?.as_str()
+}
+
+/// A deterministic operator recommendation. This is intentionally derived
+/// only from durable status and terminal metadata; the model never decides
+/// whether an operator should restart, wait, or inspect an incident.
+fn offline_next_action(run: &forge_api::OfflineRunManifest) -> &'static str {
+    match run.status.as_str() {
+        "running" | "starting" | "launching" => {
+            "observe recent evidence; wait for a terminal result before starting another run"
+        }
+        "completed" => "review the generated workspace and start the next goal when ready",
+        "blocked" => "inspect the terminal reason and log evidence before retrying",
+        "failed" => "inspect the failure evidence, repair the cause, then retry deliberately",
+        "stopped" => "confirm why it was stopped before restarting",
+        _ => "inspect the audit trail before taking action",
+    }
+}
+
+/// Read only the final 64 KiB of a log so a corrupt/unbounded run log cannot
+/// stall the render loop. Errors intentionally render as no evidence rather
+/// than making the operator surface fail.
+fn bounded_log_tail(path: &Path, limit: usize) -> Vec<String> {
+    let Ok(mut file) = fs::File::open(path) else {
+        return Vec::new();
     };
-    frame.render_widget(
-        Paragraph::new(lines).block(Block::default().title(" Transcript ").borders(Borders::ALL)),
-        transcript,
-    );
-    frame.render_widget(&app.editor, editor);
-    frame.render_widget(
-        Paragraph::new(format!(
-            " {}  |  tab operator  enter send  esc menu  ctrl+r sessions  ctrl+g promote  ctrl+q quit ",
-            app.session_footer
-        ))
-        .block(Block::default().borders(Borders::TOP)),
-        footer,
-    );
+    let offset = file
+        .metadata()
+        .map(|meta| meta.len().saturating_sub(64 * 1024))
+        .unwrap_or(0);
+    if file.seek(SeekFrom::Start(offset)).is_err() {
+        return Vec::new();
+    }
+    let mut text = String::new();
+    if file.read_to_string(&mut text).is_err() {
+        return Vec::new();
+    }
+    let lines: Vec<_> = text.lines().collect();
+    let first = lines.len().saturating_sub(limit);
+    lines[first..]
+        .iter()
+        .map(|line| (*line).to_owned())
+        .collect()
+}
+
+fn draw_session_overlays(frame: &mut Frame, app: &App) {
     if app.session_menu {
         let area = overlay_area(frame, 5);
         frame.render_widget(Clear, area);
@@ -1571,7 +2138,10 @@ fn draw_session(frame: &mut Frame, app: &App) {
                     } else {
                         "  "
                     };
-                    ListItem::new(format!("{marker}{}  ({})", entry.name, entry.modified))
+                    ListItem::new(format!(
+                        "{marker}{}  ({} · {})",
+                        entry.name, entry.modified, entry.entries
+                    ))
                 })
                 .collect()
         };
@@ -1702,7 +2272,135 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(rendered.contains("OFFLINE"));
+        assert!(rendered.contains("READ-ONLY"));
         assert!(rendered.contains("No runs."));
+        assert!(rendered.contains("Pi prompt"));
+        assert!(rendered.contains("RUN LIST FOCUS"));
+    }
+
+    #[test]
+    fn offline_audit_trail_shows_selected_manifest_and_bounded_log_evidence() {
+        let directory = tempfile::tempdir().expect("temporary log directory");
+        let log = directory.path().join("run.log");
+        fs::write(
+            &log,
+            "planner started\nexecutor wrote main.py\nverification passed\n",
+        )
+        .expect("write fixture log");
+        let mut app = App::new();
+        app.offline.insert(
+            "project-1".into(),
+            forge_api::OfflineRunManifest {
+                run_id: forge_api::RunId("run-12345678".into()),
+                project_id: ProjectId("project-12345678".into()),
+                status: "blocked".into(),
+                batch: 2,
+                pid: Some(42),
+                updated_at: Some("2026-07-13T18:00:00Z".into()),
+                log: Some(log.display().to_string()),
+                source: Some("eval-tui".into()),
+                heartbeat_at: Some("2026-07-13T18:00:01Z".into()),
+                terminal_reason: Some("stagnant_durable_state".into()),
+                final_decision: Some("complete".into()),
+                exit_code: Some(0),
+                finished_at: Some("2026-07-13T18:01:00Z".into()),
+                invocation: serde_json::json!({"goal":"Build a Snake game"}),
+            },
+        );
+        app.offline_mode = true;
+        app.show_evidence = true;
+        let backend = TestBackend::new(100, 36);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        terminal.draw(|frame| draw(frame, &app)).expect("draw");
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("Audit trail"));
+        assert!(rendered.contains("▶"));
+        assert!(rendered.contains("0 active · 1 attention · 0 complete"));
+        assert!(rendered.contains("project project"));
+        assert!(rendered.contains("Build a Snake game"));
+        assert!(rendered.contains("next action: inspect the terminal reason"));
+        assert!(rendered.contains("executor wrote main.py"));
+    }
+
+    #[test]
+    fn evidence_toggle_is_explicit_and_does_not_change_selected_run() {
+        let mut app = App::new();
+        assert!(!app.show_evidence);
+        assert!(app.handle_key(KeyCode::Char('e')).is_none());
+        assert!(app.show_evidence);
+        assert!(app.message.contains("Showing selected-run evidence"));
+        assert!(app.handle_key(KeyCode::Char('e')).is_none());
+        assert!(!app.show_evidence);
+    }
+
+    #[test]
+    fn status_labels_are_understandable_without_color() {
+        assert_eq!(status_label("running"), "[RUN]");
+        assert_eq!(status_label("completed"), "[OK]");
+        assert_eq!(status_label("blocked"), "[BLOCKED]");
+        assert_eq!(status_label("failed"), "[FAILED]");
+    }
+
+    #[test]
+    fn local_control_plane_autostart_is_limited_to_default_loopback() {
+        assert!(is_local_default_control_url(
+            Some("127.0.0.1"),
+            Some(8787),
+            false
+        ));
+        assert!(is_local_default_control_url(
+            Some("localhost"),
+            Some(8787),
+            false
+        ));
+        assert!(!is_local_default_control_url(
+            Some("example.test"),
+            Some(8787),
+            false
+        ));
+        assert!(!is_local_default_control_url(
+            Some("127.0.0.1"),
+            Some(9999),
+            false
+        ));
+        assert!(!is_local_default_control_url(
+            Some("127.0.0.1"),
+            Some(8787),
+            true
+        ));
+    }
+
+    #[test]
+    fn offline_runs_prioritize_active_work_over_historical_manifests() {
+        let mut app = App::new();
+        for (key, status) in [("old", "blocked"), ("active", "running")] {
+            app.offline.insert(
+                key.into(),
+                forge_api::OfflineRunManifest {
+                    run_id: forge_api::RunId(format!("run-{key}")),
+                    project_id: ProjectId(format!("project-{key}")),
+                    status: status.into(),
+                    batch: 1,
+                    pid: None,
+                    updated_at: Some("2026-07-13T18:00:00Z".into()),
+                    log: None,
+                    source: None,
+                    heartbeat_at: None,
+                    terminal_reason: None,
+                    final_decision: None,
+                    exit_code: None,
+                    finished_at: None,
+                    invocation: serde_json::json!({"goal": key}),
+                },
+            );
+        }
+        assert_eq!(app.offline_runs()[0].status, "running");
     }
 
     #[test]
@@ -1736,7 +2434,7 @@ mod tests {
     }
 
     #[test]
-    fn session_mode_renders_transcript_and_emits_prompt() {
+    fn pi_prompt_stays_visible_with_operator_audit_and_emits_prompt() {
         let mut app = App::new();
         assert!(matches!(
             app.handle_key(KeyCode::Tab),
@@ -1748,7 +2446,7 @@ mod tests {
         assert!(
             matches!(app.handle_key(KeyCode::Enter), Some(UiEvent::Action(Action::PiPrompt(prompt))) if prompt == "hello Pi")
         );
-        let backend = TestBackend::new(80, 24);
+        let backend = TestBackend::new(80, 36);
         let mut terminal = Terminal::new(backend).expect("terminal");
         terminal.draw(|frame| draw(frame, &app)).expect("draw");
         let rendered: String = terminal
@@ -1758,7 +2456,9 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(rendered.contains("PI SESSION"));
+        assert!(rendered.contains("Pi prompt"));
+        assert!(rendered.contains("Audit trail"));
+        assert!(rendered.contains("PI PROMPT FOCUS"));
         assert!(rendered.contains("> hello Pi"));
     }
 
@@ -1880,11 +2580,13 @@ mod tests {
                     path: "/tmp/newer.jsonl".into(),
                     name: "newer".into(),
                     modified: "1m ago".into(),
+                    entries: "2 entries".into(),
                 },
                 SessionEntry {
                     path: "/tmp/older.jsonl".into(),
                     name: "older".into(),
                     modified: "9m ago".into(),
+                    entries: "1 entry".into(),
                 },
             ],
             selected: 0,
@@ -1899,6 +2601,7 @@ mod tests {
                 path: "/tmp/newer.jsonl".into(),
                 name: "newer".into(),
                 modified: "1m ago".into(),
+                entries: "2 entries".into(),
             }],
             selected: 0,
         });
@@ -1906,6 +2609,20 @@ mod tests {
             app.handle_key(KeyCode::Char('f')),
             Some(UiEvent::Action(Action::PiForkSession(path))) if path == "/tmp/newer.jsonl"
         ));
+    }
+
+    #[test]
+    fn session_scanner_uses_the_supplied_directory_and_tolerates_bad_jsonl() {
+        let directory = tempfile::tempdir().expect("temporary session directory");
+        fs::write(
+            directory.path().join("named.jsonl"),
+            "{\"type\":\"session\",\"name\":\"Useful session\"}\nnot json\n",
+        )
+        .expect("session fixture");
+        let entries = list_pi_sessions(Some(directory.path())).expect("scan sessions");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "Useful session");
+        assert_eq!(entries[0].entries, "2 entries");
     }
 
     #[test]
@@ -1949,6 +2666,8 @@ mod tests {
         let (priority_tx, mut priority_rx) = mpsc::channel(64);
         let (_bulk_tx, mut bulk_rx) = mpsc::channel::<Bulk>(1);
         let bulk_for_loop = _bulk_tx.clone();
+        let (pi_tx, mut pi_rx) = mpsc::channel(8);
+        let (picker_tx, mut picker_rx) = mpsc::channel(1);
         let (stream_tx, mut stream_rx) = mpsc::channel(64);
         let (selection_tx, _selection_rx) = watch::channel(None);
 
@@ -1999,11 +2718,16 @@ mod tests {
                 &api,
                 &selection_tx,
                 SpawnOptions::default(),
+                None,
                 LoopChannels {
                     bulk_tx: bulk_for_loop,
+                    pi_tx,
+                    picker_tx,
                     stream: &mut stream_rx,
                     priority: &mut priority_rx,
                     bulk: &mut bulk_rx,
+                    pi: &mut pi_rx,
+                    picker: &mut picker_rx,
                 },
             ),
         )

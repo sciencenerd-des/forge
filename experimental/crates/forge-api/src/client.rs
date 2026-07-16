@@ -32,12 +32,15 @@ pub enum ApiError {
     Stream(String),
     #[error("A2A JSON-RPC error {code}: {message}")]
     Rpc { code: i64, message: String },
+    #[error("invalid A2A JSON-RPC response: {0}")]
+    RpcProtocol(String),
 }
 
 impl ForgeApi {
     pub fn new(config: &ForgeConfig) -> Result<Self, ApiError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self {
             client,
@@ -48,6 +51,12 @@ impl ForgeApi {
 
     pub async fn health(&self) -> Result<serde_json::Value, ApiError> {
         self.get_json("health", false).await
+    }
+
+    /// Verify that the endpoint both speaks Forge's protected API and accepts
+    /// this installation's token before the TUI trusts an existing listener.
+    pub async fn authenticated_ready(&self) -> Result<(), ApiError> {
+        self.runtime_projects().await.map(|_| ())
     }
 
     pub async fn runtime_runs(&self) -> Result<Vec<RuntimeRunSnapshot>, ApiError> {

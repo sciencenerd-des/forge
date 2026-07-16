@@ -181,6 +181,7 @@ class ScenarioResult:
     valid: bool
     reasons: list[str] = field(default_factory=list)
     tool_calls: int = 0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def validate_scenario(name: str, run: ParsedRun, expectation: dict[str, Any]) -> ScenarioResult:
@@ -309,6 +310,16 @@ def run_once(provider: str | None, model: str | None, turn_timeout: float) -> di
                 bench.prompt(message)
                 run = reduce_events(bench.events[start:])
                 result = validate_scenario(name, run, SCENARIO_EXPECTATIONS[name])
+                result.diagnostics = {
+                    "clean_end": run.clean_end,
+                    "aborted": run.aborted,
+                    "final_answer": run.final_answer,
+                    "unpaired_tool_ids": run.unpaired_tool_ids,
+                    # Keep bounded raw protocol evidence so an invalid scenario
+                    # can be diagnosed without making the benchmark artifact
+                    # unbounded on a looping model.
+                    "raw_events": run.raw_events[-500:],
+                }
                 scenarios.append(result)
                 if result.valid:
                     for tool, values in run.tool_samples.items():
@@ -325,7 +336,9 @@ def run_once(provider: str | None, model: str | None, turn_timeout: float) -> di
             "turn_seconds": [round(v, 3) for v in all_turns],
             "total_tool_seconds": round(sum(sum(v) for v in valid_samples.values()), 3),
             "invalid_json_lines": len(bench.invalid_lines),
+            "invalid_json_line_samples": bench.invalid_lines[-50:],
             "stderr_lines": len(bench.stderr_lines),
+            "stderr_tail": bench.stderr_lines[-50:],
         }
 
 

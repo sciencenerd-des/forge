@@ -14,6 +14,8 @@ pub struct ForgeConfig {
 pub enum ForgeConfigError {
     #[error("FORGE_CONTROL_URL is invalid: {0}")]
     InvalidUrl(#[from] url::ParseError),
+    #[error("FORGE_CONTROL_URL is unsafe: {0}")]
+    UnsafeUrl(String),
     #[error("cannot read Forge control token at {path}: {source}")]
     TokenRead {
         path: PathBuf,
@@ -37,6 +39,7 @@ impl ForgeConfig {
         let control_url = Url::parse(
             &env::var("FORGE_CONTROL_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".into()),
         )?;
+        validate_control_url(&control_url)?;
         let control_token = match env::var("FORGE_CONTROL_TOKEN") {
             Ok(token) if !token.is_empty() => token,
             _ => {
@@ -64,6 +67,32 @@ impl ForgeConfig {
 
     pub fn manifest_path(&self) -> PathBuf {
         self.home.join("logs/pge_runs/runs.json")
+    }
+}
+
+fn validate_control_url(url: &Url) -> Result<(), ForgeConfigError> {
+    if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
+        return Err(ForgeConfigError::UnsafeUrl(
+            "userinfo, query strings, and fragments are not allowed".into(),
+        ));
+    }
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let host = url.host_str().unwrap_or_default();
+            let loopback = host.eq_ignore_ascii_case("localhost")
+                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+            if loopback {
+                Ok(())
+            } else {
+                Err(ForgeConfigError::UnsafeUrl(
+                    "plain HTTP is allowed only for loopback hosts".into(),
+                ))
+            }
+        }
+        scheme => Err(ForgeConfigError::UnsafeUrl(format!(
+            "unsupported URL scheme {scheme:?}; use HTTPS or loopback HTTP"
+        ))),
     }
 }
 
@@ -109,5 +138,20 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn rejects_credential_leaking_control_urls() {
+        for value in [
+            "http://example.com:8787",
+            "http://user:pass@127.0.0.1:8787",
+            "https://example.com/control?token=x",
+            "file:///tmp/control.sock",
+        ] {
+            let url = Url::parse(value).expect("parse fixture");
+            assert!(matches!(validate_control_url(&url), Err(ForgeConfigError::UnsafeUrl(_))));
+        }
+        assert!(validate_control_url(&Url::parse("http://127.0.0.1:8787").unwrap()).is_ok());
+        assert!(validate_control_url(&Url::parse("https://forge.example.com").unwrap()).is_ok());
     }
 }

@@ -198,6 +198,20 @@ pub struct OfflineRunManifest {
     pub updated_at: Option<String>,
     #[serde(default)]
     pub log: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub heartbeat_at: Option<String>,
+    #[serde(default)]
+    pub terminal_reason: Option<String>,
+    #[serde(default)]
+    pub final_decision: Option<String>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
+    #[serde(default)]
+    pub invocation: serde_json::Value,
 }
 
 pub type OfflineRunManifests = BTreeMap<String, OfflineRunManifest>;

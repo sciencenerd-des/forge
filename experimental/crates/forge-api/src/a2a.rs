@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -22,11 +24,15 @@ pub struct A2aTaskStatus {
 
 #[derive(Debug, Deserialize)]
 struct RpcEnvelope {
+    jsonrpc: String,
+    id: u64,
     #[serde(default)]
     result: Option<serde_json::Value>,
     #[serde(default)]
     error: Option<RpcError>,
 }
+
+static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RpcError {
@@ -66,18 +72,36 @@ impl ForgeApi {
         method: &str,
         params: serde_json::Value,
     ) -> Result<T, ApiError> {
+        let id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
         let envelope: RpcEnvelope = self
             .send_json(
                 reqwest::Method::POST,
                 "a2a",
                 &serde_json::json!({
                     "jsonrpc": "2.0",
-                    "id": 1,
+                    "id": id,
                     "method": method,
                     "params": params,
                 }),
             )
             .await?;
+        if envelope.jsonrpc != "2.0" {
+            return Err(ApiError::RpcProtocol(format!(
+                "expected jsonrpc 2.0, received {}",
+                envelope.jsonrpc
+            )));
+        }
+        if envelope.id != id {
+            return Err(ApiError::RpcProtocol(format!(
+                "response id {} did not match request id {id}",
+                envelope.id
+            )));
+        }
+        if envelope.result.is_some() == envelope.error.is_some() {
+            return Err(ApiError::RpcProtocol(
+                "response must contain exactly one of result or error".into(),
+            ));
+        }
         if let Some(error) = envelope.error {
             return Err(ApiError::Rpc {
                 code: error.code,

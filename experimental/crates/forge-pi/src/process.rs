@@ -198,10 +198,17 @@ impl PiClient {
             self.0.pending.lock().await.remove(&id);
             return Err(error);
         }
-        timeout(timeout_duration, receiver)
-            .await
-            .map_err(|_| PiError::Timeout)?
-            .map_err(|_| PiError::Ended)
+        match timeout(timeout_duration, receiver).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(_)) => {
+                self.0.pending.lock().await.remove(&id);
+                Err(PiError::Ended)
+            }
+            Err(_) => {
+                self.0.pending.lock().await.remove(&id);
+                Err(PiError::Timeout)
+            }
+        }
     }
 
     /// Send a fire-and-forget RPC command. Extension UI responses use this
