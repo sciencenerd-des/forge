@@ -1,0 +1,64 @@
+{
+  "model": "gemma4:12b-mlx",
+  "score": 0,
+  "total": 8,
+  "pass_rate": 0.0,
+  "results": [
+    {
+      "fixture": "valid_structured_output",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "json",
+      "latency_ms": 3800
+    },
+    {
+      "fixture": "correct_tool_selection",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "",
+      "latency_ms": 3720
+    },
+    {
+      "fixture": "no_repeated_action",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "json```json\n{\n  \"action\": \"read_file\",\n  \"action_input\": {\n    \"path\": \"tests/test_parser.py\"\n  }\n}\n```",
+      "latency_ms": 4149
+    },
+    {
+      "fixture": "tool_result_interpretation",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "json```json\n{\n  \"action\": \"run_command\",\n  \"action_input\": \"pytest tests/test_parser.py\"\n",
+      "latency_ms": 22115
+    },
+    {
+      "fixture": "failed_command_recovery",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "json```json\n{\"action\": \"list_files\", \"args\": {\"path\": \".\"}}\n```",
+      "latency_ms": 14401
+    },
+    {
+      "fixture": "heartbeat_progress_reporting",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "```json\n{\n  \"progress_summary\": \"The current batch is being processed in the background.\",\n  \"next_task_description\": \"Analyze the output of the current operation once completed.\",\n  \"blocker\": null,\n  \"resume_instruction\": \"Continue processing the current batch.\"\n}\n```",
+      "latency_ms": 17087
+    },
+    {
+      "fixture": "notebook_tool_selection",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "",
+      "latency_ms": 9435
+    },
+    {
+      "fixture": "single_action_discipline",
+      "passed": false,
+      "reason": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+      "response": "",
+      "latency_ms": 5404
+    }
+  ]
+}

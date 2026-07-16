@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Gemma-4-12B on Ollama — Fix the PGE Loop and Run the 8-Goal Suite</title>
+<style>
+:root {
+  --bg: #101214;
+  --panel: #17191d;
+  --panel-2: #1d2025;
+  --ink: #e8e6e1;
+  --ink-dim: #9a978f;
+  --accent: #e8a33d;        /* forge amber */
+  --accent-2: #7fb4a2;      /* verdigris */
+  --danger: #d47069;
+  --new: #7fb4a2;
+  --existing: #8a9bb8;
+  --border: #2a2d33;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -0.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--accent-2); margin-top: 1.5rem; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .12em .4em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent-2); }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .6rem; }
+details.meta, #questionables details, #amendments details {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: .6rem 1rem; margin: .8rem 0;
+}
+details summary { cursor: pointer; color: var(--accent-2); font-weight: 600; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem 1rem; margin: .8rem 0 0; }
+dt { color: var(--ink-dim); font-family: var(--mono); font-size: .8rem; }
+dd { margin: 0; font-family: var(--mono); font-size: .8rem; word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 999px; margin-right: .4em; text-transform: uppercase; letter-spacing: .05em; }
+.tag.new { background: rgba(127,180,162,.15); color: var(--new); border: 1px solid var(--new); }
+.tag.existing { background: rgba(138,155,184,.12); color: var(--existing); border: 1px solid var(--existing); }
+.phase { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.4rem 1.4rem; margin: 1.6rem 0; }
+.phase h3 { margin-top: .4rem; }
+ul.checklist { list-style: none; padding-left: .2rem; }
+ul.checklist li { margin: .45rem 0; }
+code.status { color: var(--accent); font-weight: 700; min-width: 2.4em; display: inline-block; }
+.loop { background: rgba(232,163,61,.08); border: 1px dashed var(--accent); border-radius: 8px; padding: .8rem 1rem; margin-top: 1rem; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; }
+th { background: var(--panel-2); color: var(--accent-2); }
+.qa-answer { color: var(--ink-dim); }
+.callout { background: var(--panel-2); border-left: 4px solid var(--accent-2); border-radius: 6px; padding: .8rem 1rem; margin: 1rem 0; }
+.callout.warn { border-left-color: var(--danger); }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Gemma-4-12B on Ollama — Fix the PGE Loop and Run the 8-Goal Suite</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-11T13:40:00Z</dd>
+        <dt>modified</dt>     <dd>2026-07-11T13:40:00Z</dd>
+        <dt>commits</dt>      <dd>30a12b6 (plan authored at)</dd>
+        <dt>agent name</dt>   <dd>Claude Fable 5 (claude-fable-5)</dd>
+        <dt>session id</dt>   <dd>d44f5f39-cf39-4250-8c87-b33646dca2c1</dd>
+        <dt>back refs</dt>    <dd>specs/forge-standalone-a2a-auth.html, engine/src/auditor.py:219 (2026-06-12 lesson), evals/results/gemma-4-12b-qat.json</dd>
+        <dt>forward refs</dt> <dd>(none yet)</dd>
+      </dl>
+    </details>
+  </header>
+
+  <figure>
+    <!-- {{HERO_IMAGE: a forge/anvil loop diagram — Gemma model chip → Ollama socket → PGE gear loop → 8 stacked goal cards, graphite+amber, under 10 words}} -->
+    <figcaption>The target: Gemma-4-12B plugged into Ollama driving the PGE loop through 8 real coding goals.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE / PROBLEM / SOLUTION ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>Make the Forge PGE autonomy loop (PR&nbsp;#5 branch <code>agent/standalone-a2a-auth</code>) actually runnable end-to-end with <code>gemma4:12b-mlx</code> served by <strong>Ollama</strong>, then execute and score the canonical <strong>8-goal suite</strong> (snake game, ML experiment loop, LRU cache, RPN calculator, JSON parser, tic-tac-toe engine, Dijkstra, JS email validator). Two verified defects currently make this impossible: (1) <code>run_pge.py</code> silently discards CLI-supplied goals when the default project has history, and (2) the consolidated LLM client in <code>forge_runtime/llm.py</code> uses an OpenAI structured-output dialect and a <code>reasoning_effort:"none"</code> flag that together guarantee unparseable output from Gemma models on Ollama.</p>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>Three defects, all reproduced live in session <code>d44f5f39</code> on 2026-07-11:</p>
+    <ul>
+      <li><strong>P1 — CLI goal silently discarded.</strong> <code>run_pge.py</code> builds the <code>--goal</code> only as an in-memory Pydantic <code>Goal</code> and applies it via <code>state_goal = db_goal or goal</code> (<code>run_pge.py:190</code>). <code>resolve_default_project()</code> reuses the oldest project named <code>"default"</code>, and <code>active_goal_query()</code> (<code>engine/src/runtime.py:15</code>) falls back to <em>the newest goal of any status</em>. Net effect: if the default project's newest goal is <code>completed</code>, the loop prints <code>🏁 Persisted goal is verified complete.</code> after 0 batches and exits — the new goal never runs. Reproduced: "Build a Python Snake game" exited instantly against project <code>b240abae</code> whose fizzbuzz goal was completed on 2026-07-03.</li>
+      <li><strong>P2 — structured output never constrained on Ollama.</strong> <code>forge_runtime/llm.py:71-76</code> sends OpenAI-style <code>response_format:{type:"json_schema",…}</code> to <code>/v1/chat/completions</code> — Ollama's OpenAI-compat layer ignores/garbles it (<a href="https://github.com/ollama/ollama/issues/10937">ollama#10937</a>). It also always sends <code>extra_body:{"reasoning_effort":"none"}</code>, which maps to <code>think=false</code> — a known Ollama bug for Gemma-family thinking templates where the end-of-thinking token never fires so grammar masking is <em>never applied</em> (<a href="https://github.com/ollama/ollama/issues/15260">ollama#15260</a>). Result: reasoning prose + <code>```json</code> fences + a foreign <code>action/action_input</code> vocabulary. Measured: <strong>0/8</strong> eval fixtures pass (<code>evals/results/gemma4-12b-mlx-ollama.json</code>). The codebase already learned this once — <code>engine/src/auditor.py:219</code> ("response_format json_schema is NOT sent — Ollama cloud ignores or garbles it, verified 2026-06-12") — but PR&nbsp;#5's consolidated client reintroduced both triggers for planner/executor/evaluator.</li>
+      <li><strong>P3 — nested schemas break the Ollama-MLX grammar engine; executor parser is fragile.</strong> Verified against the live model: Ollama's native <code>/api/chat</code> with a <em>nested</em> JSON schema (objects containing <code>required</code> arrays) silently falls back to unconstrained text on the MLX backend, while flat <code>format:"json"</code> plus the schema stated in the prompt yields clean, valid JSON with thinking separated into <code>message.thinking</code>. Additionally <code>executor_node.py:410-431</code> strips fences but lacks the first-brace/last-brace extraction fallback that <code>planner_node.py:296</code> and <code>evaluator_node.py:566</code> both have.</li>
+    </ul>
+    <figure>
+      <!-- {{PROBLEM_IMAGE: split diagram — left: a goal card bouncing off a "completed" DB stamp; right: a JSON schema shattering against an Ollama wall, under 10 words}} -->
+      <figcaption>Two walls: new goals bounce off stale DB state; JSON schemas never reach the Gemma sampler.</figcaption>
+    </figure>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>Four surgical changes, then the suite run. <strong>(1)</strong> Persist CLI goals: when <code>--goal</code> is passed, <code>run_pge.py</code> creates a real <code>ForgeGoal</code> row via the existing <code>MemoryService.create_goal()</code> (the same path the A2A bridge uses at <code>forge_a2a/task_bridge.py:70</code>), and gains a <code>--new-project</code> flag that creates a fresh project + workspace per goal. <strong>(2)</strong> Teach <code>forge_runtime/llm.py</code> an <em>Ollama dialect</em>: auto-detected (or forced via <code>FORGE_LLM_DIALECT=ollama</code>), it POSTs to the native <code>/api/chat</code> with <code>format:"json"</code> when a schema is requested, embeds the schema as prompt text (per <a href="https://docs.ollama.com/capabilities/structured-outputs">Ollama docs</a>), and <em>omits</em> <code>think</code>/<code>reasoning_effort</code> entirely. Non-Ollama backends keep today's path. <strong>(3)</strong> Harden parsing: a shared <code>extract_json()</code> helper (fences → think-tags → brace-window) used by the executor node and the eval script. <strong>(4)</strong> Align <code>evals/model_incident_eval.py</code> to the same dialect and gate on 8/8 before burning hours on real goals. Then a new suite runner executes the 8 goals sequentially in fresh projects, bounded by turn and wall-clock budgets, and writes a scored report.</p>
+    <figure>
+      <!-- {{SOLUTION_IMAGE: pipeline — "persist goal" → "ollama native format:json" → "extract_json" → gate 8/8 → run 8 goals, amber arrows, under 10 words}} -->
+      <figcaption>Persist the goal, speak native Ollama, parse defensively, gate on the eval, then run the suite.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>run_pge.py</code> — P1 fix: persist <code>--goal</code> via <code>MemoryService.create_goal</code>; add <code>--new-project</code>; lines 141-195 (goal resolution), 295-309 (CLI).</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/llm.py</code> — P2/P3 fix: Ollama dialect in <code>LLM._create</code>; drop hardcoded <code>reasoning_effort:"none"</code>; add <code>extract_json()</code>; schemas gain plain-text prompt renderings.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/executor_node.py</code> — replace ad-hoc fence stripping (lines 410-431) with shared <code>extract_json()</code> (adds brace-window fallback).</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/planner_node.py</code>, <code>engine/src/nodes/evaluator_node.py</code> — switch their duplicated cleaners to <code>extract_json()</code> (behavior-preserving).</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/runtime.py</code> — <code>active_goal_query</code>: the any-status fallback stays (resume semantics) but gains a docstring warning; no logic change needed once P1 persists goals.</li>
+      <li><span class="tag existing">existing</span> <code>forge_config.py</code> — add <code>llm_dialect()</code> resolver (env <code>FORGE_LLM_DIALECT</code>, else sniff <code>:11434</code> in base_url).</li>
+      <li><span class="tag existing">existing</span> <code>evals/model_incident_eval.py</code> — align <code>query_model()</code> to the Ollama dialect; reuse <code>extract_json()</code>; keep the 8 fixtures added this session.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/auditor.py:219</code> — precedent note; leave as-is, reference in the llm.py comment.</li>
+      <li><span class="tag existing">existing</span> <code>app/services/__init__.py:159</code> — <code>MemoryService.create_goal</code> (reused, not modified).</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>evals/goal_suite.py</code> — the 8-goal definitions + sequential runner: fresh project per goal, launches <code>run_pge.run_pge()</code> in-process, per-goal turn/wall-clock budget, verdict collection, JSON report.</li>
+      <li><span class="tag new">new</span> <code>evals/results/goal-suite-gemma4-12b-mlx.json</code> — output artifact of the suite run.</li>
+      <li><span class="tag new">new</span> <code>tests/test_llm_dialect.py</code> — unit tests: dialect detection, Ollama request body shape (no <code>think</code>, <code>format:"json"</code>, native URL derivation), <code>extract_json()</code> corpus incl. the exact failure strings captured this session.</li>
+      <li><span class="tag new">new</span> <code>tests/test_run_pge_goal_resolution.py</code> — unit tests: <code>--goal</code> persists a ForgeGoal; completed-goal project + new CLI goal ⇒ new goal is picked up; <code>--new-project</code> isolation.</li>
+    </ul>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+
+    <!-- ================= PHASE 1 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 1: Persist CLI Goals (fix P1)</h3>
+      <p>A goal passed on the command line must become durable state <em>before</em> the loop starts, so <code>_load_progress → active_goal_query</code> finds it as the newest non-completed goal instead of resurrecting an old completed one.</p>
+
+      <h4>1. Persist <code>--goal</code> in <code>run_pge.py</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> In <code>run_pge()</code>, replace the in-memory-only <code>Goal(...)</code> construction (lines 154-163) with: query for an existing non-completed <code>ForgeGoal</code> with the same <code>title</code> in the project (idempotent resume); otherwise call <code>MemoryService(db).create_goal(project_id, title, desc, success_criteria=[…], priority=1)</code> — mirroring <code>forge_a2a/task_bridge.py:70</code>. Keep the returned row's <code>id</code> for the state goal.</li>
+        <li><code class="status">[]</code> Delete the <code>state_goal = db_goal or goal</code> ambiguity: with the goal persisted, <code>_load_progress</code> is the single source; the local <code>goal</code> variable becomes a fallback only for the very first batch race.</li>
+        <li><code class="status">[]</code> Guard the early-exit: <code>if db_goal and db_goal.status == "completed"</code> must only break when <em>no new CLI goal was just created</em> (it can't be, once persisted as <code>active</code> — assert this in the test instead of adding a flag).</li>
+      </ul>
+
+      <h4>2. Add <code>--new-project</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add argparse flag <code>--new-project NAME</code>: creates a fresh <code>ForgeProject</code> via <code>MemoryService.create_project(name, repo_path=str(workspaces_root()/name))</code> and uses its id, bypassing <code>resolve_default_project()</code>. The suite runner uses this for isolation.</li>
+        <li><code class="status">[]</code> Mirror the same flag in <code>forge_cli.py</code>'s <code>run</code> subcommand.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Pytest against a throwaway Postgres schema (reuse the project's existing test DB conventions; if tests currently mock the session, follow that pattern). Cover: fresh project + CLI goal ⇒ goal row exists <code>active</code>; project with a completed goal + new CLI goal ⇒ <code>active_goal_query</code> returns the new goal; same title re-run ⇒ no duplicate row.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_run_pge_goal_resolution.py -q</code> — new resolution semantics hold.</li>
+        <li><code class="status">[]</code> <code>uv run pytest -q</code> — no regressions in the existing 46-test suite.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 2 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 2: Ollama Dialect in the LLM Client (fix P2/P3)</h3>
+      <p>One client, two dialects. Detection: <code>FORGE_LLM_DIALECT</code> env wins; else base_url containing <code>:11434</code> ⇒ <code>ollama</code>; else <code>openai</code>. The Ollama path speaks the native API and never sends the two poison parameters.</p>
+      <figure>
+        <!-- {{PHASE2_IMAGE: fork diagram — LLM client splitting into "openai /v1 response_format" and "ollama /api/chat format:json, no think" branches, under 10 words}} -->
+        <figcaption>Dialect fork: OpenAI-compatible backends unchanged; Ollama gets native format:"json" with thinking left on.</figcaption>
+      </figure>
+
+      <h4>1. Dialect plumbing</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>forge_config.py</code>: add <code>llm_dialect(role) -> str</code> honoring <code>FORGE_LLM_DIALECT</code> / <code>FORGE_&lt;ROLE&gt;_DIALECT</code>, defaulting by base_url sniff (<code>:11434</code> ⇒ ollama).</li>
+        <li><code class="status">[]</code> <code>forge_runtime/llm.py</code>: in <code>LLM._create</code>, branch on dialect. <em>openai</em>: current behavior, but <code>reasoning_effort</code> becomes opt-in via <code>FORGE_LLM_REASONING_EFFORT</code> (default: omitted — the hardcoded <code>"none"</code> is the bug trigger). <em>ollama</em>: POST <code>&lt;base_url minus /v1&gt;/api/chat</code> with <code>{model, messages, stream:false, format:"json" if schema else omitted, options:{temperature, num_predict}}</code>; <strong>never</strong> send <code>think</code>; read <code>message.content</code> (thinking arrives separately in <code>message.thinking</code> and is discarded). Use <code>urllib</code>/<code>httpx</code> directly — precedent: <code>engine/src/auditor.py:_post_chat</code>.</li>
+        <li><code class="status">[]</code> Schema grounding: for each of <code>PLANNER_SCHEMA</code>/<code>EVALUATOR_SCHEMA</code>/<code>EXECUTOR_SCHEMA</code> add a compact plain-text rendering (key names, enums, required fields, one example object) appended as a final system/user message on the ollama path — Ollama docs: "ideal to also pass the JSON schema as a string in the prompt". Do <strong>not</strong> pass the nested schema object as <code>format</code> (verified: breaks the MLX grammar engine and silently unconstrains).</li>
+        <li><code class="status">[]</code> Add <code>extract_json(raw: str) -> str</code> to <code>forge_runtime/llm.py</code>: strip <code>&lt;think&gt;…&lt;/think&gt;</code>, strip a leading bare <code>json</code> token, unwrap <code>```json</code>/<code>```</code> fences, else fall back to the first-<code>{</code>/last-<code>}</code> window; raise <code>ValueError</code> if no brace pair.</li>
+      </ul>
+
+      <h4>2. Consumers</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>executor_node.py</code>: replace the inline cleaner (lines 410-431) with <code>extract_json()</code> — this <em>adds</em> the brace-window fallback the executor is missing today.</li>
+        <li><code class="status">[]</code> <code>planner_node.py</code> / <code>evaluator_node.py</code>: swap their duplicated cleaners for <code>extract_json()</code>; behavior must be a superset of the old logic (their existing brace fallback is preserved).</li>
+        <li><code class="status">[]</code> Executor "action" leniency (cheap resilience, verified failure mode): after parsing, if <code>type</code> is absent but <code>action</code>/<code>action_input</code> keys exist, remap to <code>{type:"tool_call", name:action, arguments:action_input if dict else {"path": action_input}}</code> before validation — one retry saved per turn on small models.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Pure unit tests with a mocked HTTP layer (no live model): assert exact request bodies per dialect; <code>extract_json()</code> table-driven over the six real failure strings captured in <code>evals/results/gemma4-12b-mlx-ollama.json</code> (e.g. <code>"json\n{\"```json\n{…}\n```"</code>, prose-prefixed JSON, action/action_input) plus clean passthrough.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_llm_dialect.py -q</code> — dialect bodies + extractor corpus pass.</li>
+        <li><code class="status">[]</code> <code>uv run pytest -q &amp;&amp; uv run ruff check .</code> — full suite + lint clean.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 3 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 3: Eval Alignment + Gate</h3>
+      <p>The 8-fixture incident eval is the cheap canary. It must exercise the <em>same</em> client path the engine uses, then gate the suite: no real goal runs until the canary passes.</p>
+
+      <h4>1. Rewrite <code>query_model()</code></h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>evals/model_incident_eval.py</code>: replace the raw <code>/v1/chat/completions</code> + <code>response_format</code> + <code>reasoning_effort:"none"</code> call with <code>forge_runtime.llm.LLM</code> (executor role) so eval and engine share one code path; add <code>--base-url</code>/<code>--model</code> passthrough via env overrides.</li>
+        <li><code class="status">[]</code> Route response parsing through <code>extract_json()</code> before <code>_parse_action</code>.</li>
+      </ul>
+
+      <h4>2. Run the gate</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>FORGE_LLM_BASE_URL=http://localhost:11434/v1 LLM_MODEL=gemma4:12b-mlx uv run python evals/model_incident_eval.py --model gemma4:12b-mlx --output evals/results/gemma4-12b-mlx-ollama-fixed.json</code></li>
+        <li><code class="status">[]</code> Gate: <code>score == 8</code> (exit 0). If &lt; 8, iterate on prompt grounding text (Phase 2 task 1) — <em>not</em> on the fixtures — until 8/8 or a hard model-capability wall is documented in Notes.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>The gate run <em>is</em> the test (live model, deterministic temperature 0/0.1). Keep the previous failing artifact for before/after comparison.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run python evals/model_incident_eval.py --model gemma4:12b-mlx</code> exits 0 — 8/8 fixtures.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 4 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 4: 8-Goal Suite Runner + Execution</h3>
+      <p>One goal per fresh project, sequential (a 12B on one Mac cannot serve parallel loops), bounded, scored. Goal texts reuse the canonical suite already proven in this DB's history (2026-07-03 → 07-09 runs) so results are comparable to prior LM Studio runs.</p>
+      <figure>
+        <!-- {{PHASE4_IMAGE: 8 goal cards on a conveyor entering a bounded loop chamber, verdict stamps exiting, under 10 words}} -->
+        <figcaption>Sequential conveyor: each goal gets a fresh workspace, a turn budget, and a verdict.</figcaption>
+      </figure>
+
+      <h4>1. Define the suite — <code>evals/goal_suite.py</code></h4>
+      <table>
+        <tr><th>#</th><th>Goal</th><th>Verification the evaluator can see</th></tr>
+        <tr><td>1</td><td>Terminal Snake game in Python (curses): grid, movement, food, score, game-over</td><td><code>snake.py</code> imports cleanly; smoke test drives the game-state functions via pytest</td></tr>
+        <tr><td>2</td><td>ML experiment loop: sklearn digits classifier, tune ≥2 hyperparameters, log each run to <code>results.json</code>, best accuracy &gt; 0.95 on held-out split</td><td>pytest asserts results-file structure + threshold</td></tr>
+        <tr><td>3</td><td>LRU cache class, O(1) get/put</td><td>pytest: eviction order + edge cases</td></tr>
+        <tr><td>4</td><td>CLI Reverse-Polish-Notation calculator (+ − × ÷)</td><td>pytest: division by zero, malformed expressions</td></tr>
+        <tr><td>5</td><td>JSON parser from scratch (no <code>json</code> module)</td><td>pytest: nested structures, malformed input</td></tr>
+        <tr><td>6</td><td>Tic-tac-toe engine: move/win/draw/reset</td><td>pytest: all win lines, draw, invalid moves</td></tr>
+        <tr><td>7</td><td>Dijkstra shortest path (weighted digraph): distance + path</td><td>pytest: multi-path, disconnected, single node</td></tr>
+        <tr><td>8</td><td>JavaScript email validator</td><td><code>node --test</code>: valid/invalid/malformed</td></tr>
+      </table>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Implement <code>GOALS: list[GoalSpec]</code> (slug, title, description, expected artifacts) with the 8 rows above.</li>
+        <li><code class="status">[]</code> Runner: for each goal — create project <code>suite-&lt;n&gt;-&lt;slug&gt;</code> (Phase 1's <code>--new-project</code> path, called in-process), set <code>PGE_MAX_TURNS=24</code>, wrap <code>run_pge.run_pge()</code> with a wall-clock budget (default 30&nbsp;min/goal, env <code>SUITE_GOAL_TIMEOUT_MINUTES</code>) enforced by running each goal in a <code>subprocess</code> with <code>timeout=</code> (clean kill, durable state survives).</li>
+        <li><code class="status">[]</code> Verdict per goal: read back <code>ForgeGoal.status</code>, count <code>ForgeFileChange</code> rows, latest <code>ForgeTestRun</code> pass/fail, workspace artifact existence; classify <code>completed | failed | timeout | blocked</code>.</li>
+        <li><code class="status">[]</code> Write <code>evals/results/goal-suite-gemma4-12b-mlx.json</code>: per-goal verdicts, wall time, turns used, plus a summary block; also print a table to stdout.</li>
+      </ul>
+
+      <h4>2. Smoke, then full run</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Environment preflight: <code>docker compose ps db</code> healthy (port 5434 mapping from this session), <code>curl -s localhost:11434/v1/models</code> lists <code>gemma4:12b-mlx</code>, env block exported (<code>DATABASE_URL=postgresql://forge:forge@localhost:5434/forge</code>, <code>FORGE_HOME</code> scratch dir, <code>FORGE_LLM_BASE_URL=http://localhost:11434/v1</code>, <code>LLM_MODEL=gemma4:12b-mlx</code>).</li>
+        <li><code class="status">[]</code> <code>uv run python evals/goal_suite.py --only 1</code> — snake game alone; confirm batches actually consume turns, tool calls parse, files land in the fresh workspace.</li>
+        <li><code class="status">[]</code> <code>uv run python evals/goal_suite.py</code> — all 8, sequential (budget ≈ 1–4 h wall clock).</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Runner logic (verdict classification, report shape, timeout kill) unit-tested with a stubbed <code>run_pge</code>; the suite execution itself is the integration test.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/ -q -k goal_suite</code> — runner verdict/report unit tests pass.</li>
+        <li><code class="status">[]</code> <code>evals/results/goal-suite-gemma4-12b-mlx.json</code> exists with 8 entries and a summary — the deliverable.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass. A goal verdict of <code>failed</code>/<code>timeout</code> is a valid <em>result</em> (record it), not a phase failure — only runner/infra errors loop.</div>
+    </div>
+
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[]</code> <code>uv run pytest -q</code> — full suite green (46 pre-existing + new tests).</li>
+      <li><code class="status">[]</code> <code>uv run ruff check .</code> — lint clean.</li>
+      <li><code class="status">[]</code> <code>uv run python evals/model_incident_eval.py --model gemma4:12b-mlx</code> — exit 0, 8/8 fixtures.</li>
+      <li><code class="status">[]</code> <code>uv run python run_pge.py --new-project smoke-$(date +%s) --goal "Create hello.py printing hello" </code> — consumes ≥1 batch and creates the file (P1 regression canary).</li>
+      <li><code class="status">[]</code> <code>test -s evals/results/goal-suite-gemma4-12b-mlx.json &amp;&amp; uv run python -c "import json;d=json.load(open('evals/results/goal-suite-gemma4-12b-mlx.json'));assert len(d['goals'])==8;print(d['summary'])"</code> — suite report complete.</li>
+    </ul>
+    <div class="loop">🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong></div>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+
+    <h3>Verified evidence (session d44f5f39, 2026-07-11)</h3>
+    <ul>
+      <li>Live curl to native <code>/api/chat</code> + <code>format:"json"</code> (no <code>think</code>): clean single-object JSON in <code>message.content</code>, reasoning isolated in <code>message.thinking</code>. Same call with the nested executor schema as <code>format</code>: constraint silently dropped, output reverted to <code>action/action_input</code> + fences. This is why the plan uses flat <code>format:"json"</code> + prompt grounding, not schema-as-grammar.</li>
+      <li><code>/v1/chat/completions</code> + <code>response_format json_schema</code> + <code>reasoning_effort:"none"</code>: 0/8 fixtures (artifact <code>evals/results/gemma4-12b-mlx-ollama.json</code>). Prior LM Studio artifact <code>gemma-4-12b-qat.json</code> shows the same prose-prefix signature (0/5) — the openai-dialect fix may help LM Studio too, but that is out of scope here.</li>
+      <li>P1 reproduction: snake-game run exited "verified complete" after 0 batches against project <code>b240abae</code> (completed fizzbuzz goal from 2026-07-03).</li>
+    </ul>
+
+    <h3>Research sources</h3>
+    <ul>
+      <li><a href="https://github.com/ollama/ollama/issues/15260">ollama#15260</a> — <code>think=false</code> breaks <code>format</code> on Gemma-family templates (masking deferred past a token that never comes). Workaround: omit <code>think</code>.</li>
+      <li><a href="https://github.com/ollama/ollama/issues/10937">ollama#10937</a> / <a href="https://github.com/ollama/ollama/issues/10001">#10001</a> — OpenAI <code>response_format json_schema</code> ignored on <code>/v1</code>; use native <code>format</code>.</li>
+      <li><a href="https://docs.ollama.com/capabilities/structured-outputs">Ollama structured-outputs docs</a> — recommends passing the schema as prompt text alongside <code>format</code>.</li>
+      <li>In-repo precedent: <code>engine/src/auditor.py:219</code> (2026-06-12) — auditor already dropped <code>response_format</code> for Ollama and parses defensively. Phase 2 generalizes that lesson to the whole engine.</li>
+    </ul>
+
+    <h3>Environment (already provisioned this session)</h3>
+    <div class="callout">
+      Postgres: <code>docker compose up -d db</code> with <code>FORGE_DB_PORT=5434</code> (host 5432 is occupied by an unrelated native Postgres without the forge role). Migration <code>migrations/002_rename_hermes_to_forge.sql</code> applied + <code>Base.metadata.create_all</code> — <strong>note: this volume (<code>forge_forge_pgdata</code>) holds real run history since 2026-06-14; the migration renamed tables in place, no rows dropped.</strong> Two orphan containers (<code>forge-db-durable-1</code>, <code>forge-otel-collector-1</code>) were removed to free ports; their volumes are intact. Env template: <code>/private/tmp/…/scratchpad/pge_env.sh</code> — the suite runner should ship its own committed <code>evals/suite_env.example.sh</code> copy.
+    </div>
+
+    <h3>Risks &amp; tradeoffs</h3>
+    <table>
+      <tr><th>Risk</th><th>Mitigation</th></tr>
+      <tr><td>Thinking mode left on ⇒ ~2-6× latency per call (~4s vs ~0.7s measured)</td><td>Accepted: correctness over speed; per-goal wall-clock budget caps total damage. Revisit if Ollama ships the #15260 fix (PRs #15678/#15392 merged upstream — check <code>ollama --version</code> on the host).</td></tr>
+      <tr><td>12B model may still fail goals even with valid JSON (capability, not plumbing)</td><td>The DB history proves these 8 goals completed on this class of model via LM Studio — parity is plausible; suite records <code>failed</code> verdicts honestly rather than looping.</td></tr>
+      <tr><td>Flat <code>format:"json"</code> guarantees syntax, not schema</td><td><code>extract_json()</code> + action-key remapping + the executor's existing retry-on-invalid message loop absorb residual drift.</td></tr>
+      <tr><td><code>lru_cache</code> on <code>client_for</code> caches dialect-agnostic clients</td><td>Dialect resolved per-call in <code>_create</code>, not baked into the cached client.</td></tr>
+      <tr><td>Suite duration (8 × ≤30 min)</td><td>Sequential with per-goal subprocess timeout; durable Postgres state means an interrupted suite resumes per-goal.</td></tr>
+    </table>
+
+    <h3>Out of scope / future work</h3>
+    <ul>
+      <li>LM Studio dialect audit (same <code>reasoning_effort</code> question) — separate task.</li>
+      <li>De-duplicating the 39 stale <code>"default"</code> projects in the DB — data hygiene task, not blocking.</li>
+      <li>Ollama-version-gated re-enable of schema-as-grammar once the MLX nested-schema bug is fixed upstream.</li>
+    </ul>
+
+    <figure>
+      <!-- {{NOTES_IMAGE: latency vs correctness scale — "think on, JSON valid" outweighing "fast, garbled", under 10 words}} -->
+      <figcaption>The accepted trade: leave thinking on, pay seconds, get parseable actions every turn.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <!-- Append-only; populated by Update Plan / Update References workflows. -->
+  </section>
+
+</main>
+</body>
+</html>

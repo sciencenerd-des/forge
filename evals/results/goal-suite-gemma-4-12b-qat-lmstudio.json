@@ -1,0 +1,110 @@
+{
+  "model": "gemma-qat",
+  "goals": [
+    {
+      "slug": "snake",
+      "goal": "Build a playable Snake game in Python using curses.",
+      "project": "suite-1-snake-983d2536",
+      "status": "completed",
+      "elapsed_s": 470.45,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "digits",
+      "goal": "Build a sklearn digits experiment loop and save results.json with accuracy above 0.95.",
+      "project": "suite-2-digits-3401fc76",
+      "status": "completed",
+      "elapsed_s": 296.13,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 2,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "lru",
+      "goal": "Implement an LRU cache with O(1) get and put operations.",
+      "project": "suite-3-lru-e6593eec",
+      "status": "completed",
+      "elapsed_s": 343.95,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "rpn",
+      "goal": "Build a robust reverse Polish notation calculator.",
+      "project": "suite-4-rpn-0ccbe5cc",
+      "status": "completed",
+      "elapsed_s": 973.56,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "json-parser",
+      "goal": "Implement a JSON parser from scratch without importing the json module.",
+      "project": "suite-5-json-parser-2e0d692d",
+      "status": "timeout",
+      "elapsed_s": 1800.03,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python3', 'run_pge.py', '--new-project', 'suite-5-json-parser-2e0d692d', '--goal', 'Implement a JSON parser from scratch without importing the json module.', '--desc', 'Implement a JSON parser from scratch without importing the json module.']' timed out after 1800 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 1,
+      "latest_test_status": "failure"
+    },
+    {
+      "slug": "tic-tac-toe",
+      "goal": "Build a playable tic-tac-toe game with win and draw detection.",
+      "project": "suite-6-tic-tac-toe-d6a6c516",
+      "status": "timeout",
+      "elapsed_s": 1800.04,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python3', 'run_pge.py', '--new-project', 'suite-6-tic-tac-toe-d6a6c516', '--goal', 'Build a playable tic-tac-toe game with win and draw detection.', '--desc', 'Build a playable tic-tac-toe game with win and draw detection.']' timed out after 1800 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "dijkstra",
+      "goal": "Implement Dijkstra shortest paths with useful tests.",
+      "project": "suite-7-dijkstra-b12434d0",
+      "status": "timeout",
+      "elapsed_s": 1800.04,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python3', 'run_pge.py', '--new-project', 'suite-7-dijkstra-b12434d0', '--goal', 'Implement Dijkstra shortest paths with useful tests.', '--desc', 'Implement Dijkstra shortest paths with useful tests.']' timed out after 1800 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 2,
+      "latest_test_status": "failure"
+    },
+    {
+      "slug": "email-validator",
+      "goal": "Build a JavaScript email validator with tests.",
+      "project": "suite-8-email-validator-b6e840e0",
+      "status": "completed",
+      "elapsed_s": 303.85,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 2,
+      "latest_test_status": "success"
+    }
+  ],
+  "completed": 5,
+  "total": 8,
+  "elapsed_s": 7788.04,
+  "summary": {
+    "completed": 5,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 3
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "model": "google/gemma-4-12b-qat",
+  "goals": [
+    {
+      "slug": "rpn",
+      "goal": "Build a robust reverse Polish notation calculator.",
+      "project": "suite-1-rpn-cdaf8c3a",
+      "status": "completed",
+      "elapsed_s": 846.33,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    }
+  ],
+  "completed": 1,
+  "total": 1,
+  "elapsed_s": 846.67,
+  "summary": {
+    "completed": 1,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 0,
+    "inconsistent": 0
+  }
+}

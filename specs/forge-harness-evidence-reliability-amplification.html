@@ -243,7 +243,8 @@ th { background: var(--panel-2); color: var(--accent-2); }
       </ul>
       <h4>3. Consolidate orchestration</h4>
       <ul class="checklist">
-        <li><code class="status">[]</code> Move shared logic into <code>evals/orchestrator.py</code>; keep <code>goal_suite_tui.py</code>, <code>goal_suite.py</code>, and <code>runner.py</code> as thin goal-catalog/CLI adapters.</li>
+        <li><code class="status">[]</code> Treat the built and unit-tested <code>evals/orchestrator.py</code> as the target production driver, not as completed integration; move the live launch/checkpoint/verify flow into it and keep <code>goal_suite_tui.py</code>, <code>goal_suite.py</code>, and <code>runner.py</code> as thin goal-catalog/CLI adapters.</li>
+        <li><code class="status">[]</code> Add an adapter contract test that proves each CLI delegates to the same orchestrator entry point, emits the same V2 result schema, and cannot bypass container snapshot export or container verification.</li>
         <li><code class="status">[]</code> Pass provider configuration as a child environment map; do not mutate or persist the user's provider files. Detect dialect from the selected endpoint instead of forcing <code>openai</code>.</li>
       </ul>
       <h4>4. Testing Strategy</h4>
@@ -376,7 +377,8 @@ th { background: var(--panel-2); color: var(--accent-2); }
       <ul class="checklist">
         <li><code class="status">[]</code> Run all goals sequentially with no other active Forge/model benchmark. Checkpoint the report after every goal.</li>
         <li><code class="status">[]</code> Inspect every acceptance command and artifact digest; the suite is valid even if the model fails goals, provided every verdict is reproducible and no harness error remains.</li>
-        <li><code class="status">[]</code> Generate <code>evals/results/baseline-v2.json</code> from the qualifying run. Record the verified completion rate as the baseline; do not copy the legacy 5/8 or 7/8 headline.</li>
+        <li><code class="status">[]</code> Keep <code>evals/results/baseline-v2.json</code> absent until this exact run has completed through the consolidated production orchestrator, using the container sandbox and container verifier for every goal.</li>
+        <li><code class="status">[]</code> Only after that gate passes, generate <code>evals/results/baseline-v2.json</code> from the run's immutable report and artifact digests. Record the verified completion rate as the baseline; do not copy the legacy 5/8 or 7/8 headline.</li>
       </ul>
       <h4>3. Testing Strategy</h4>
       <p>Run the focused Python/Docker gates, the complete Python suite, Rust workspace tests, and the live smoke/full qualification in that order.</p>
@@ -385,7 +387,7 @@ th { background: var(--panel-2); color: var(--accent-2); }
         <li><code class="status">[]</code><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests</code> — full Python suite is green.</li>
         <li><code class="status">[]</code><code>uv run --extra dev ruff check .</code> — repository lint is green.</li>
         <li><code class="status">[]</code><code>cargo test --workspace --manifest-path experimental/Cargo.toml</code> — Rust TUI/control-plane consumers still honor the lifecycle/result contracts.</li>
-        <li><code class="status">[]</code><code>uv run --extra dev python evals/goal_suite_tui.py --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --output evals/results/baseline-v2.json</code> — full live qualification produces V2 evidence.</li>
+        <li><code class="status">[]</code><code>uv run --extra dev python evals/goal_suite_tui.py --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --output evals/results/baseline-v2.json</code> — after adapter consolidation, the production orchestrator produces V2 evidence; before that checkpoint, the command must fail closed or write only a non-baseline qualification artifact.</li>
       </ul>
       <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If a live model or database is unavailable, mark the live gate failed and do not create a baseline.</div>
     </div>
@@ -429,6 +431,14 @@ th { background: var(--panel-2); color: var(--accent-2); }
       <li>Pinning sklearn/numpy in the canonical image is justified because the suite explicitly contains a sklearn goal and reproducible verification requires that runtime.</li>
     </ul>
 
+    <h3>Implementation status</h3>
+    <ul>
+      <li><span class="tag done">implemented</span> The three suite CLIs now delegate lifecycle ownership to <code>evals/orchestrator.py</code>, including the global lease, stale-manifest reconciliation, atomic checkpoints, legal state-pair handling, and authoritative snapshot/verifier seams.</li>
+      <li><span class="tag done">implemented</span> Container snapshot export and container verification are required for gateable production results; host verification remains an explicit unit-test seam only.</li>
+      <li><span class="tag done">implemented</span> Dependency installation and command execution share the active sandbox, preserving argv code strings and avoiding the recorded PEP 668/host-path loop.</li>
+      <li><span class="tag pending">blocked</span> <code>evals/results/baseline-v2.json</code> is intentionally still absent. The current preflight sees the endpoint serving only the embedding model, so no qualifying eight-goal production run was attempted or promoted.</li>
+    </ul>
+
     <h3>Risk controls</h3>
     <table>
       <thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
@@ -447,7 +457,7 @@ th { background: var(--panel-2); color: var(--accent-2); }
 
   <section id="amendments">
     <h2>Amendments</h2>
-    <p>No amendments yet.</p>
+    <p>2026-07-15: Phase 2.3 is now an explicit production-driver integration checkpoint. Phase 7 may create <code>baseline-v2.json</code> only after the consolidated orchestrator completes the full eight-goal container-sandbox/container-verifier qualification.</p>
   </section>
 </main>
 </body>

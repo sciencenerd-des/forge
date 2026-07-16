@@ -1,0 +1,25 @@
+{
+  "model": "gemma4:12b-mlx",
+  "goals": [
+    {
+      "slug": "snake",
+      "goal": "Build a playable Snake game in Python using curses.",
+      "project": "suite-1-snake-5d9a9e00",
+      "status": "timeout",
+      "elapsed_s": 120.16,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python', 'run_pge.py', '--new-project', 'suite-1-snake-5d9a9e00', '--goal', 'Build a playable Snake game in Python using curses.', '--desc', 'Build a playable Snake game in Python using curses.']' timed out after 120 seconds",
+      "goal_status": null,
+      "file_changes": 0,
+      "latest_test_status": null
+    }
+  ],
+  "completed": 0,
+  "total": 1,
+  "elapsed_s": 120.16,
+  "summary": {
+    "completed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 1
+  }
+}

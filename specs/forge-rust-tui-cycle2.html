@@ -309,12 +309,12 @@ kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); bor
     </div>
 
     <div class="phase">
-      <h3><code class="status">[x]</code> Phase 5: Evidence Work — Pi Tool Benchmark &amp; A2A Client</h3>
+      <h3><code class="status">[wip]</code> Phase 5: Evidence Work — Pi Tool Benchmark &amp; A2A Client</h3>
       <p>Produce the data that unblocks the deferred backlog decisions, and land the one post-MVP item that was always cheap.</p>
 
       <h4>1. Pi built-in tool latency benchmark</h4>
       <ul class="checklist">
-        <li><code class="status">[x]</code> Scripted benchmark (Rust <code>#[ignore]</code> test or <code>scripts/pi_tool_bench.sh</code> driving <code>pi --mode rpc</code>): time N=30 round-trips each of <code>read</code> (large file), <code>grep</code> (repo-wide pattern), <code>edit</code> (surgical replace), and <code>bash</code> (no-op) on this repository with a local model, measuring <em>tool_execution_start→end</em> so model latency is excluded.</li>
+        <li><code class="status">[wip]</code> Scripted benchmark (Rust <code>#[ignore]</code> test or <code>scripts/pi_tool_bench.sh</code> driving <code>pi --mode rpc</code>): time N=30 round-trips each of <code>read</code> (large file), <code>grep</code> (repo-wide pattern), <code>edit</code> (surgical replace), and <code>bash</code> (no-op) on this repository with a local model, measuring <em>tool_execution_start→end</em> so model latency is excluded.</li>
         <li><code class="status">[x]</code> Record medians/p95 plus end-to-end share of turn time in <code>docs/PI_TOOL_BENCHMARK.md</code>, ending with an explicit go/no-go recommendation for the <code>forge-tools</code> RFC against the parent plan's criterion (“only if tool execution is a measured bottleneck”); append the verdict to the parent plan's Amendments.</li>
       </ul>
 
@@ -329,7 +329,7 @@ kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); bor
       <ul class="checklist">
         <li><code class="status">[x]</code> <code>cargo test -p forge-api</code> — A2A fixture and transport tests pass.</li>
         <li><code class="status">[x]</code> <code>uv run pytest tests/contract -q</code> — A2A fixtures regenerate cleanly from the real adapter routes.</li>
-        <li><code class="status">[x]</code> Benchmark executed twice with results recorded in <code>docs/PI_TOOL_BENCHMARK.md</code> and the go/no-go verdict written.</li>
+        <li><code class="status">[wip]</code> Rerun the corrected benchmark twice, record valid <code>agent_end</code> turn durations in <code>docs/PI_TOOL_BENCHMARK.md</code>, then finalize the go/no-go verdict.</li>
       </ul>
       <div class="loop">
         🔁 <strong>Do not exit this phase until every box above is checked.</strong>
@@ -346,7 +346,7 @@ kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); bor
       <li><code class="status">[x]</code> <code>uv run pytest tests/contract -q</code> — handler-generated fixtures (incl. A2A) are green and current.</li>
       <li><code class="status">[x]</code> <code>cd experimental &amp;&amp; cargo fmt --all -- --check &amp;&amp; cargo clippy --workspace --all-targets -- -D warnings &amp;&amp; cargo test --workspace</code> — whole workspace clean offline, without Pi installed.</li>
       <li><code class="status">[x]</code> <code>cargo test -p forge-pi -- --ignored</code> — (pinned Pi) flag matrix + new transcripts pass; mirrored by the <code>rust-pi-compat</code> CI job.</li>
-      <li><code class="status">[x]</code> <code>cargo test -p forge-cli --test flood</code> — real-event-loop flood: p99 input latency &lt; 50 ms.</li>
+        <li><code class="status">[x]</code> <code>cargo test -p forge-cli real_event_loop_stays_responsive_under_stream_flood</code> — real-event-loop flood: p99 input latency &lt; 50 ms.</li>
       <li><code class="status">[x]</code> <code>./target/release/forge run list --watch --json</code> — survives a control-plane restart, alternating <code>source</code> values.</li>
       <li><code class="status">[x]</code> <code>./target/release/forge a2a send --project PROJECT_ID "validation goal" --json</code> — creates an A2A task against a running <code>forge a2a</code> server.</li>
       <li><code class="status">[x]</code> <code>docs/PI_TOOL_BENCHMARK.md</code> exists with two consistent runs and an explicit forge-tools go/no-go verdict.</li>

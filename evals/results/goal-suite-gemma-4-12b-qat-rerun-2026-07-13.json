@@ -1,0 +1,111 @@
+{
+  "model": "google/gemma-4-12b-qat",
+  "goals": [
+    {
+      "slug": "snake",
+      "goal": "Build a playable Snake game in Python using curses.",
+      "project": "suite-1-snake-8ff2ec88",
+      "status": "inconsistent",
+      "elapsed_s": 5.45,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "digits",
+      "goal": "Build a sklearn digits experiment loop and save results.json with accuracy above 0.95.",
+      "project": "suite-2-digits-cf13a7d3",
+      "status": "inconsistent",
+      "elapsed_s": 5.4,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "lru",
+      "goal": "Implement an LRU cache with O(1) get and put operations.",
+      "project": "suite-3-lru-f03df1f2",
+      "status": "inconsistent",
+      "elapsed_s": 5.39,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "rpn",
+      "goal": "Build a robust reverse Polish notation calculator.",
+      "project": "suite-4-rpn-8dc3f036",
+      "status": "inconsistent",
+      "elapsed_s": 5.41,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "json-parser",
+      "goal": "Implement a JSON parser from scratch without importing the json module.",
+      "project": "suite-5-json-parser-2bd47277",
+      "status": "inconsistent",
+      "elapsed_s": 5.4,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "tic-tac-toe",
+      "goal": "Build a playable tic-tac-toe game with win and draw detection.",
+      "project": "suite-6-tic-tac-toe-08c14bfa",
+      "status": "inconsistent",
+      "elapsed_s": 5.41,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "dijkstra",
+      "goal": "Implement Dijkstra shortest paths with useful tests.",
+      "project": "suite-7-dijkstra-09319916",
+      "status": "inconsistent",
+      "elapsed_s": 5.4,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "email-validator",
+      "goal": "Build a JavaScript email validator with tests.",
+      "project": "suite-8-email-validator-7b443c60",
+      "status": "inconsistent",
+      "elapsed_s": 5.4,
+      "error": "launcher reported terminal state but durable goal is 'active'",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    }
+  ],
+  "completed": 0,
+  "total": 8,
+  "elapsed_s": 43.66,
+  "summary": {
+    "completed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 0,
+    "inconsistent": 8
+  }
+}
