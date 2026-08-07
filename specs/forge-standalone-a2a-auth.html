@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Forge Standalone — De-Hermes, Auth Consolidation, A2A Adapter</title>
+<style>
+:root {
+  --bg: #101214;
+  --panel: #17191d;
+  --panel-2: #1d2025;
+  --ink: #e8e6e1;
+  --ink-dim: #9a978f;
+  --accent: #e8a33d;        /* forge amber */
+  --accent-2: #7fb4a2;      /* verdigris */
+  --danger: #d47069;
+  --new: #7fb4a2;
+  --existing: #8a9bb8;
+  --border: #2a2d33;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -0.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--accent-2); margin-top: 1.5rem; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .12em .4em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent-2); }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .6rem; }
+details.meta, #questionables details, #amendments details {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: .6rem 1rem; margin: .8rem 0;
+}
+details summary { cursor: pointer; color: var(--accent-2); font-weight: 600; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem 1rem; margin: .8rem 0 0; }
+dt { color: var(--ink-dim); font-family: var(--mono); font-size: .8rem; }
+dd { margin: 0; font-family: var(--mono); font-size: .8rem; word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 999px; margin-right: .4em; text-transform: uppercase; letter-spacing: .05em; }
+.tag.new { background: rgba(127,180,162,.15); color: var(--new); border: 1px solid var(--new); }
+.tag.existing { background: rgba(138,155,184,.12); color: var(--existing); border: 1px solid var(--existing); }
+.phase { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.4rem 1.4rem; margin: 1.6rem 0; }
+.phase h3 { margin-top: .4rem; }
+ul.checklist { list-style: none; padding-left: .2rem; }
+ul.checklist li { margin: .45rem 0; }
+code.status { color: var(--accent); font-weight: 700; min-width: 2.4em; display: inline-block; }
+.loop { background: rgba(232,163,61,.08); border: 1px dashed var(--accent); border-radius: 8px; padding: .8rem 1rem; margin-top: 1rem; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; }
+th { background: var(--panel-2); color: var(--accent-2); }
+.qa-answer { color: var(--ink-dim); }
+.callout { background: var(--panel-2); border-left: 4px solid var(--accent-2); border-radius: 6px; padding: .8rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Forge Standalone — De-Hermes, Auth Consolidation, A2A Adapter</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-11T08:46:20Z</dd>
+        <dt>modified</dt>     <dd>2026-07-11T08:46:20Z, 2026-07-11T09:05:00Z</dd>
+        <dt>commits</dt>      <dd>fbef8f5 (plan authored at)</dd>
+        <dt>agent name</dt>   <dd>Claude Fable 5 (claude-fable-5)</dd>
+        <dt>session id</dt>   <dd>a7d1a077-ccaf-4aaa-8c69-1ea3a717a3fa</dd>
+        <dt>back refs</dt>    <dd>ARCHITECTURE.md, docs/LESSONS.md, contracts/provider-profile.schema.json</dd>
+        <dt>forward refs</dt> <dd>(none yet)</dd>
+      </dl>
+    </details>
+  </header>
+
+  <figure>
+    <!-- {{HERO_IMAGE: Forge as an independent forge/anvil system with three plug sockets labeled "API key", "Local model", "A2A" — minimal graphite+amber diagram, under 10 words}} -->
+    <figcaption>Forge standing alone: one credential core, three ways in — cloud keys, local models, A2A peers.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE / PROBLEM / SOLUTION ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>Make Forge a fully independent agentic system with no naming, schema, or code dependency on the legacy Hermes agent; consolidate all authentication and model-provider credentials into one robust backend store with a clean HTTP surface; give both the web console and the TUI a first-class "plug in your key / subscription / local model" experience; and expose Forge as an <strong>A2A (Agent2Agent protocol)</strong> agent — the Linux-Foundation-governed interop standard (v1.0, 2026) — so any A2A-capable agent or orchestrator can discover Forge via its Agent Card and delegate long-running coding tasks to it over HTTP + JSON-RPC/SSE.</p>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>Forge today carries its Hermes ancestry everywhere and its credential story is fragmented:</p>
+    <ul>
+      <li><strong>Hermes coupling.</strong> Every ORM model is <code>Hermes*</code> mapped to <code>hermes_*</code> tables (<code>app/models/__init__.py</code>), and ~10 modules (engine nodes, <code>run_pge.py</code>, <code>forge_config.py</code>, <code>control_plane/runtime_snapshot.py</code>, <code>tools_db/*</code>) import those names. The engine's shared LLM helpers live in <code>engine/hermes_tools.py</code>, which builds its <em>own</em> OpenAI client at import time with a hardcoded <code>api_key="not-needed"</code> and its own model auto-detect — completely bypassing <code>forge_config.provider_for()</code>, the supposed single source of truth. Docs still say "the native Hermes plugin imports this DB."</li>
+      <li><strong>Fragmented, weak auth.</strong> Credentials only exist as scattered env vars (<code>FORGE_LLM_API_KEY</code>, per-role <code>FORGE_&lt;ROLE&gt;_API_KEY</code>). There is no persistent credential store, no way to set/test a key at runtime, and keys can leak into logs/snapshots. The control plane is guarded by a single plaintext bearer token compared with <code>==</code> (timing-unsafe) and shipped as a default value in <code>.env.example</code>.</li>
+      <li><strong>No user-facing provider setup.</strong> The web console has no settings page; the Rust TUI (<code>experimental/forge-cli</code>) has no onboarding. Users must hand-edit <code>.env</code> to point at LM Studio/Ollama/vLLM or a cloud subscription.</li>
+      <li><strong>No interop surface.</strong> Forge can only be driven by its own CLI/HTTP API. It publishes no Agent Card and speaks no A2A, so other agents (e.g. a Hermes-class orchestrator, LangGraph/ADK/CrewAI agents) cannot discover it or delegate tasks to it.</li>
+    </ul>
+    <figure>
+      <!-- {{PROBLEM_IMAGE: tangled wires between a "Hermes" box and a "Forge" box, plus loose env-var keys scattered around — minimal diagram, under 10 words}} -->
+      <figcaption>Today: Hermes names woven through the schema, keys scattered across env vars, no interop port.</figcaption>
+    </figure>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>Four consolidations, ordered so each is independently shippable:</p>
+    <ol>
+      <li><strong>De-Hermes the core.</strong> Rename models <code>Hermes*</code> → <code>Forge*</code> and tables <code>hermes_*</code> → <code>forge_*</code> via a rename migration (with temporary compatibility views for any external reader). Replace <code>engine/hermes_tools.py</code> with a provider-aware client factory in <code>forge_runtime/llm.py</code> that resolves everything through <code>forge_config.provider_for(role)</code>.</li>
+      <li><strong>One credential core.</strong> New <code>forge_runtime/credentials.py</code>: a JSON provider-profile store at <code>$FORGE_HOME/providers.json</code> (chmod 600) with per-role profiles (<code>base_url</code>, <code>model</code>, <code>api_key</code>, <code>auth_mode</code>), env-var overrides preserved as highest precedence, secret masking on every read path, and a <code>test_connection()</code> probe. Control-plane token becomes generated-on-first-run, stored hashed, compared with <code>secrets.compare_digest</code>.</li>
+      <li><strong>Frontend plug-in UX.</strong> Control-plane <code>/providers</code> CRUD + <code>/providers/test</code> endpoints; a web Settings page with local-model presets (LM Studio / Ollama / vLLM) and cloud presets (OpenAI-compatible endpoints); a TUI setup screen in the Rust CLI that writes the same <code>providers.json</code>.</li>
+      <li><strong>A2A adapter.</strong> A new <code>a2a/</code> package implementing the Agent2Agent protocol server: an <strong>Agent Card</strong> at <code>/.well-known/agent-card.json</code> declaring Forge's skill ("autonomous long-horizon coding"), and JSON-RPC methods <code>message/send</code>, <code>message/stream</code> (SSE), <code>tasks/get</code>, <code>tasks/cancel</code>. Incoming messages become Forge goals; the PGE loop's batches stream back as A2A task status/artifact updates through the full lifecycle (<code>submitted → working → completed/failed/canceled</code>). Mounted on the existing FastAPI control plane and runnable standalone via <code>forge a2a</code>.</li>
+    </ol>
+    <figure>
+      <!-- {{SOLUTION_IMAGE: layered architecture — credentials core at center, PGE engine, then three ports: Web GUI, TUI, A2A — amber on graphite, under 10 words}} -->
+      <figcaption>Target: one credential core feeding the PGE engine, surfaced through Web, TUI, and A2A.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>app/models/__init__.py</code> — all <code>Hermes*</code> ORM models + <code>hermes_*</code> table names; rename target.</li>
+      <li><span class="tag existing">existing</span> <code>app/database.py</code>, <code>app/context_compression.py</code>, <code>app/services/__init__.py</code> — import/use Hermes models; docstring still references "native Hermes plugin".</li>
+      <li><span class="tag existing">existing</span> <code>engine/hermes_tools.py</code> — legacy shared LLM client + JSON schemas; to be dissolved into <code>forge_runtime/llm.py</code> and <code>engine/src/schemas.py</code>.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/{planner,executor,auditor,evaluator}_node.py</code>, <code>engine/src/{runtime,graph,steward,auditor}.py</code> — heavy Hermes model imports; must switch to renamed models and the new client factory.</li>
+      <li><span class="tag existing">existing</span> <code>forge_config.py</code> — provider profile resolution (<code>provider_for</code>); extend to read <code>providers.json</code> beneath env overrides.</li>
+      <li><span class="tag existing">existing</span> <code>run_pge.py</code>, <code>pge_launcher.py</code>, <code>forge_cli.py</code> — entry points; model imports + new <code>a2a</code> subcommand.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/api.py</code> — timing-unsafe token check; gains <code>/providers</code> routes and hardened auth.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/runtime_snapshot.py</code> — 17 Hermes references; must not leak api_key values into snapshots.</li>
+      <li><span class="tag existing">existing</span> <code>tools_db/{build_tool_docs,sync_registry_docs,mcp_server,test_memory_enhancements}.py</code> — Hermes model usage.</li>
+      <li><span class="tag existing">existing</span> <code>migrations/001_control_plane.sql</code> — migration convention to follow.</li>
+      <li><span class="tag existing">existing</span> <code>contracts/provider-profile.schema.json</code> — existing contract; align the credential store shape to it.</li>
+      <li><span class="tag existing">existing</span> <code>web/src/lib/control-plane.ts</code>, <code>web/src/App.tsx</code> — API client + shell for the new Settings page.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/{main,tui,model,store}.rs</code> — Rust TUI; gains provider-setup screen.</li>
+      <li><span class="tag existing">existing</span> <code>.env.example</code>, <code>README.md</code>, <code>ARCHITECTURE.md</code>, <code>tests/regression/test_security_boundaries.py</code> — docs + security regression pins.</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>migrations/002_rename_hermes_to_forge.sql</code> — <code>ALTER TABLE ... RENAME</code> for all <code>hermes_*</code> tables + compatibility views <code>hermes_* AS SELECT * FROM forge_*</code>.</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/llm.py</code> — the single client factory: <code>client_for(role)</code>, <code>chat(role, messages, schema=None)</code>, model auto-detect, lazy (no import-time network).</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/credentials.py</code> — provider-profile store: load/save <code>providers.json</code> (0600), merge order env &gt; file &gt; defaults, <code>masked()</code> views, <code>test_connection(profile)</code>.</li>
+      <li><span class="tag new">new</span> <code>engine/src/schemas.py</code> — planner/auditor/etc. JSON schemas extracted from <code>hermes_tools.py</code>.</li>
+      <li><span class="tag new">new</span> <code>control_plane/providers_api.py</code> — <code>GET/PUT /providers</code>, <code>POST /providers/test</code>, wired into <code>api.py</code>.</li>
+      <li><span class="tag new">new</span> <code>a2a/__init__.py</code>, <code>a2a/agent_card.py</code>, <code>a2a/server.py</code>, <code>a2a/task_bridge.py</code> — A2A server: Agent Card, JSON-RPC methods (<code>message/send</code>, <code>message/stream</code>, <code>tasks/get</code>, <code>tasks/cancel</code>), SSE streaming, goal↔task bridge to <code>pge_launcher</code>/engine events.</li>
+      <li><span class="tag new">new</span> <code>web/src/pages/Settings.tsx</code>, <code>web/src/lib/providers.ts</code> — provider settings UI + typed client.</li>
+      <li><span class="tag new">new</span> <code>experimental/forge-cli/src/setup.rs</code> — TUI provider onboarding (presets, key entry, test, save).</li>
+      <li><span class="tag new">new</span> <code>tests/test_credentials.py</code>, <code>tests/test_providers_api.py</code>, <code>tests/test_llm_factory.py</code>, <code>tests/test_a2a_server.py</code>, <code>tests/regression/test_no_hermes_imports.py</code> — coverage for every new seam.</li>
+    </ul>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+
+    <!-- ================= PHASE 1 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 1: De-Hermes the data layer</h3>
+      <p>Rename every model and table from Hermes to Forge with a safe, reversible migration. External readers (the old Hermes plugin, any dashboards) keep working via compatibility views for one release.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: before/after table rename hermes_* -> forge_* with a compatibility-view bridge, minimal}} -->
+        <figcaption>Rename with a bridge: <code>forge_*</code> tables, <code>hermes_*</code> views for stragglers.</figcaption>
+      </figure>
+
+      <h4>1. Migration</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Write <code>migrations/002_rename_hermes_to_forge.sql</code>: <code>ALTER TABLE hermes_X RENAME TO forge_X</code> for projects, goals, tasks, events, memory items, file changes, test runs, checkpoints, context-compression snapshots (enumerate from <code>app/models/__init__.py</code>).</li>
+        <li><code class="status">[]</code> In the same migration, create <code>CREATE VIEW hermes_X AS SELECT * FROM forge_X</code> for each renamed table, and rename sequences/indexes/constraints consistently.</li>
+        <li><code class="status">[]</code> Add a guard: migration is idempotent (checks <code>information_schema.tables</code> before renaming) so re-runs are no-ops.</li>
+      </ul>
+
+      <h4>2. Model + import rename</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Rename all classes in <code>app/models/__init__.py</code> to <code>Forge*</code> with <code>__tablename__ = "forge_*"</code>; add module-level aliases <code>HermesProject = ForgeProject</code> etc. marked deprecated (one release).</li>
+        <li><code class="status">[]</code> Update every importer to the new names: <code>run_pge.py</code>, <code>pge_launcher.py</code>, <code>forge_config.py</code>, <code>app/context_compression.py</code>, <code>app/services/__init__.py</code>, <code>engine/src/**</code>, <code>control_plane/runtime_snapshot.py</code>, <code>tools_db/*.py</code>.</li>
+        <li><code class="status">[]</code> Scrub prose: <code>app/database.py</code> docstring, <code>ARCHITECTURE.md</code>, <code>README.md</code>, <code>tools_db/CAPABILITIES.md</code> — no remaining claims of Hermes dependency.</li>
+        <li><code class="status">[]</code> Add <code>tests/regression/test_no_hermes_imports.py</code>: greps the tree (excluding migrations/aliases file) and fails on new <code>Hermes</code> references.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Postgres-backed pytest run against a fresh docker-compose DB: apply 001 + 002, boot the engine models, exercise <code>ensure_default_project</code>, and verify both <code>forge_projects</code> table and <code>hermes_projects</code> view resolve.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>docker compose up -d db && psql "$DATABASE_URL" -f migrations/002_rename_hermes_to_forge.sql</code> — migration applies cleanly and idempotently (run twice).</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/ -x -q</code> — full suite green on renamed models.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/regression/test_no_hermes_imports.py -q</code> — no stray Hermes references.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 2 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 2: One LLM client factory (dissolve <code>hermes_tools.py</code>)</h3>
+      <p>Every node gets its model client from one lazy, role-aware factory that resolves through <code>forge_config.provider_for()</code>. No import-time network calls, no hardcoded keys, no duplicate auto-detect logic.</p>
+
+      <h4>1. Build the factory</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>forge_runtime/llm.py</code>: <code>client_for(role) -> OpenAI</code> (cached per resolved profile), <code>chat(role, messages, response_format=None, **kw)</code>, and <code>detect_model(base_url)</code> ported from <code>hermes_tools._detect_model</code> but lazy and per-call-site.</li>
+        <li><code class="status">[]</code> Extract <code>PLANNER_SCHEMA</code> and siblings from <code>engine/hermes_tools.py</code> into <code>engine/src/schemas.py</code> unchanged.</li>
+        <li><code class="status">[]</code> Port remaining helpers (memory service wiring, any tool shims) out of <code>hermes_tools.py</code> into their natural owners; then delete <code>engine/hermes_tools.py</code>, leaving a thin deprecation shim only if tests show external imports.</li>
+        <li><code class="status">[]</code> Update all engine nodes + steward/auditor to call <code>forge_runtime.llm.chat(role=...)</code> — per-role env routing (<code>PGE_EXECUTOR_MODEL</code>, <code>FORGE_EXECUTOR_BASE_URL</code>, ...) now actually takes effect in the loop.</li>
+      </ul>
+
+      <h4>2. Testing Strategy</h4>
+      <p>Unit tests with a stubbed OpenAI transport (respx/monkeypatch): verify precedence (role env &gt; global env &gt; providers.json &gt; default), laziness (importing the engine performs zero HTTP), and that structured-output schemas still round-trip.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_llm_factory.py -q</code> — precedence + laziness proven.</li>
+        <li><code class="status">[]</code> <code>uv run python -c "import engine.src.graph"</code> with no LLM server running — imports cleanly, no network.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/ -x -q && uv run ruff check .</code> — suite + lint green after the deletion.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 3 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 3: Credential core + hardened control-plane auth</h3>
+      <p>One place credentials live, one way they're read, masked everywhere they surface.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: a vault icon feeding role profiles planner/executor/etc, env vars overriding on top — minimal}} -->
+        <figcaption>Resolution order: env vars override <code>providers.json</code>, which overrides built-in local defaults.</figcaption>
+      </figure>
+
+      <h4>1. Provider-profile store</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>forge_runtime/credentials.py</code>: schema-validated (against <code>contracts/provider-profile.schema.json</code>, extending it if needed) load/save of <code>$FORGE_HOME/providers.json</code>; file written atomically with mode 0600; profiles keyed <code>default</code> + per role.</li>
+        <li><code class="status">[]</code> Add <code>masked(profile)</code> — api_key rendered as <code>sk-…last4</code>; this is the ONLY shape any API/log/snapshot may emit.</li>
+        <li><code class="status">[]</code> Add <code>test_connection(profile)</code> — <code>GET {base_url}/models</code> with the key, 10s timeout; returns reachable/model-list/auth-error distinctly.</li>
+        <li><code class="status">[]</code> Extend <code>forge_config.provider_for(role)</code> to merge: role env &gt; global env &gt; <code>providers.json</code> (role, then default) &gt; built-in local default. Existing env-only setups keep working unchanged.</li>
+      </ul>
+
+      <h4>2. Control-plane auth hardening</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Replace <code>==</code> comparison in <code>require_control_token</code> with <code>secrets.compare_digest</code>.</li>
+        <li><code class="status">[]</code> On first <code>forge serve</code> with no token configured, generate one (<code>secrets.token_urlsafe(32)</code>), persist to <code>$FORGE_HOME/control-token</code> (0600), and print it once; remove the hardcoded <code>forge-local-control</code> default from <code>.env.example</code>.</li>
+        <li><code class="status">[]</code> Audit <code>control_plane/runtime_snapshot.py</code> and <code>/runtime/config</code> so provider profiles are only ever emitted via <code>masked()</code>.</li>
+      </ul>
+
+      <h4>3. Provider HTTP API</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>control_plane/providers_api.py</code>: <code>GET /providers</code> (masked), <code>PUT /providers/{role}</code> (accepts api_key; empty string = keep existing), <code>DELETE /providers/{role}</code>, <code>POST /providers/{role}/test</code>; all behind the control token; include router in <code>api.py</code>.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>pytest + FastAPI TestClient. Edge cases: missing file, corrupt JSON (rejected, old file preserved), 0600 enforcement, key-preserving PUT, masked GET never containing the raw key, timing-safe token, unauthorized 401/503 paths.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_credentials.py tests/test_providers_api.py -q</code> — store + API behavior proven.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/regression/test_security_boundaries.py -q</code> — existing security pins still hold; add a pin asserting no raw api_key in any snapshot payload.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 4 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 4: Frontend plug-in UX — Web Settings + TUI onboarding</h3>
+      <p>Users pick a preset (LM Studio, Ollama, vLLM, OpenAI-compatible cloud), paste a key if needed, hit Test, save. Same store behind both surfaces.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: settings panel mock with preset chips LM Studio / Ollama / vLLM / Cloud and a Test button, minimal}} -->
+        <figcaption>Preset-first setup: choose backend, paste key, test, save — identical semantics in Web and TUI.</figcaption>
+      </figure>
+
+      <h4>1. Web console Settings page</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>web/src/lib/providers.ts</code> — typed client for the <code>/providers</code> endpoints reusing the existing auth header pattern from <code>control-plane.ts</code>.</li>
+        <li><code class="status">[]</code> <code>web/src/pages/Settings.tsx</code> — per-role cards (default, planner, executor, auditor, evaluator, steward); preset chips prefill <code>base_url</code> (LM Studio <code>:1234/v1</code>, Ollama <code>:11434/v1</code>, vLLM <code>:8000/v1</code>, custom cloud); model dropdown populated from the test-connection response; api_key input is write-only (shows mask, never echoes stored value).</li>
+        <li><code class="status">[]</code> Wire route/navigation into <code>App.tsx</code>; surface test results inline (reachable / auth failed / unreachable).</li>
+      </ul>
+
+      <h4>2. TUI provider setup (Rust)</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>experimental/forge-cli/src/setup.rs</code> — a setup screen (preset list → base_url/model/key form → test → save) reached via a keybinding and auto-shown when no provider resolves.</li>
+        <li><code class="status">[]</code> TUI writes through the control-plane <code>/providers</code> API when the server is up, falling back to writing <code>$FORGE_HOME/providers.json</code> directly (same schema, 0600) when offline.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Type-level + build checks for the web app; cargo tests for the Rust store round-trip; a manual smoke via the dev server against a running control plane.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cd web && npm run build</code> — TS strict build green with the new page.</li>
+        <li><code class="status">[]</code> <code>cd experimental && cargo test && cargo build</code> — Rust setup flow compiles; providers.json round-trip test passes.</li>
+        <li><code class="status">[]</code> <code>uv run forge serve</code> + <code>cd web && npm run dev</code> — manual: save an LM Studio preset, Test shows model list, engine run picks it up.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 5 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 5: A2A adapter — Forge as a pluggable agent</h3>
+      <p>Implement the Agent2Agent protocol (a2a-protocol.org, Linux Foundation, v1.0): Forge publishes an Agent Card, accepts delegated tasks over HTTP + JSON-RPC, and streams progress via SSE. The adapter is a thin bridge: an incoming A2A message becomes a Forge goal; PGE batches drive the A2A task lifecycle. Forge's detached-run model (<code>pge_launcher</code>) is a natural fit for A2A's long-running-task semantics — the caller can disconnect and re-poll <code>tasks/get</code>.</p>
+      <figure>
+        <!-- {{PHASE_IMAGE: an external agent discovering Forge's Agent Card then delegating a task over JSON-RPC/SSE into the PGE loop, minimal}} -->
+        <figcaption>A2A bridge: peer agent → Agent Card discovery → <code>message/send</code> → goal → PGE loop → streamed task updates.</figcaption>
+      </figure>
+
+      <h4>1. Agent Card + discovery</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>a2a/agent_card.py</code> — build the AgentCard: name "Forge", one skill (<code>autonomous-coding</code>: long-horizon goal execution with test-verified completion), input/output modes <code>text/plain</code> + <code>application/json</code>, <code>capabilities.streaming = true</code>, <code>protocolVersion</code> pinned to the implemented spec revision, security scheme = HTTP bearer (the control-plane token).</li>
+        <li><code class="status">[]</code> Serve it unauthenticated at <code>GET /.well-known/agent-card.json</code> on the control-plane app (discovery must not require the token; the RPC endpoint does).</li>
+      </ul>
+
+      <h4>2. JSON-RPC methods + task bridge</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>a2a/server.py</code> — single JSON-RPC 2.0 POST endpoint (mounted at <code>/a2a</code>) implementing <code>message/send</code>, <code>message/stream</code> (SSE response of task status/artifact update events), <code>tasks/get</code>, <code>tasks/cancel</code>; standard JSON-RPC errors (-32600/-32601/-32602) plus A2A task-not-found.</li>
+        <li><code class="status">[]</code> <code>a2a/task_bridge.py</code> — mapping layer: A2A task ↔ Forge goal (+ contextId ↔ project). <code>message/send</code> resolves-or-creates a project (workspace under <code>workspaces_root()</code>, honoring <code>forbidden_workspaces()</code>), creates the goal, and launches a detached run via <code>pge_launcher.launch_pge</code>; task state derives from durable engine state: <code>submitted</code> (goal created) → <code>working</code> (batches running) → <code>completed</code> (goal verified) / <code>failed</code> (failure budget exhausted) / <code>canceled</code>. Final artifacts = file-change summary + evaluator test results.</li>
+        <li><code class="status">[]</code> Streaming: <code>message/stream</code> tails engine events (<code>forge_events</code> table / run manifest) and emits A2A <code>TaskStatusUpdateEvent</code> / <code>TaskArtifactUpdateEvent</code> frames; reconnect-safe because state is durable in Postgres.</li>
+        <li><code class="status">[]</code> Add <code>forge a2a</code> subcommand in <code>forge_cli.py</code> (serves the control-plane app; A2A routes included by default) and evaluate the official <code>a2a-sdk</code> Python package first — use it if stable, hand-roll the endpoint only if it isn't.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>FastAPI TestClient harness with the engine launcher mocked: card discovery, send→task lifecycle, SSE stream ordering, cancel, auth (401 without bearer on RPC, open card), JSON-RPC error codes, and task-state persistence across a simulated server restart.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_a2a_server.py -q</code> — card, send/stream/get/cancel, auth, and lifecycle transitions all proven.</li>
+        <li><code class="status">[]</code> <code>curl -s localhost:8787/.well-known/agent-card.json | jq .protocolVersion</code> — manual: card served and well-formed.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+
+    <!-- ================= PHASE 6 ================= -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 6: Docs, cleanup, and independence proof</h3>
+      <p>Finish the story: docs describe a standalone system, examples show all three plug-in paths, and CI-style validation pins it.</p>
+
+      <h4>1. Documentation + config</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Rewrite <code>.env.example</code> provider section to reference <code>providers.json</code> + Settings UI as the primary path, env vars as override; document token auto-generation.</li>
+        <li><code class="status">[]</code> Update <code>README.md</code> + <code>ARCHITECTURE.md</code>: standalone positioning, credential core diagram, A2A quick-start (curl the Agent Card, delegate a task from another agent), remove all Hermes mentions.</li>
+        <li><code class="status">[]</code> Add <code>docs/A2A.md</code> — Agent Card contents, goal↔task mapping, event translation table, auth scheme.</li>
+      </ul>
+
+      <h4>2. Testing Strategy</h4>
+      <p>Whole-tree validation: suite, lint, both frontends build, and the no-Hermes regression pin.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest -q && uv run ruff check .</code> — everything green.</li>
+        <li><code class="status">[]</code> <code>grep -ri hermes --include='*.py' --include='*.md' . | grep -v migrations | grep -v test_no_hermes</code> — returns nothing.</li>
+      </ul>
+      <div class="loop">🔁 <strong>Do not exit this phase until every box above is checked.</strong> If any command fails, fix the cause and re-run — loop until all pass.</div>
+    </div>
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[]</code> <code>uv run pytest -q</code> — full Python suite green (models, factory, credentials, providers API, A2A, regressions).</li>
+      <li><code class="status">[]</code> <code>uv run ruff check .</code> — lint clean.</li>
+      <li><code class="status">[]</code> <code>psql "$DATABASE_URL" -c "select count(*) from forge_projects"</code> — renamed schema live.</li>
+      <li><code class="status">[]</code> <code>cd web && npm run build</code> — console builds with Settings page.</li>
+      <li><code class="status">[]</code> <code>cd experimental && cargo build</code> — TUI builds with setup screen.</li>
+      <li><code class="status">[]</code> <code>uv run pytest tests/test_a2a_server.py -q</code> — A2A conformance harness green.</li>
+      <li><code class="status">[]</code> <code>grep -ri hermes --include='*.py' . | grep -v migrations | grep -v test_no_hermes | wc -l</code> — prints <code>0</code>.</li>
+    </ul>
+    <div class="loop">🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong></div>
+  </section>
+
+  <!-- ===== QUESTIONABLES ===== -->
+  <section id="questionables">
+    <h2>Questionables</h2>
+    <details>
+      <summary>Keep compatibility views / deprecated aliases, or hard-cut Hermes names?</summary>
+      <p class="qa-answer">Assumed: keep <code>hermes_*</code> SQL views and <code>Hermes* = Forge*</code> Python aliases for exactly one release, then drop in <code>migrations/003</code>. If nothing external actually reads the old names (only the retired Hermes plugin did), a hard cut is simpler — confirm before Phase 1.</p>
+    </details>
+    <details>
+      <summary>Secrets at rest: plaintext-0600 JSON vs OS keychain?</summary>
+      <p class="qa-answer">Assumed: 0600 <code>providers.json</code> (matches SSH/aws-cli convention, works headless in Docker). OS keyring (<code>keyring</code> lib) is nicer on desktop but breaks containers and remote hosts. Could add keyring as an optional backend later behind <code>FORGE_CREDENTIALS_BACKEND=keyring</code>.</p>
+    </details>
+    <details>
+      <summary>Official <code>a2a-sdk</code> vs hand-rolled A2A endpoint?</summary>
+      <p class="qa-answer">Assumed: try the official Python <code>a2a-sdk</code> first (v1.0-era, actively maintained under the Linux Foundation) and mount its ASGI app on the control plane; hand-roll the single JSON-RPC endpoint only if the SDK's server abstractions fight FastAPI or drag heavy deps. Decide at the top of Phase 5.</p>
+    </details>
+    <details>
+      <summary>A2A context mapping: contextId → project, task → goal?</summary>
+      <p class="qa-answer">Assumed: one A2A <code>contextId</code> = one Forge project (workspace), each task = one goal. Alternative — task per PGE batch — is too granular and leaks internals. Durable Postgres state supports re-attaching streams and <code>tasks/get</code> after disconnects, which is A2A's main long-running-task requirement.</p>
+    </details>
+    <details>
+      <summary>Should input-required be supported in v1?</summary>
+      <p class="qa-answer">Assumed no: Forge's loop is autonomous by design (blocked states end the run rather than pausing for input). If a host wants clarification round-trips, a later version can surface the planner's blocked state as A2A <code>input-required</code> instead of <code>failed</code>.</p>
+    </details>
+    <details>
+      <summary>Subscription-based providers (Claude/OpenAI subscription auth) vs API keys?</summary>
+      <p class="qa-answer">Assumed: v1 supports anything OpenAI-compatible with a bearer key (covers OpenRouter, vLLM gateways, LM Studio, Ollama). OAuth/subscription flows (e.g. Claude subscription) need a device-code flow and provider-specific clients — captured as future work in Notes, not in scope.</p>
+    </details>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+    <div class="callout"><strong>Why this order:</strong> the rename (Phase 1) touches the most files but is mechanical — doing it first means every later phase is written against final names. The LLM factory (Phase 2) must precede the credential store (Phase 3) consumers so <code>provider_for()</code> has exactly one caller path when its resolution order changes.</div>
+
+    <h3>Credential resolution order (final)</h3>
+    <table>
+      <tr><th>Priority</th><th>Source</th><th>Example</th></tr>
+      <tr><td>1 (highest)</td><td>Role-specific env</td><td><code>FORGE_EXECUTOR_API_KEY</code>, <code>PGE_EXECUTOR_MODEL</code></td></tr>
+      <tr><td>2</td><td>Global env</td><td><code>FORGE_LLM_API_KEY</code>, <code>LLM_BASE_URL</code></td></tr>
+      <tr><td>3</td><td><code>providers.json</code> role profile</td><td><code>{"executor": {"base_url": ...}}</code></td></tr>
+      <tr><td>4</td><td><code>providers.json</code> default profile</td><td><code>{"default": {...}}</code></td></tr>
+      <tr><td>5 (lowest)</td><td>Built-in local default</td><td>LM Studio <code>http://localhost:1234/v1</code></td></tr>
+    </table>
+
+    <h3>providers.json shape (aligned to contracts/provider-profile.schema.json)</h3>
+    <pre><code>{
+  "version": 1,
+  "profiles": {
+    "default":  { "base_url": "http://localhost:1234/v1", "model": "auto", "api_key": "not-needed", "auth_mode": "api_key" },
+    "executor": { "base_url": "http://localhost:1235/v1", "model": "qwen2.5-coder-32b", "api_key": "not-needed" }
+  }
+}</code></pre>
+
+    <h3>A2A event translation (Phase 5 reference)</h3>
+    <table>
+      <tr><th>Forge engine event</th><th>A2A emission</th></tr>
+      <tr><td>Goal created from incoming message</td><td>Task returned in state <code>submitted</code> (taskId = goal id, contextId = project id)</td></tr>
+      <tr><td>Batch running / planner picks task</td><td><code>TaskStatusUpdateEvent</code> → <code>working</code>, status message "Working on: …"</td></tr>
+      <tr><td>Executor file change</td><td><code>TaskArtifactUpdateEvent</code> — incremental file-change artifact (path + diff)</td></tr>
+      <tr><td>Evaluator test run</td><td><code>TaskStatusUpdateEvent</code> (<code>working</code>) with pass/fail summary message</td></tr>
+      <tr><td>Goal verified complete</td><td><code>TaskStatusUpdateEvent</code> → <code>completed</code> (final) + summary artifact (files changed, tests passed)</td></tr>
+      <tr><td>Failure budget exhausted / stagnation / blocked</td><td><code>TaskStatusUpdateEvent</code> → <code>failed</code> with diagnostic message</td></tr>
+      <tr><td><code>tasks/cancel</code> received</td><td>Stop the detached run (existing stop path) → <code>canceled</code></td></tr>
+    </table>
+
+    <h3>Dependencies</h3>
+    <ul>
+      <li>A2A: prefer <code>uv add a2a-sdk</code> (official Linux Foundation Python SDK) mounted on the existing FastAPI app; fallback is a hand-rolled JSON-RPC endpoint + <code>sse-starlette</code>-style streaming using what FastAPI already provides. Either way, no new transport stack — it rides the control plane.</li>
+      <li>Web: no new deps — plain fetch client + existing React 19 stack.</li>
+      <li>Rust TUI: <code>serde_json</code> already available via existing store; no new crates expected.</li>
+    </ul>
+
+    <h3>Risks & mitigations</h3>
+    <ul>
+      <li><strong>Rename breaks a hidden reader.</strong> Mitigated by compatibility views + one-release aliases + grep regression test.</li>
+      <li><strong>Key leakage via snapshots/logs.</strong> Mitigated by the "masked() is the only emit path" rule and a security regression pin.</li>
+      <li><strong>A2A spec evolution.</strong> v1.0 is stable but the ecosystem moves fast (signed Agent Cards, extensions); pin <code>protocolVersion</code> in the Agent Card and keep the bridge thin so bumps are localized to <code>a2a/</code>.</li>
+      <li><strong>Exposing an agent endpoint widens the attack surface.</strong> The A2A RPC endpoint reuses the control-plane bearer token and binds to <code>127.0.0.1</code> by default; only the Agent Card is unauthenticated. Document explicitly that exposing it beyond localhost requires a reverse proxy with real auth.</li>
+    </ul>
+
+    <h3>Future work (out of scope)</h3>
+    <ul>
+      <li>OAuth/device-code subscription auth (Claude, OpenAI subscriptions) as an <code>auth_mode</code>.</li>
+      <li>OS keychain credential backend.</li>
+      <li>A2A client-side mode (Forge delegating sub-tasks to other A2A agents), <code>input-required</code> clarification round-trips, signed Agent Cards, and push-notification webhooks for task completion.</li>
+      <li>Editor integration via Agent Client Protocol (Zed-style stdio ACP) — a separate, smaller adapter if editor embedding is ever wanted; deliberately not conflated with this A2A work.</li>
+    </ul>
+    <figure>
+      <!-- {{NOTES_IMAGE: timeline of the six phases with the shippable checkpoints marked, minimal}} -->
+      <figcaption>Each phase ships independently; Phases 1–2 are pure refactor, 3–5 add capability.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <!-- Append-only; populated by Update Plan / Update References workflows. -->
+    <details>
+      <summary>2026-07-11T09:05:00Z — Interop layer changed from Agent Client Protocol to A2A (Agent2Agent)</summary>
+      <p>The plan originally interpreted "ACP" as Zed's Agent Client Protocol (editor⇄agent over stdio). Per user clarification, the intended interop target is agent-to-agent plugging à la the A2A framework (Google → Linux Foundation, v1.0 2026). Phase 5 was rewritten: stdio JSON-RPC server replaced by an HTTP JSON-RPC + SSE endpoint mounted on the control plane, with Agent Card discovery at <code>/.well-known/agent-card.json</code>, <code>message/send</code>/<code>message/stream</code>/<code>tasks/get</code>/<code>tasks/cancel</code>, and a goal↔task lifecycle bridge. Files renamed <code>acp/*</code> → <code>a2a/*</code>; docs, tests, questionables, risks, and validation commands updated to match. Editor-oriented ACP moved to future work.</p>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

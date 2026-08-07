@@ -1,0 +1,26 @@
+{
+  "model": "gemma-qat",
+  "goals": [
+    {
+      "slug": "dijkstra",
+      "goal": "Implement Dijkstra shortest paths with useful tests.",
+      "project": "suite-1-dijkstra-0ce5d092",
+      "status": "timeout",
+      "elapsed_s": 3600.16,
+      "error": "Command '['/Users/biswajitmondal/Developer/forge/.venv/bin/python3', 'run_pge.py', '--new-project', 'suite-1-dijkstra-0ce5d092', '--goal', 'Implement Dijkstra shortest paths with useful tests.', '--desc', 'Implement Dijkstra shortest paths with useful tests.']' timed out after 3600 seconds",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 2,
+      "latest_test_status": "failure"
+    }
+  ],
+  "completed": 0,
+  "total": 1,
+  "elapsed_s": 3600.16,
+  "summary": {
+    "completed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 1
+  }
+}

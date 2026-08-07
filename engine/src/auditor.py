@@ -186,14 +186,21 @@ def cloud_chat(messages: list, model: str = None, max_tokens: int = 4000, timeou
     # Default to the first CLOUD entry — the chain is local-first for audits,
     # but escalation explicitly wants the big cloud brain.
     model = model or next((m for m in AUDITOR_MODELS if not m.startswith("lmstudio:")),
-                          "gemma4:31b-cloud")
+                          AUDITOR_MODELS[0] if AUDITOR_MODELS else "gemma4:31b-cloud")
+    base_url = OLLAMA_URL
+    if model.startswith("lmstudio:"):
+        model = model.split(":", 1)[1]
+        base_url = os.getenv("PGE_LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
     body = {"model": model, "messages": messages, "temperature": 0.2,
-            "max_tokens": max_tokens, "reasoning_effort": "low"}
+            "max_tokens": max_tokens,
+            "reasoning_effort": os.getenv("PGE_AUDITOR_REASONING_EFFORT", "low")}
     req = urllib.request.Request(
-        f"{OLLAMA_URL}/chat/completions", data=json.dumps(body).encode(),
+        f"{base_url}/chat/completions", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.loads(r.read())
+    from forge_runtime.usage import record_response_usage
+    record_response_usage(data)
     msg = (data.get("choices") or [{}])[0].get("message")
     return (msg.get("content") if isinstance(msg, dict) else str(msg or "")) or ""
 
@@ -214,7 +221,7 @@ def _post_chat(model: str, prompt: str, schema=None, max_tokens=6000, timeout=No
         "temperature": 0.2,
         "max_tokens": max_tokens,
         # Thinking cloud models (minimax) burn the budget on CoT otherwise.
-        "reasoning_effort": "low",
+        "reasoning_effort": os.getenv("PGE_AUDITOR_REASONING_EFFORT", "low"),
     }
     # NOTE: response_format json_schema is NOT sent — Ollama cloud ignores or
     # garbles it (verified 2026-06-12: schema-violating ids, fenced output).
@@ -227,6 +234,8 @@ def _post_chat(model: str, prompt: str, schema=None, max_tokens=6000, timeout=No
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.loads(r.read())
+    from forge_runtime.usage import record_response_usage
+    record_response_usage(data)
     if not isinstance(data, dict) or "choices" not in data:
         raise RuntimeError(f"unexpected response shape: {str(data)[:120]}")
     msg = (data["choices"] or [{}])[0].get("message")

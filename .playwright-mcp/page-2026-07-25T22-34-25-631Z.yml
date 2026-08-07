@@ -1,0 +1,107 @@
+- generic [ref=f1e4]:
+  - complementary "Application navigation" [ref=f1e5]:
+    - generic [ref=f1e6]: FORGE
+    - navigation "Primary" [ref=f1e13]:
+      - button "Runs" [ref=f1e14] [cursor=pointer]
+      - button "Agents" [pressed] [ref=f1e17] [cursor=pointer]
+      - button "Projects 2" [ref=f1e194] [cursor=pointer]:
+        - text: Projects
+        - generic [ref=f1e195]: "2"
+      - button "Approvals" [ref=f1e25] [cursor=pointer]
+      - button "Config" [ref=f1e29] [cursor=pointer]
+      - button "Settings" [ref=f1e33] [cursor=pointer]
+    - status "Gateway stopped" [ref=f1e196]
+  - main [ref=f1e47]:
+    - generic [ref=f1e49]:
+      - generic [ref=f1e50]:
+        - generic [ref=f1e52]: Agents
+        - generic [ref=f1e53]: /
+        - generic [ref=f1e54]: LM Studio · google/gemma-4-1
+      - heading "Agent routing" [level=1] [ref=f1e197]
+    - generic [ref=f1e198]:
+      - generic "Agent roster" [ref=f1e199]:
+        - button "Routing Governor route 0" [ref=f1e200] [cursor=pointer]:
+          - generic [ref=f1e202]:
+            - strong [ref=f1e203]: Routing Governor
+            - generic [ref=f1e204]: route
+          - generic [ref=f1e205]: "0"
+        - button "Planner decompose 0" [ref=f1e206] [cursor=pointer]:
+          - generic [ref=f1e208]:
+            - strong [ref=f1e209]: Planner
+            - generic [ref=f1e210]: decompose
+          - generic [ref=f1e211]: "0"
+        - button "Contract Auditor derive_contract 0" [ref=f1e212] [cursor=pointer]:
+          - generic [ref=f1e214]:
+            - strong [ref=f1e215]: Contract Auditor
+            - generic [ref=f1e216]: derive_contract
+          - generic [ref=f1e217]: "0"
+        - button "Coder edit_code 0" [active] [ref=f1e218] [cursor=pointer]:
+          - generic [ref=f1e220]:
+            - strong [ref=f1e221]: Coder
+            - generic [ref=f1e222]: edit_code
+          - generic [ref=f1e223]: "0"
+        - button "Tester build · run_tests 0" [ref=f1e224] [cursor=pointer]:
+          - generic [ref=f1e226]:
+            - strong [ref=f1e227]: Tester
+            - generic [ref=f1e228]: build · run_tests
+          - generic [ref=f1e229]: "0"
+        - button "Researcher lookup_docs 0" [ref=f1e230] [cursor=pointer]:
+          - generic [ref=f1e232]:
+            - strong [ref=f1e233]: Researcher
+            - generic [ref=f1e234]: lookup_docs
+          - generic [ref=f1e235]: "0"
+        - button "Diff Reviewer diff_review 0" [ref=f1e236] [cursor=pointer]:
+          - generic [ref=f1e238]:
+            - strong [ref=f1e239]: Diff Reviewer
+            - generic [ref=f1e240]: diff_review
+          - generic [ref=f1e241]: "0"
+        - button "Contract Evaluator verify_contract 0" [ref=f1e242] [cursor=pointer]:
+          - generic [ref=f1e244]:
+            - strong [ref=f1e245]: Contract Evaluator
+            - generic [ref=f1e246]: verify_contract
+          - generic [ref=f1e247]: "0"
+      - generic [ref=f1e248]:
+        - generic [ref=f1e249]:
+          - generic [ref=f1e250]: Live routing graph
+          - img "Agent routing graph" [ref=f1e251]:
+            - generic [ref=f1e252]: router
+            - generic [ref=f1e255]: planner
+            - generic [ref=f1e258]: auditor
+            - generic [ref=f1e261]: coder
+            - generic [ref=f1e264]: tester
+            - generic [ref=f1e267]: researcher
+            - generic [ref=f1e270]: reviewer
+            - generic [ref=f1e273]: evaluator
+          - generic [ref=f1e276]:
+            - generic [ref=f1e277]: policy
+            - generic [ref=f1e279]: model
+            - generic [ref=f1e281]: operator
+            - generic [ref=f1e283]: fallback
+        - complementary [ref=f1e285]:
+          - generic [ref=f1e286]: Agent inspector
+          - heading "Coder" [level=2] [ref=f1e314]
+          - paragraph [ref=f1e291]: "provider role: coder"
+          - heading "Tool allowlist" [level=3] [ref=f1e292]
+          - generic [ref=f1e315]:
+            - generic [ref=f1e316]: read_file
+            - generic [ref=f1e317]: write_file
+            - generic [ref=f1e318]: list_files
+            - generic [ref=f1e319]: search_text
+          - heading "Budget" [level=3] [ref=f1e295]
+          - progressbar [ref=f1e300]
+          - paragraph [ref=f1e301]: 0 routed turns · 4 consecutive-turn ceiling
+          - heading "Operator redirect" [level=3] [ref=f1e302]
+          - textbox "Why should the next decision route here?" [disabled] [ref=f1e305]
+          - 'button "Offline: read only" [disabled] [ref=f1e306]'
+      - generic [ref=f1e307]:
+        - generic [ref=f1e308]:
+          - generic [ref=f1e309]:
+            - generic [ref=f1e310]: Routing trace
+            - heading "Decision timeline" [level=2] [ref=f1e311]
+          - combobox [ref=f1e312]:
+            - option "All mechanisms" [selected]
+            - option "policy"
+            - option "model"
+            - option "operator"
+            - option "fallback"
+        - paragraph [ref=f1e313]: No routing decisions have been recorded yet.

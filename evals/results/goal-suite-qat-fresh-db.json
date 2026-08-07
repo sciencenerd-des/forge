@@ -1,0 +1,110 @@
+{
+  "model": "google/gemma-4-12b-qat",
+  "goals": [
+    {
+      "slug": "snake",
+      "goal": "Build a playable Snake game in Python using curses.",
+      "project": "suite-1-snake-3f73578e",
+      "status": "completed",
+      "elapsed_s": 1572.09,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 4,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "digits",
+      "goal": "Build a sklearn digits experiment loop and save results.json with accuracy above 0.95.",
+      "project": "suite-2-digits-99950d67",
+      "status": "completed",
+      "elapsed_s": 1111.22,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 3,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "lru",
+      "goal": "Implement an LRU cache with O(1) get and put operations.",
+      "project": "suite-3-lru-c7f96ab2",
+      "status": "completed",
+      "elapsed_s": 400.88,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "rpn",
+      "goal": "Build a robust reverse Polish notation calculator.",
+      "project": "suite-4-rpn-6affc129",
+      "status": "completed",
+      "elapsed_s": 1256.99,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 1,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "json-parser",
+      "goal": "Implement a JSON parser from scratch without importing the json module.",
+      "project": "suite-5-json-parser-627050b1",
+      "status": "blocked",
+      "elapsed_s": 476.01,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 0,
+      "latest_test_status": null
+    },
+    {
+      "slug": "tic-tac-toe",
+      "goal": "Build a playable tic-tac-toe game with win and draw detection.",
+      "project": "suite-6-tic-tac-toe-8d27eab5",
+      "status": "completed",
+      "elapsed_s": 355.85,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 2,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "dijkstra",
+      "goal": "Implement Dijkstra shortest paths with useful tests.",
+      "project": "suite-7-dijkstra-41fce04f",
+      "status": "completed",
+      "elapsed_s": 806.42,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 2,
+      "latest_test_status": "success"
+    },
+    {
+      "slug": "email-validator",
+      "goal": "Build a JavaScript email validator with tests.",
+      "project": "suite-8-email-validator-57569098",
+      "status": "completed",
+      "elapsed_s": 290.76,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 3,
+      "latest_test_status": "success"
+    }
+  ],
+  "completed": 7,
+  "total": 8,
+  "elapsed_s": 6270.76,
+  "summary": {
+    "completed": 7,
+    "failed": 0,
+    "blocked": 1,
+    "timeout": 0
+  }
+}

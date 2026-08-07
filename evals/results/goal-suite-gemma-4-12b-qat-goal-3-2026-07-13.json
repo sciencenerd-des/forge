@@ -1,0 +1,27 @@
+{
+  "model": "google/gemma-4-12b-qat",
+  "goals": [
+    {
+      "slug": "lru",
+      "goal": "Implement an LRU cache with O(1) get and put operations.",
+      "project": "suite-1-lru-2bf9c418",
+      "status": "completed",
+      "elapsed_s": 666.17,
+      "error": null,
+      "turns_used": null,
+      "goal_status": "completed",
+      "file_changes": 2,
+      "latest_test_status": "success"
+    }
+  ],
+  "completed": 1,
+  "total": 1,
+  "elapsed_s": 666.37,
+  "summary": {
+    "completed": 1,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 0,
+    "inconsistent": 0
+  }
+}

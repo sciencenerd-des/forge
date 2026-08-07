@@ -1,0 +1,27 @@
+{
+  "model": "google/gemma-4-12b-qat",
+  "goals": [
+    {
+      "slug": "snake",
+      "goal": "Build a playable Snake game in Python using curses.",
+      "project": "suite-1-snake-cef1c138",
+      "status": "timeout",
+      "elapsed_s": 1802.46,
+      "error": "exceeded 1800s",
+      "turns_used": null,
+      "goal_status": "active",
+      "file_changes": 2,
+      "latest_test_status": "failure"
+    }
+  ],
+  "completed": 0,
+  "total": 1,
+  "elapsed_s": 1802.55,
+  "summary": {
+    "completed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "timeout": 1,
+    "inconsistent": 0
+  }
+}

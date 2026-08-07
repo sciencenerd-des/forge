@@ -1,0 +1,37 @@
+# Keep Docker build context deterministic and small. Runtime state, local
+# model/evaluation artifacts, and Rust build products are not needed by the
+# control-plane image and can overwhelm Docker Desktop's filesystem layer.
+.git/
+.codex/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+.idea/
+.vscode/
+
+# Local state and generated databases
+.forge/
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated application and benchmark outputs
+node_modules/
+web/node_modules/
+web/dist/
+evals/results/
+workspaces/
+test-workspaces/
+AI_DOCS/
+
+# Rust artifacts (the source is copied; compiled artifacts are not)
+target/
+experimental/target/

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Security
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,14 +24,21 @@ from .runtime_snapshot import (
 from .schemas import (
     ApprovalCreate,
     ApprovalDecision,
+    ApprovalOut,
     BrowserActionCreate,
     BrowserSessionCreate,
+    DurableRunOut,
     EventCreate,
     ExternalActionCreate,
     LeaseClaim,
     LeaseHeartbeat,
     RunCreate,
+    RunEventOut,
+    RunStartResultOut,
+    RuntimeProjectSnapshot,
+    RuntimeRunSnapshot,
     RuntimeRunStart,
+    StopRunResultOut,
 )
 from .service import (
     ConflictError,
@@ -70,13 +77,18 @@ def get_db():
         db.close()
 
 
-def require_control_token(authorization: str | None = Header(default=None)) -> None:
+_control_bearer = HTTPBearer(auto_error=False)
+
+
+def require_control_token(
+    credentials: HTTPAuthorizationCredentials | None = Security(_control_bearer),
+) -> None:
     try:
         expected, _ = load_or_create_control_token()
     except RuntimeError as exc:
         raise HTTPException(503, "control-plane credential is unavailable") from exc
-    scheme, _, supplied = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
+    supplied = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else ""
+    if not secrets.compare_digest(supplied, expected):
         raise HTTPException(401, "invalid control-plane credential", headers={"WWW-Authenticate": "Bearer"})
 
 
@@ -93,7 +105,11 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/runtime/runs", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/runtime/runs",
+    response_model=list[RuntimeRunSnapshot],
+    dependencies=[Depends(require_control_token)],
+)
 def runtime_runs() -> list[dict]:
     """Read-only loopback dashboard feed for live PGE runs."""
     return list_runtime_snapshots()
@@ -111,36 +127,46 @@ def runtime_config() -> dict:
     return get_config_snapshot()
 
 
-@app.get("/runtime/projects", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/runtime/projects",
+    response_model=list[RuntimeProjectSnapshot],
+    dependencies=[Depends(require_control_token)],
+)
 def runtime_projects() -> list[dict]:
     """Projects with goal + task progress for the operator console."""
     return list_project_snapshots()
 
 
-@app.post("/runtime/runs/{project_id}/stop", dependencies=[Depends(require_control_token)])
+@app.post(
+    "/runtime/runs/{project_id}/stop",
+    response_model=StopRunResultOut,
+    dependencies=[Depends(require_control_token)],
+)
 def runtime_stop(project_id: str) -> dict:
-    """Stop a detached run: signal its process and mark the manifest stopped.
-    Loopback dashboard control (the console runs on localhost)."""
-    import signal
+    """Stop a detached run: terminate its whole process group and mark the
+    manifest stopped. Loopback dashboard control (the console runs on localhost).
 
-    from pge_launcher import load_run_state, process_is_alive, update_run
+    Reuses ``terminate_run`` so operator stops and eval timeouts share one
+    bounded TERM -> KILL termination path and identical lifecycle persistence."""
+    from pge_launcher import load_run_state, terminate_run
 
     manifest = load_run_state().get(project_id)
     if not manifest:
         raise HTTPException(404, "no run for that project")
     pid = manifest.get("pid")
     run_id = manifest.get("run_id")
-    if pid and process_is_alive(pid):
-        try:
-            os.kill(int(pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError) as exc:
-            raise HTTPException(409, f"could not signal pid {pid}: {exc}")
-    if run_id:
-        update_run(project_id, run_id, status="stopped", terminal_reason="stopped_by_operator")
-    return {"status": "stopped", "project_id": project_id, "pid": pid}
+    if not run_id:
+        return {"status": "stopped", "project_id": project_id, "pid": pid}
+    result = terminate_run(project_id, run_id, "stopped_by_operator")
+    return {"status": result.get("status", "stopped"), "project_id": project_id, "pid": pid}
 
 
-@app.post("/runtime/runs/start", status_code=201, dependencies=[Depends(require_control_token)])
+@app.post(
+    "/runtime/runs/start",
+    status_code=201,
+    response_model=RunStartResultOut,
+    dependencies=[Depends(require_control_token)],
+)
 def runtime_start(body: RuntimeRunStart) -> dict:
     """Create a durable goal and launch its detached PGE supervisor."""
     import forge_config
@@ -161,17 +187,30 @@ def runtime_start(body: RuntimeRunStart) -> dict:
     return result
 
 
-@app.post("/runs", status_code=201, dependencies=[Depends(require_control_token)])
+@app.post(
+    "/runs",
+    status_code=201,
+    response_model=DurableRunOut,
+    dependencies=[Depends(require_control_token)],
+)
 def runs_create(body: RunCreate, db: Session = Depends(get_db)) -> dict:
     return serialize_model(create_run(db, body.project_id, body.goal_id, body.provider_id, body.max_turns))
 
 
-@app.get("/runs", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/runs",
+    response_model=list[DurableRunOut],
+    dependencies=[Depends(require_control_token)],
+)
 def runs_list(db: Session = Depends(get_db)) -> list[dict]:
     return [serialize_model(run) for run in db.scalars(select(RunRecord).order_by(RunRecord.created_at.desc())).all()]
 
 
-@app.get("/runs/{run_id}", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/runs/{run_id}",
+    response_model=DurableRunOut,
+    dependencies=[Depends(require_control_token)],
+)
 def runs_get(run_id: str, db: Session = Depends(get_db)) -> dict:
     run = db.get(RunRecord, run_id)
     if not run:
@@ -193,7 +232,12 @@ def runs_heartbeat(run_id: str, body: LeaseHeartbeat, db: Session = Depends(get_
         raise translate_errors(error) from error
 
 
-@app.post("/runs/{run_id}/events", status_code=201, dependencies=[Depends(require_control_token)])
+@app.post(
+    "/runs/{run_id}/events",
+    status_code=201,
+    response_model=RunEventOut,
+    dependencies=[Depends(require_control_token)],
+)
 def events_create(run_id: str, body: EventCreate, db: Session = Depends(get_db)) -> dict:
     try:
         event = append_event(db, run_id, body.event_type, body.actor, body.payload)
@@ -203,7 +247,11 @@ def events_create(run_id: str, body: EventCreate, db: Session = Depends(get_db))
         raise translate_errors(error) from error
 
 
-@app.get("/runs/{run_id}/events", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/runs/{run_id}/events",
+    response_model=list[RunEventOut],
+    dependencies=[Depends(require_control_token)],
+)
 def events_list(run_id: str, after: int = Query(0, ge=0), db: Session = Depends(get_db)) -> list[dict]:
     events = db.scalars(select(RunEventRecord).where(RunEventRecord.run_id == run_id, RunEventRecord.sequence > after).order_by(RunEventRecord.sequence)).all()
     return [serialize_model(event) for event in events]
@@ -226,7 +274,12 @@ async def events_stream(run_id: str, after: int = Query(0, ge=0)) -> StreamingRe
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-@app.post("/approvals", status_code=201, dependencies=[Depends(require_control_token)])
+@app.post(
+    "/approvals",
+    status_code=201,
+    response_model=ApprovalOut,
+    dependencies=[Depends(require_control_token)],
+)
 def approvals_create(body: ApprovalCreate, db: Session = Depends(get_db)) -> dict:
     try:
         return serialize_model(request_approval(db, **body.model_dump()))
@@ -234,7 +287,11 @@ def approvals_create(body: ApprovalCreate, db: Session = Depends(get_db)) -> dic
         raise translate_errors(error) from error
 
 
-@app.get("/approvals", dependencies=[Depends(require_control_token)])
+@app.get(
+    "/approvals",
+    response_model=list[ApprovalOut],
+    dependencies=[Depends(require_control_token)],
+)
 def approvals_list(status: str | None = None, db: Session = Depends(get_db)) -> list[dict]:
     statement = select(ApprovalRecord).order_by(ApprovalRecord.created_at.desc())
     if status:
@@ -242,7 +299,11 @@ def approvals_list(status: str | None = None, db: Session = Depends(get_db)) -> 
     return [serialize_model(item) for item in db.scalars(statement).all()]
 
 
-@app.post("/approvals/{approval_id}/decision", dependencies=[Depends(require_control_token)])
+@app.post(
+    "/approvals/{approval_id}/decision",
+    response_model=ApprovalOut,
+    dependencies=[Depends(require_control_token)],
+)
 def approvals_decide(approval_id: str, body: ApprovalDecision, db: Session = Depends(get_db)) -> dict:
     try:
         return serialize_model(decide_approval(db, approval_id, body.actor, body.approved, body.reason))

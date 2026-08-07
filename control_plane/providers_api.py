@@ -15,6 +15,7 @@ from forge_runtime.credentials import (
 )
 
 from .api import require_control_token
+from .schemas import ProviderListOut, ProviderProfileOut
 
 router = APIRouter(prefix="/providers", tags=["providers"], dependencies=[Depends(require_control_token)])
 
@@ -31,12 +32,12 @@ def _profiles() -> dict[str, dict[str, Any]]:
     return {role: masked_profile(profile) for role, profile in load()["profiles"].items()}
 
 
-@router.get("")
+@router.get("", response_model=ProviderListOut)
 def providers_list() -> dict[str, Any]:
     return {"version": 1, "profiles": _profiles()}
 
 
-@router.put("/{role}")
+@router.put("/{role}", response_model=ProviderProfileOut)
 def providers_put(role: str, body: ProviderUpdate) -> dict[str, Any]:
     if role not in ROLES:
         raise HTTPException(422, f"unsupported provider role: {role}")

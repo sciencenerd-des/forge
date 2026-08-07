@@ -26,6 +26,22 @@ CONFIG_WHITELIST = {
     "prompt_template_variant",
 }
 
+# The single per-goal outcome vocabulary shared by every producer that feeds
+# this gate (evals/runner.py and evals/goal_suite.py). Keeping it here — in the
+# consumer that defines the schema — is what lets both pipelines emit gate-ready
+# results instead of each inventing its own goal_id/outcome shape.
+VERIFIED = "verified"                    # acceptance contract passed on re-run
+COMPLETE_UNVERIFIED = "complete_unverified"  # agent claimed done, contract rejected
+BLOCKED = "blocked"                      # could not be verified (or never finished)
+ERROR = "error"                          # crashed / harness or runtime failure
+SKIPPED = "skipped"                      # not attempted (e.g. no backend)
+VALID_OUTCOMES = (VERIFIED, COMPLETE_UNVERIFIED, BLOCKED, ERROR, SKIPPED)
+
+
+def is_verified(outcome: str) -> bool:
+    return outcome == VERIFIED
+
+
 # metric_name -> True if lower is better
 METRIC_DIRECTIONS = {
     "verified_completion_rate": False,  # higher is better
@@ -43,9 +59,28 @@ class GateResult:
     deltas: dict
 
 
+# v2 reports must carry these comparison metrics as real numbers; a null (an
+# honest "unmeasured") makes the pair incomparable and fails the gate, rather
+# than being silently treated as a favorable zero.
+REQUIRED_V2_METRICS = (
+    "verified_completion_rate", "mean_cycles_to_done", "mean_distance_auc", "token_cost",
+)
+
+# Verdicts that are the harness's fault, reported separately from model failures
+# so infrastructure instability is never hidden inside a model "blocked".
+_HARNESS_VERDICTS = {"harness_error"}
+
+
 def evaluate_gate(candidate: dict, baseline: dict) -> GateResult:
+    from evals.contracts import comparability_reasons, is_versioned
+
     reasons: list[str] = []
     deltas: dict = {}
+
+    # Refuse to compare unlike v2 runs before doing anything else (legacy dicts
+    # without a schema_version keep the historical metric-only comparison).
+    reasons.extend(comparability_reasons(candidate, baseline))
+    versioned = is_versioned(candidate) and is_versioned(baseline)
 
     candidate_goals = candidate.get("goals")
     baseline_goals = baseline.get("goals")
@@ -58,12 +93,20 @@ def evaluate_gate(candidate: dict, baseline: dict) -> GateResult:
         incomplete = [
             str(goal.get("goal_id", "unknown"))
             for goal in candidate_goals
-            if not isinstance(goal, dict) or goal.get("outcome") != "verified"
+            if not isinstance(goal, dict) or not is_verified(goal.get("outcome", ""))
         ]
         if incomplete:
             reasons.append(
                 "candidate has incomplete benchmark goals: " + ", ".join(incomplete)
             )
+        # Report harness failures distinctly from model failures.
+        harness = [
+            str(goal.get("goal_id", "unknown"))
+            for goal in candidate_goals
+            if isinstance(goal, dict) and goal.get("outcome") in _HARNESS_VERDICTS
+        ]
+        if harness:
+            reasons.append("candidate has harness failures: " + ", ".join(harness))
 
     if isinstance(candidate_goals, list) and isinstance(baseline_goals, list):
         candidate_ids = {
@@ -79,8 +122,16 @@ def evaluate_gate(candidate: dict, baseline: dict) -> GateResult:
     if cand_false > 0:
         reasons.append(f"hard-fail: candidate has {cand_false} false completion(s)")
 
+    # A v2 report must supply every comparison metric as a real number. Missing
+    # or null is a failure to measure, not a free win.
+    if versioned:
+        for metric in REQUIRED_V2_METRICS:
+            for label, report in (("candidate", candidate), ("baseline", baseline)):
+                if report.get(metric) is None:
+                    reasons.append(f"{label} is missing required metric {metric!r}")
+
     for metric, lower_is_better in METRIC_DIRECTIONS.items():
-        if metric not in candidate or metric not in baseline:
+        if candidate.get(metric) is None or baseline.get(metric) is None:
             continue
         c, b = candidate[metric], baseline[metric]
         deltas[metric] = c - b
@@ -89,6 +140,28 @@ def evaluate_gate(candidate: dict, baseline: dict) -> GateResult:
             reasons.append(f"regression on {metric}: baseline={b} candidate={c}")
 
     return GateResult(passed=not reasons, reasons=tuple(reasons), deltas=deltas)
+
+
+def evaluate_self_improvement_gate(candidate: dict, baseline: dict,
+                                   min_replicates: int = 3) -> GateResult:
+    """Stricter gate for accepting a self-improvement proposal.
+
+    A stochastic local model can pass one lucky run, so a self-improvement
+    decision additionally requires both sides to aggregate at least
+    ``min_replicates`` trials (paired, under the same environment). Everything
+    else is the standard comparability + regression + false-completion gate.
+    """
+    base = evaluate_gate(candidate, baseline)
+    reasons = list(base.reasons)
+    for label, report in (("candidate", candidate), ("baseline", baseline)):
+        env = report.get("environment") or {}
+        replicates = report.get("replicate_count", env.get("replicate_count"))
+        if replicates is None or replicates < min_replicates:
+            reasons.append(
+                f"{label} has {replicates} replicate(s); self-improvement needs "
+                f">= {min_replicates} (never gate on one lucky run)"
+            )
+    return GateResult(passed=not reasons, reasons=tuple(reasons), deltas=base.deltas)
 
 
 def validate_whitelist(proposed_changes: dict) -> tuple[bool, tuple[str, ...]]:

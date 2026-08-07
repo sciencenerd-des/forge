@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Forge Rust CLI/TUI — Pi-Style Operator &amp; Coding-Agent Surface</title>
+<style>
+:root {
+  --bg: #101214;
+  --panel: #17191d;
+  --panel-2: #1d2025;
+  --ink: #e8e6e1;
+  --ink-dim: #9a978f;
+  --accent: #e8a33d;        /* forge amber */
+  --accent-2: #7fb4a2;      /* verdigris */
+  --danger: #d47069;
+  --new: #7fb4a2;
+  --existing: #8a9bb8;
+  --pi: #b48ead;            /* pi harness violet */
+  --rust: #dea584;          /* rust ochre */
+  --border: #2a2d33;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -0.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--accent-2); margin-top: 1.5rem; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .12em .4em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent-2); }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .6rem; }
+details.meta, #questionables details, #amendments details {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: .6rem 1rem; margin: .8rem 0;
+}
+details summary { cursor: pointer; color: var(--accent-2); font-weight: 600; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem 1rem; margin: .8rem 0 0; }
+dt { color: var(--ink-dim); font-family: var(--mono); font-size: .8rem; }
+dd { margin: 0; font-family: var(--mono); font-size: .8rem; word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 999px; margin-right: .4em; text-transform: uppercase; letter-spacing: .05em; }
+.tag.new { background: rgba(127,180,162,.15); color: var(--new); border: 1px solid var(--new); }
+.tag.existing { background: rgba(138,155,184,.12); color: var(--existing); border: 1px solid var(--existing); }
+.tag.pi { background: rgba(180,142,173,.15); color: var(--pi); border: 1px solid var(--pi); }
+.tag.rust { background: rgba(222,165,132,.15); color: var(--rust); border: 1px solid var(--rust); }
+.tag.backlog { background: rgba(154,151,143,.12); color: var(--ink-dim); border: 1px solid var(--ink-dim); }
+.phase { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.4rem 1.4rem; margin: 1.6rem 0; }
+.phase h3 { margin-top: .4rem; }
+ul.checklist { list-style: none; padding-left: .2rem; }
+ul.checklist li { margin: .35rem 0; }
+.status { color: var(--accent); }
+.loop { background: rgba(232,163,61,.08); border: 1px solid rgba(232,163,61,.35); border-radius: 8px; padding: .7rem 1rem; margin-top: 1rem; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-2); color: var(--accent-2); font-weight: 600; }
+tr:nth-child(even) td { background: var(--panel); }
+.callout { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent-2); border-radius: 8px; padding: .8rem 1.2rem; margin: 1.2rem 0; }
+.callout.warn { border-left-color: var(--danger); }
+kbd { font-family: var(--mono); font-size: .8em; background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: .1em .45em; }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Forge Rust CLI/TUI — Pi-Style Operator &amp; Coding-Agent Surface</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-12T06:50:40Z</dd>
+        <dt>modified</dt>     <dd>2026-07-12T06:50:40Z, 2026-07-12T07:10:14Z, 2026-07-12T11:32:48Z</dd>
+        <dt>commits</dt>      <dd>3fa0fb0 (branch: agent/standalone-a2a-auth)</dd>
+        <dt>agent name</dt>   <dd>claude-fable-5, claude-fable-5</dd>
+        <dt>session id</dt>   <dd>5b3d94f7-98f3-46ee-823a-ba3a7f32f7a5, 5b3d94f7-98f3-46ee-823a-ba3a7f32f7a5</dd>
+        <dt>back refs</dt>    <dd>ARCHITECTURE.md, docs/A2A.md, specs/forge-standalone-a2a-auth.html, experimental/README.md</dd>
+        <dt>forward refs</dt> <dd>specs/forge-rust-tui-cycle2.html (Cycle 2: contract integrity, session completion, evidence work), (future RFCs: forge-tools native tool layer — go/no-go decided by Cycle 2 Phase 5 benchmark, forge-agent no-Node native loop)</dd>
+      </dl>
+    </details>
+  </header>
+
+  <!-- Hero image — synced to the :root visual identity. Replace with <img> once generated. -->
+  <figure>
+    <!-- {{HERO_IMAGE: dark minimalist terminal window split into an operator dashboard and an agent transcript, amber "FORGE" wordmark, a violet "pi" glyph feeding events into a rust pipeline; words shown: "FORGE", "pi rpc", "rust"}} -->
+    <figcaption>One Rust binary, two faces: PGE operator dashboard and a pi-driven coding-agent session.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE / PROBLEM / SOLUTION ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>
+      Turn <code>experimental/forge-cli</code> from a disconnected skeleton into the <strong>primary operator
+      entry point</strong> for Forge: a single fast Rust binary with a minimalist, Pi-inspired TUI that
+      (1)&nbsp;fully drives the Python PGE harness through the control plane (runs, live events, approvals,
+      providers), and (2)&nbsp;hosts interactive coding-agent sessions by using the
+      <a href="https://github.com/earendil-works/pi">Pi coding agent</a> as the session harness over its
+      documented RPC protocol. The scope is deliberately bounded to the <em>operator path plus the Pi seam</em>;
+      a native Rust tool layer and a no-Node native agent loop are recorded as evidence-driven follow-up
+      proposals (see <a href="#notes">Backlog</a>), not phases of this plan.
+    </p>
+  </section>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>
+      The Rust CLI today is ~1,200 lines that never touch the real system: it keeps its own local JSON store of
+      projects/goals/runs that nothing else reads, its TUI is a read-only two-pane viewer polling
+      <code>$FORGE_HOME/logs/pge_runs/runs.json</code> every 250&nbsp;ms, and it has no HTTP client, no SSE, no
+      approvals, no interactive agent. Meanwhile every real capability lives behind the FastAPI
+      control plane on <code>:8787</code> (bearer-token REST + SSE: <code>/runtime/runs/start</code>,
+      <code>/runtime/runs/{project}/stop</code>, <code>/runs/{id}/events/stream</code>, <code>/approvals</code>,
+      <code>/providers</code>, A2A JSON-RPC) — reachable only through the React web console or raw
+      <code>curl</code>. There is no fast, keyboard-first terminal surface, and no way to hold an interactive
+      coding-agent conversation from the terminal at all. Separately, the user's target UX — the Pi coding agent —
+      is a TypeScript program; the design question is <em>which parts of pi to reuse as a harness and which parts
+      must be custom Rust</em>.
+    </p>
+    <figure>
+      <!-- {{PROBLEM_IMAGE: a small gray terminal skeleton disconnected by a broken cable from a large amber control-plane block labeled with run/approval/event icons; words shown: "read-only TUI", "control plane :8787"}} -->
+      <figcaption>Today: a read-only TUI skeleton on the left, every real capability stranded behind the control plane on the right.</figcaption>
+    </figure>
+  </section>
+
+  <section id="solution">
+    <h2>Solution</h2>
+    <p>
+      Grow the workspace to exactly three crates — <code>forge-cli</code> (binary + TUI), <code>forge-api</code>
+      (control-plane client), <code>forge-pi</code> (Pi RPC bridge) — and split responsibilities along a
+      <strong>harness decision matrix</strong> (full table in <a href="#notes">Notes</a>):
+      <strong>pi is the harness for interactive coding-agent sessions</strong> — spawned as a child process in
+      <code>pi --mode rpc</code> (strict LF-delimited JSONL over stdin/stdout), giving us its agent loop, its
+      built-in tool set (<code>read/write/edit/bash/grep/find/ls</code>), 8+ providers with OAuth, streaming,
+      session branching/compaction, and cost tracking for free; <strong>everything Forge-specific is custom
+      Rust</strong> — the control-plane client (REST + SSE) and the operator TUI (ratatui, pi's minimalist design
+      language). Work is ordered so the seams are proven first (Phase 0 contract-and-spike), the operator path
+      ships first (Phases 1–2, no Node required), and the Pi session lands on top (Phase 3). The TUI has exactly
+      two top-level modes — <em>Operator</em> (runs, events, approvals, providers) and <em>Session</em>
+      (agent transcript + editor) — switched with <kbd>tab</kbd>, honoring pi's "minimal core, no spaceship"
+      philosophy.
+    </p>
+    <figure>
+      <!-- {{SOLUTION_IMAGE: architecture diagram of one rust binary with two panes, left pane arrows to an amber control-plane cylinder via REST/SSE, right pane arrows to a violet pi process via JSONL stdio; words shown: "forge (rust)", "control plane", "pi --mode rpc"}} -->
+      <figcaption>Target architecture: one Rust binary; REST/SSE to the control plane, JSONL RPC to an optional pi subprocess.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>experimental/Cargo.toml</code> — becomes the workspace root; today declares only <code>forge-cli</code>.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/main.rs</code> — clap CLI (project/goal/run/provider over a local JSON store); commands get rewired to the control plane; URL/env-name validators are kept.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/tui.rs</code> — read-only ratatui viewer; replaced by the modal TUI in Phases 2–3.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/model.rs</code> — domain structs; superseded by the distinct contract types defined in Phase 0.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/store.rs</code> — local JSON store; demoted to offline cache only.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/setup.rs</code> — provider profile writer for <code>$FORGE_HOME/providers.json</code>; retained as the offline fallback.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/api.py</code> — the REST/SSE contract the Rust client must match (runtime runs, runs+events, approvals, providers).</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/schemas.py</code> — Pydantic request bodies (<code>RuntimeRunStart</code>, <code>ApprovalDecision</code>, …) to mirror as serde types.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/runtime_snapshot.py</code> — the <em>synthesized</em> runtime snapshot shape (identifier field is <code>id</code>, not <code>run_id</code>) — a distinct type from durable runs.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/providers_api.py</code> — role-keyed provider CRUD + <code>/providers/{role}/test</code>.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/auth.py</code> — token-file lifecycle: loose permissions are <em>repaired</em> with <code>chmod 0600</code> and accepted, not rejected; the Rust side mirrors this behavior.</li>
+      <li><span class="tag existing">existing</span> <code>pge_launcher.py</code> — writes <code>$FORGE_HOME/logs/pge_runs/runs.json</code> and mirrors lifecycle records into durable event tables; the manifest shape used by the TUI's offline fallback.</li>
+      <li><span class="tag existing">existing</span> <code>docs/A2A.md</code>, <code>ARCHITECTURE.md</code>, <code>forge_cli.py</code> — system context; the Python CLI stays the engine-side entry point (<code>forge run/serve/a2a/config</code>).</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>contracts/openapi/control-plane.json</code> + <code>contracts/fixtures/*.json</code> — versioned OpenAPI export of the FastAPI app and representative response fixtures <em>serialized by Python tests</em> (the anti-drift mechanism).</li>
+      <li><span class="tag new">new</span> <code>tests/contract/test_fixture_export.py</code> — Python test that regenerates/validates the fixtures from real handlers, so contract changes fail loudly on the Python side.</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-api/src/lib.rs</code> (+ <code>client.rs</code>, <code>sse.rs</code>, <code>types.rs</code>, <code>config.rs</code>) — async control-plane client (reqwest/rustls), distinct contract types, config/token resolution, SSE decoding; optional <code>a2a.rs</code> later.</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-api/tests/fixtures.rs</code> — Rust decoding tests over the shared <code>contracts/fixtures/</code>; <code>tests/transport.rs</code> — axum mock used <em>only</em> for transport behavior (auth failure, SSE reconnect).</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-pi/src/lib.rs</code> (+ <code>process.rs</code>, <code>codec.rs</code>, <code>protocol.rs</code>) — pi RPC bridge: child-process lifecycle, strict-LF JSONL codec, id-correlated commands, event fan-out, extension-UI dialog handling.</li>
+      <li><span class="tag new">new</span> <code>experimental/crates/forge-pi/tests/fixtures/*.jsonl</code> + a fake-pi test binary — recorded RPC transcripts for offline protocol tests; doubles as the pinned-version contract spec.</li>
+      <li><span class="tag new">new</span> <code>experimental/forge-cli/src/commands/</code> (<code>run.rs</code>, <code>approvals.rs</code>, <code>provider.rs</code>, <code>session.rs</code>, <code>health.rs</code>) — subcommand handlers over <code>forge-api</code>/<code>forge-pi</code>.</li>
+      <li><span class="tag new">new</span> <code>experimental/forge-cli/src/tui/</code> (<code>app.rs</code>, <code>operator.rs</code>, <code>session.rs</code>, <code>widgets.rs</code>, <code>theme.rs</code>, <code>keys.rs</code>) — the modal TUI with split priority/bulk event queues.</li>
+      <li><span class="tag new">new</span> <code>experimental/README.md</code> (rewrite) + <code>docs/RUST_CLI.md</code> — operator docs, keymap, pi setup + pinned version, harness matrix, packaging statement.</li>
+    </ul>
+    <p class="callout"><strong>Deliberately not created in this plan:</strong> <code>crates/forge-core</code> (extract only when ≥2 crates genuinely share ownership — until then config lives in <code>forge-api</code>), <code>crates/forge-tools</code>, <code>crates/forge-agent</code> (backlog/RFC — see Notes).</p>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+    <p><strong>Shippable milestones:</strong> Phase 1 (operator CLI) and Phase 2 (operator TUI) each ship independently and require no Node/pi. Phase 3 layers the Pi session on top.</p>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 0: Contract &amp; Pi Feasibility Spike</h3>
+      <p>Prove both external seams — the control-plane contract and the pi RPC protocol — <em>before</em> any architecture depends on them. Exit criterion: fixtures decode in Rust and a pi spike completes a full round-trip.</p>
+
+      <h4>1. Control-plane contract capture</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Export the FastAPI OpenAPI document to <code>contracts/openapi/control-plane.json</code> (one-line script: <code>app.openapi()</code>) and commit it versioned.</li>
+        <li><code class="status">[]</code> Write <code>tests/contract/test_fixture_export.py</code>: serialize representative responses from the real handlers — runtime snapshot list, durable run, event page, approval, provider profile (masked), start-run result, stop result, error bodies (401/404/409) — into <code>contracts/fixtures/</code>.</li>
+        <li><code class="status">[]</code> Define the distinct Rust types these fixtures prove (in <code>forge-api::types</code>): <code>RuntimeRunSnapshot</code> (synthesized, keyed by <code>id</code> per <code>runtime_snapshot.py</code>), <code>DurableRun</code> (DB record from <code>/runs/{id}</code>), <code>RunEvent</code>, <code>RunStartResult</code>, <code>Approval</code>, <code>ProviderProfile</code>, and <code>OfflineRunManifest</code> (the <code>pge_launcher</code> shape). <strong>Do not normalize them into one broad struct</strong> — stop is project-addressed, event streaming is run-addressed; the types must make that unmixable.</li>
+      </ul>
+
+      <h4>2. Pi RPC spike</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Install the current package (<code>npm i -g @earendil-works/pi-coding-agent</code>; repo <code>earendil-works/pi</code>) and <strong>pin the exact tested version</strong> in <code>docs/RUST_CLI.md</code> and CI.</li>
+        <li><code class="status">[]</code> Minimal Rust spike (~200 lines, will become <code>forge-pi</code> seed): spawn <code>pi --mode rpc</code>; send <code>prompt</code> with correlated <code>id</code>; parse streamed <code>message_update</code> text/tool events through <code>agent_settled</code>; answer one extension <code>confirm</code> dialog; verify crash behavior (kill pi mid-stream → client errors, no hang) and clean shutdown.</li>
+        <li><code class="status">[]</code> Record the raw JSONL transcript of the spike into <code>forge-pi/tests/fixtures/</code> — this becomes the offline contract for the pinned version.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>The spike <em>is</em> the test. Edge cases exercised here on purpose: CRLF lines, an oversized (multi-MB) event line, unknown event types (must be tolerated), pi binary absent (clean error with install hint).</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/contract -q</code> — fixture export runs green and produces committed fixtures.</li>
+        <li><code class="status">[]</code> <code>cargo run -p pi-spike</code> — live round-trip: prompt → streamed events → agent_settled → dialog answered → clean exit.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 1: Operator CLI (first shippable milestone)</h3>
+      <p>Workspace conversion plus <code>forge-api</code> and the command surface. Everything the web console can do to operate runs, from the terminal, with stable <code>--json</code> output. No Node required.</p>
+
+      <h4>1. Workspace &amp; client foundation</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Convert <code>experimental/Cargo.toml</code> to a workspace with members <code>forge-cli</code>, <code>crates/forge-api</code>, <code>crates/forge-pi</code>; centralize deps in <code>[workspace.dependencies]</code> (tokio, reqwest rustls-tls, futures-util, thiserror, tracing); release profile <code>lto = "thin"</code>, <code>strip = true</code>.</li>
+        <li><code class="status">[]</code> <code>forge-api::config</code>: resolve <code>FORGE_HOME</code> (else <code>~/.forge</code>), control-plane URL (<code>FORGE_CONTROL_URL</code>, default <code>http://127.0.0.1:8787</code>), token from <code>FORGE_CONTROL_TOKEN</code> else <code>$FORGE_HOME/control-token</code> — on loose file permissions, <strong>repair with chmod 0600 and continue</strong>, exactly mirroring <code>forge_runtime/auth.py</code>.</li>
+        <li><code class="status">[]</code> Implement typed endpoints over the Phase 0 types: <code>health</code>, <code>runtime_runs</code>, <code>runtime_projects</code>, <code>start_run</code>, <code>stop_run(project_id)</code>, <code>runs_get(run_id)</code>, <code>events_list(run_id, after)</code>, <code>approvals_list/decide</code>, <code>providers get/put/delete/test</code> — bearer auth, typed 401/404/409 errors.</li>
+        <li><code class="status">[]</code> <code>events_stream(run_id, after)</code>: use an established SSE parser crate (<code>eventsource-stream</code>) over reqwest byte streams — standards-aware framing (CRLF, chunk boundaries, multi-<code>data:</code>, comments) — plus auto-reconnect with <code>after</code> cursor and exponential backoff.</li>
+      </ul>
+
+      <h4>2. Command surface</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>forge health</code>, <code>forge config</code> (token masked).</li>
+        <li><code class="status">[]</code> <code>forge run start --goal "…" [--description …] [--project ID]</code>; <code>forge run stop &lt;project_id&gt;</code>; <code>forge run list [--watch]</code>; <code>forge run events &lt;run_id&gt; [--follow]</code> (SSE tail as JSONL to stdout).</li>
+        <li><code class="status">[]</code> <code>forge approvals list [--status pending]</code>; <code>forge approvals decide &lt;id&gt; --approve|--deny --reason "…"</code>.</li>
+        <li><code class="status">[]</code> <code>forge provider list|set|rm|test</code> against <code>/providers/{role}</code>; keep the local <code>provider setup</code> writer as offline fallback.</li>
+        <li><code class="status">[]</code> Global <code>--json</code>: human tables by default (no <code>{:#?}</code> dumps), stable JSON with the flag. <code>run list</code> falls back to the <code>OfflineRunManifest</code> read-only when the control plane is unreachable, clearly labeled <code>source: "offline-manifest"</code>. Demote <code>store.rs</code>; delete write paths that shadow the control plane.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Two-layer testing: (a) <strong>fixture decoding</strong> — every Phase 0 fixture deserializes into its Rust type (this is the contract-drift tripwire; when the Python API changes, regenerated fixtures break these tests); (b) <strong>transport behavior</strong> — a small axum mock used only for auth rejection, 409s, and SSE mid-stream disconnect/reconnect. Edge cases: missing token, control plane down (offline fallback), malformed manifest.</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cargo test -p forge-api</code> — fixture decoding + transport tests pass offline.</li>
+        <li><code class="status">[]</code> <code>cargo run -p forge-cli -- --json health</code> — against a locally running <code>forge serve</code>, returns ok.</li>
+        <li><code class="status">[]</code> <code>cargo run -p forge-cli -- run start --goal "smoke goal" &amp;&amp; cargo run -p forge-cli -- run list --json</code> — full round-trip visible in the real control plane.</li>
+        <li><code class="status">[]</code> <code>cargo clippy --workspace -- -D warnings</code> — clean.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 2: Operator TUI (second shippable milestone)</h3>
+      <p>Replace the read-only viewer with a live, keyboard-first operator surface in pi's design language. Ships independently of pi/Node.</p>
+
+      <figure>
+        <!-- {{PHASE2_IMAGE: minimal dark TUI wireframe, left column run list with status glyphs, right column live event feed, bottom approval bar with y/n hints; words shown: "runs", "events", "approve? y/n"}} -->
+        <figcaption>Operator mode: runs left, live events right, approvals surface inline the moment they arrive.</figcaption>
+      </figure>
+
+      <h4>1. App shell &amp; event architecture (input can never starve)</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <strong>Two queues, not one:</strong> a high-priority channel for input/control events (keyboard, resize, shutdown) and a separate bounded bulk channel for SSE/stream events. The draw loop always drains priority first.</li>
+        <li><code class="status">[]</code> Bulk events are <strong>batched and coalesced</strong>: SSE lines append to a capped model buffer (10k-line scrollback) and set a dirty flag; redraw notifications coalesce so a burst produces one frame, not N. No per-line traffic through the UI channel.</li>
+        <li><code class="status">[]</code> <code>tui/theme.rs</code>: amber/verdigris palette matching this spec; all colors via the theme. Global keys: <kbd>?</kbd> help, <kbd>q</kbd> quit, <kbd>tab</kbd> mode switch, <kbd>j</kbd>/<kbd>k</kbd> select, <kbd>enter</kbd> open — nothing else at top level.</li>
+      </ul>
+
+      <h4>2. Operator views</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Runs pane: live <code>RuntimeRunSnapshot</code> list; when offline, the <code>OfflineRunManifest</code> view renders with an unmissable <strong>OFFLINE</strong> banner — live and offline states are visually distinct, never merged.</li>
+        <li><code class="status">[]</code> Detail pane: selected run's <code>RunEvent</code> stream via <code>events_stream</code> (follow mode), log-tail fallback from the manifest's <code>log</code> path.</li>
+        <li><code class="status">[]</code> Actions: <kbd>s</kbd> start run (inline goal editor → <code>RunStartResult</code>), <kbd>x</kbd> stop selected project (confirm; project-addressed per the API), <kbd>p</kbd> providers panel (list/test/set).</li>
+        <li><code class="status">[]</code> Approvals: <kbd>a</kbd> view + inline bar the moment a pending approval exists; <kbd>y</kbd>/<kbd>n</kbd> with required reason → decide. The human gate for PGE external actions — the most important widget in the app.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Deterministic UI tests with ratatui's <code>TestBackend</code> (buffer snapshots per view/state, replayed fixture events). Edge cases: zero runs, offline mode, 80×24 resize, and the flood case below. The flood test asserts <strong>maximum input latency</strong>, not merely "no drops": under 1,000 bulk events/s for 30 s, a synthetic keypress must reach the app state in &lt; 50 ms (p99).</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cargo test -p forge-cli</code> — TestBackend snapshots for runs/detail/approvals/offline/help states pass.</li>
+        <li><code class="status">[]</code> <code>cargo test -p forge-cli --test flood -- --nocapture</code> — input p99 latency &lt; 50 ms under 1k events/s; memory stable; scrollback cap enforced.</li>
+        <li><code class="status">[]</code> <code>cargo run -p forge-cli -- tui</code> — manual smoke: start a run, watch live events, decide an approval, kill the control plane and watch the OFFLINE banner appear.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 3: Pi Session Mode</h3>
+      <p>Promote the Phase 0 spike into <code>forge-pi</code> and render the pi experience in the TUI. Pi supplies the loop and its built-in tools; the Rust side is protocol + rendering only.</p>
+
+      <figure>
+        <!-- {{PHASE3_IMAGE: sequence-style diagram, rust process box sending a prompt JSON line to a violet pi process box, event lines streaming back (text_delta, tool_execution, agent_end), an extension-ui dialog loop arrow; words shown: "prompt", "events", "extension_ui"}} -->
+        <figcaption>forge-pi: id-correlated commands down, streamed events up, extension-UI dialogs answered by the TUI.</figcaption>
+      </figure>
+
+      <h4>1. forge-pi protocol client</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>process.rs</code>: spawn <code>pi --mode rpc</code> with configurable flags (<code>--provider/--model/--session/--no-session/--session-dir</code>); kill-on-drop; stderr → tracing log; absence detection with install hint (<code>npm i -g @earendil-works/pi-coding-agent</code>); warn on version ≠ pinned.</li>
+        <li><code class="status">[]</code> <code>codec.rs</code>: strict JSONL framing — split on <code>\n</code> only, strip trailing <code>\r</code>, never Unicode-aware splitting; compact serialization with monotonic <code>id</code>s.</li>
+        <li><code class="status">[]</code> <code>protocol.rs</code>: typed commands (<code>prompt</code>, <code>steer</code>, <code>follow_up</code>, <code>abort</code>, <code>new_session</code>, <code>get_state</code>, <code>set_model</code>, <code>cycle_model</code>, <code>get_available_models</code>, <code>set_thinking_level</code>, <code>compact</code>, <code>switch_session</code>, <code>fork</code>, <code>get_session_stats</code>, <code>get_commands</code>) and events with <code>#[serde(other)]</code> catch-alls — unknown-event tolerance is <em>resilience</em>, not a compatibility claim; the pinned version + fixtures are the compatibility claim.</li>
+        <li><code class="status">[]</code> <code>PiClient</code>: id-correlated oneshot responses; <code>broadcast</code> event stream; <code>extension_ui_request</code> (select/confirm/input/editor + notify/setStatus/setWidget/setTitle) exposed as a <code>DialogRequest</code> stream with timeout auto-resolve; graceful shutdown (abort → EOF → wait → kill).</li>
+        <li><code class="status">[]</code> Define one internal <code>SessionEngine</code> trait in <code>forge-cli</code> with <strong>only the Pi implementation</strong> — the seam exists for a future backend, but no second implementation is built to justify it.</li>
+      </ul>
+
+      <h4>2. Session UI</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Transcript widget: streamed deltas (<code>text_delta</code>, dimmed <code>thinking_delta</code>, <code>toolcall_*</code> as compact expandable tool chips); incremental append into the capped buffer via the Phase 2 bulk queue — never re-layout history on a delta.</li>
+        <li><code class="status">[]</code> Editor (<code>tui-textarea</code>): <kbd>enter</kbd> send, <kbd>alt+enter</kbd> newline, <kbd>esc</kbd> during streaming → abort/steer/follow-up bar. Footer: model, thinking level, context %, session cost from <code>get_session_stats</code>.</li>
+        <li><code class="status">[]</code> <kbd>ctrl+m</kbd> model picker (<code>get_available_models</code>); <kbd>ctrl+t</kbd> thinking level; <kbd>ctrl+k</kbd> compact (tokens before/after); <kbd>ctrl+r</kbd> session picker (resume via <code>switch_session</code>, branch via <code>fork</code>); <code>forge session --resume/--fork/--no-session</code> map to pi flags.</li>
+        <li><code class="status">[]</code> Extension-UI dialogs render as centered modal overlays; notify/setStatus/setWidget map to footer widgets — pi extensions work unmodified.</li>
+        <li><code class="status">[]</code> <strong>Promote to goal with a review gate:</strong> <kbd>ctrl+g</kbd> opens a confirmation editor pre-filled with goal title, description/context, target project, and a warning if that project already has an active run. Only explicit confirm calls <code>POST /runtime/runs/start</code>. Nothing fires implicitly from "last user intent".</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>Offline-first: the fake-pi binary replays Phase 0 fixtures to test framing, correlation, dialogs, malformed-line recovery, and crash-mid-stream (errors, not hangs). TestBackend snapshots render a full recorded session deterministically. <code>#[ignore]</code>-gated live test when pi + a local model are installed. Edge cases: dialog during streaming, abort mid-delta, 10 MB tool-output line, pi missing (Session mode shows the install hint; Operator mode unaffected).</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cargo test -p forge-pi</code> — codec, correlation, dialog, crash-recovery pass against fake-pi.</li>
+        <li><code class="status">[]</code> <code>cargo test -p forge-cli</code> — session-view snapshots from fixtures pass.</li>
+        <li><code class="status">[]</code> <code>cargo run -p forge-cli -- session</code> — live: prompt, streamed tools, steer once, abort once, resume after quitting, promote-to-goal round-trip with confirmation.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 4: Hardening &amp; Release</h3>
+      <p>Make it boringly reliable — the Forge way — and state packaging honestly.</p>
+
+      <h4>1. Hardening</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Panic-free binary boundary; TUI restores the terminal on panic and on error paths via a hook (no wrecked shells).</li>
+        <li><code class="status">[]</code> <code>tracing</code> file log at <code>$FORGE_HOME/logs/forge-cli.log</code> (never stdout in TUI mode); <code>--verbose</code>.</li>
+        <li><code class="status">[]</code> CI (<code>.github/workflows/ci.yml</code>): <code>cargo fmt --check</code>, <code>clippy -D warnings</code>, <code>cargo test --workspace</code> (runs fully without pi installed — hard rule: Operator path never requires Node), plus a separate job with the <strong>pinned pi version</strong> installed running the pi compatibility tests.</li>
+        <li><code class="status">[]</code> Contract-drift guard: the Python fixture-export test runs in CI; a control-plane change that alters fixtures fails the Rust decoding tests in the same pipeline.</li>
+      </ul>
+
+      <h4>2. Packaging &amp; docs (one honest statement)</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Packaging statement in <code>docs/RUST_CLI.md</code>: the deliverable is <strong>one Rust binary</strong> (<code>forge</code>) with rustls (no OpenSSL linkage), glibc/macOS dynamic linking as normal — not "fully static" unless a musl target is added later. Session mode additionally requires the external, optional <code>pi</code> (Node) at the pinned version. No other executables ship.</li>
+        <li><code class="status">[]</code> Rewrite <code>experimental/README.md</code>: install, keymap, pi setup + pinned version, harness decision matrix link.</li>
+        <li><code class="status">[]</code> Performance measurements on real hardware recorded in docs: cold-start (<code>hyperfine</code>, target &lt; 30 ms), flood-test input latency, binary size — reported as measured numbers, not aspirations.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>The full suite is the strategy, plus one end-to-end operator scenario against the real Python stack (<code>make db &amp;&amp; forge serve</code>).</p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cargo fmt --all -- --check &amp;&amp; cargo clippy --workspace -- -D warnings &amp;&amp; cargo test --workspace</code> — whole workspace clean, offline, without pi.</li>
+        <li><code class="status">[]</code> End-to-end: <code>forge tui</code> → start a PGE run → watch events live → decide an approval → <kbd>tab</kbd> → pi session → confirmed <kbd>ctrl+g</kbd> promote-to-goal. One binary, the whole lifecycle.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[]</code> <code>uv run pytest tests/contract -q</code> — fixture export green; fixtures committed and current.</li>
+      <li><code class="status">[]</code> <code>cd experimental &amp;&amp; cargo build --workspace --release</code> — all three crates compile in release mode.</li>
+      <li><code class="status">[]</code> <code>cargo fmt --all -- --check</code> — formatting canonical.</li>
+      <li><code class="status">[]</code> <code>cargo clippy --workspace --all-targets -- -D warnings</code> — zero lint debt.</li>
+      <li><code class="status">[]</code> <code>cargo test --workspace</code> — fixture-decoding, transport, protocol, snapshot, and flood-latency tests pass offline without pi installed.</li>
+      <li><code class="status">[]</code> <code>./target/release/forge --json health</code> — (control plane running) returns ok, proving auth + client wiring.</li>
+      <li><code class="status">[]</code> <code>./target/release/forge run start --goal "validation goal" &amp;&amp; ./target/release/forge run list --json</code> — a real PGE run starts and is listed from the Rust CLI.</li>
+      <li><code class="status">[]</code> <code>hyperfine --warmup 3 './target/release/forge --help'</code> — measured and recorded (target &lt; 30 ms on the dev machine).</li>
+      <li><code class="status">[]</code> <code>./target/release/forge session</code> — (pinned pi installed) an interactive session streams; without pi, a clean install hint appears instead of an error.</li>
+    </ul>
+    <div class="loop">
+      🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong>
+    </div>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+
+    <h3>The harness decision matrix (the core research answer)</h3>
+    <p>
+      Pi (<a href="https://github.com/earendil-works/pi">earendil-works/pi</a>, formerly badlogic/pi-mono, MIT,
+      TypeScript, by Mario Zechner) is a minimal coding agent: built-in tools
+      <code>read/write/edit/bash/grep/find/ls</code>, a &lt;1,000-token system prompt, no plan mode / sub-agents /
+      MCP in core, with everything else pushed to extensions. Critically for us, it exposes a
+      <strong>documented RPC mode</strong> (<code>--mode rpc</code>): strict LF-delimited JSONL over stdin/stdout
+      with id-correlated commands, a rich streamed event model, and an extension-UI sub-protocol — explicitly
+      designed for non-Node clients. That is the reuse seam.
+    </p>
+    <table>
+      <thead><tr><th>Capability</th><th>Harness</th><th>Rationale</th></tr></thead>
+      <tbody>
+        <tr><td>Interactive agent loop, multi-provider LLM API (incl. OAuth/subscription auth), streaming, retries, compaction, cost tracking</td><td><span class="tag pi">pi</span> via <code>--mode rpc</code> subprocess</td><td>Months of work for free; protocol is documented; MIT licensed. Rebuilding provider auth in Rust is low-value duplication.</td></tr>
+        <tr><td>Terminal tools during sessions (<code>read/write/edit/bash/grep/find/ls</code>)</td><td><span class="tag pi">pi</span> built-ins</td><td>Pi already ships these. Registering <em>typed</em> replacements requires a TypeScript extension via <code>pi.registerTool()</code> — a CLI + README is only a skill/bash pattern, not tool registration. Replacing them is backlog, evidence-first (see below).</td></tr>
+        <tr><td>Session persistence, branching (<code>fork</code>), resume, HTML export</td><td><span class="tag pi">pi</span></td><td>JSONL tree with <code>id/parentId</code>; battle-tested; sessions live in <code>~/.pi/agent/sessions</code> per cwd.</td></tr>
+        <tr><td>Extension ecosystem (custom commands, permission gates, sub-agents)</td><td><span class="tag pi">pi</span> (TS extensions) surfaced through the RPC extension-UI sub-protocol</td><td>The Rust TUI answers <code>extension_ui_request</code> dialogs, so any pi extension's UI works unmodified.</td></tr>
+        <tr><td>Terminal UI</td><td><span class="tag rust">rust</span> (ratatui)</td><td>pi-tui is TypeScript and bound to Node's renderer; ratatui already does differential buffer rendering (pi-tui's key trick). We adopt pi's <em>design language</em>, not its code.</td></tr>
+        <tr><td>PGE operator surface: run lifecycle, live events (SSE), approvals, providers, system status</td><td><span class="tag rust">rust</span> (<code>forge-api</code>)</td><td>100% Forge-specific; pi knows nothing about the control plane. This is the actual product gap and ships first.</td></tr>
+        <tr><td>A2A JSON-RPC client (<code>message/send</code>, <code>tasks/get</code>…)</td><td><span class="tag rust">rust</span> (optional module in <code>forge-api</code>, post-MVP)</td><td>Trivial once the HTTP client exists.</td></tr>
+        <tr><td>Native Rust tool layer (<code>forge-tools</code>)</td><td><span class="tag backlog">backlog</span></td><td>Deferred: benchmark pi's existing tools end-to-end first; if replacement is justified, it requires a small TS extension adapter that registers and schema-validates calls into <code>forge-tools</code>. See Backlog below.</td></tr>
+        <tr><td>No-Node native agent loop</td><td><span class="tag backlog">backlog</span></td><td>Separate future RFC — it recreates streaming, tool calling, sessions, and abort semantics that the pi integration was chosen to avoid. Only pursue with evidence of demand for a Node-free session path.</td></tr>
+        <tr><td>PGE engine itself (planner/auditor/executor/evaluator)</td><td>stays <strong>Python</strong></td><td>Out of scope: durable Postgres state, sandbox, and regression suite live there. The Rust surface drives it; it does not replace it.</td></tr>
+      </tbody>
+    </table>
+
+    <figure>
+      <!-- {{NOTES_IMAGE: two-column decision matrix visual, violet pi column (loop, tools, sessions) and rust ochre column (TUI, control-plane client), a JSONL seam between them, a faint gray backlog shelf below; words shown: "pi harness", "custom rust", "JSONL seam"}} -->
+      <figcaption>Reuse pi where the seam is a documented protocol; build Rust where the value is Forge-specific; defer the rest to evidence.</figcaption>
+    </figure>
+
+    <h3>Control-plane contract — the shapes are NOT interchangeable</h3>
+    <ul>
+      <li><code>/runtime/runs</code> returns a <em>synthesized snapshot</em> (<code>runtime_snapshot.py</code>) keyed by <code>id</code> — model it as <code>RuntimeRunSnapshot</code>.</li>
+      <li><code>/runs/{id}</code> returns a <em>durable DB record</em> — model it as <code>DurableRun</code>.</li>
+      <li>Stop is <strong>project-addressed</strong> (<code>/runtime/runs/{project_id}/stop</code>); event streaming is <strong>run-addressed</strong> (<code>/runs/{run_id}/events/stream</code>). The type system must prevent passing one id where the other belongs (newtype ids: <code>ProjectId</code>, <code>RunId</code>).</li>
+      <li>The detached launcher manifest (<code>pge_launcher.py</code>) is a third shape (<code>OfflineRunManifest</code>), mirrored separately into durable event tables — it is a fallback view, never merged with live data.</li>
+      <li>Token file: Python <em>repairs</em> loose permissions (<code>chmod 0600</code>) and continues (<code>forge_runtime/auth.py</code>); Rust mirrors that repair-and-continue behavior.</li>
+    </ul>
+
+    <h3>Pi RPC protocol — implementation crib</h3>
+    <ul>
+      <li><strong>Framing:</strong> split stdout on <code>\n</code> only; strip trailing <code>\r</code>; never use Unicode-aware line splitting (JSON payloads may contain U+2028/U+2029).</li>
+      <li><strong>Correlation:</strong> commands carry optional <code>id</code>; responses echo it with <code>type:"response"</code>, <code>success</code>, optional <code>error</code>. Events carry no <code>id</code> and interleave freely.</li>
+      <li><strong>Key commands:</strong> <code>prompt</code> (base64 image blocks, <code>streamingBehavior: steer|followUp</code>), <code>steer</code>, <code>follow_up</code>, <code>abort</code>, <code>get_state</code>, <code>set_model {provider, modelId}</code>, <code>set_thinking_level off…max</code>, <code>compact</code>, session ops (<code>switch_session</code>, <code>fork</code>, <code>get_entries {since}</code>, <code>get_tree</code>, <code>get_session_stats</code>).</li>
+      <li><strong>Event spine for the transcript:</strong> <code>agent_start → turn_start → message_start → message_update(text_delta|thinking_delta|toolcall_delta)* → tool_execution_start/update/end → message_end → turn_end → agent_end → agent_settled</code>.</li>
+      <li><strong>Extension UI:</strong> <code>extension_ui_request {id, method}</code> where method ∈ select/confirm/input/editor (dialog — must respond) or notify/setStatus/setWidget/setTitle (fire-and-forget). Respond with <code>extension_ui_response</code> matching <code>id</code>.</li>
+      <li><strong>No version handshake exists.</strong> Compatibility = the pinned version (installed and tested in CI) + recorded fixtures. Unknown-event tolerance via serde catch-alls is resilience only, not a compatibility claim.</li>
+      <li><strong>Package:</strong> <code>npm i -g @earendil-works/pi-coding-agent</code>; repo <code>earendil-works/pi</code> (the old <code>badlogic/pi-mono</code> redirects).</li>
+    </ul>
+
+    <h3>New Rust dependencies (workspace-level, via <code>cargo add</code>)</h3>
+    <table>
+      <thead><tr><th>Crate</th><th>Used by</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>tokio</code></td><td>all async crates</td><td>child-process IO, SSE streams, dual-queue TUI event fan-in.</td></tr>
+        <tr><td><code>reqwest</code> (rustls-tls, stream)</td><td>forge-api</td><td>HTTP + streamed bodies; rustls avoids OpenSSL linkage.</td></tr>
+        <tr><td><code>eventsource-stream</code></td><td>forge-api</td><td>standards-aware SSE framing (CRLF, chunk boundaries, multi-<code>data:</code>, comments) instead of a hand-rolled <code>\n\n</code> splitter.</td></tr>
+        <tr><td><code>futures-util</code>, <code>thiserror</code>, <code>tracing</code> + <code>tracing-subscriber</code></td><td>all</td><td>stream combinators; typed errors; file logging that never corrupts the TUI.</td></tr>
+        <tr><td><code>tui-textarea</code></td><td>forge-cli</td><td>multi-line editor widget for Session mode.</td></tr>
+        <tr><td><code>axum</code>, <code>insta</code>, <code>tempfile</code></td><td>dev-deps</td><td>transport-behavior mock, snapshot tests, temp homes.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Backlog — deferred, evidence-driven follow-ups (not part of this plan)</h3>
+    <ul>
+      <li><strong><code>forge-tools</code> native tool layer:</strong> pi already ships read/write/edit/bash/grep/find/ls. Before building replacements: benchmark pi's tools on real end-to-end agent latency in this repo. If (and only if) tool execution is a measured bottleneck, the correct integration is a small <strong>TypeScript pi extension</strong> that calls <code>pi.registerTool()</code> and schema-validates arguments before shelling into a Rust <code>forge-tools</code> binary. A README alone does not register tools. Secondary consumer worth more: a Rust tool backend for the <em>PGE executor</em> (replacing <code>forge_runtime/tools.py</code> hot paths), which needs no pi integration at all — likely the better first RFC.</li>
+      <li><strong><code>forge-agent</code> no-Node native loop:</strong> separate RFC. It would recreate streaming, tool calling, session persistence, and abort semantics that choosing pi avoids. Prerequisites: demonstrated demand for Node-free sessions, and the <code>SessionEngine</code> trait from Phase 3 as the adapter seam (which exists but has only the Pi implementation until then).</li>
+      <li><strong>A2A client + <code>forge a2a send</code>:</strong> small post-MVP addition to <code>forge-api</code>.</li>
+    </ul>
+
+    <h3>Rejected alternatives</h3>
+    <ul>
+      <li><strong>Port pi-tui to Rust wholesale</strong> — ratatui already implements differential rendering; we copy the aesthetic, not the framework.</li>
+      <li><strong>Embed forge logic as pi TypeScript extensions (pi as the outer shell)</strong> — inverts ownership: the operator surface would then require Node even for pure monitoring. Rust shell + pi subprocess keeps the no-Node operator path intact.</li>
+      <li><strong>Zed's Agent Client Protocol (ACP) as the session seam</strong> — pi doesn't speak ACP; pi's RPC is simpler and matches the chosen harness. Revisit only if a second agent backend is added (the <code>SessionEngine</code> trait is the adapter point).</li>
+      <li><strong>Rewrite the PGE engine in Rust</strong> — PGE latency is dominated by LLM inference and test execution, not interpreter overhead. The Rust wins that matter are in the interactive path.</li>
+      <li><strong>Hand-written axum mock as the contract oracle</strong> — a mock that "mirrors" FastAPI duplicates the contract; if mock and client share a wrong assumption, tests stay green. Replaced by Python-generated fixtures + OpenAPI export; axum retained only for transport behavior.</li>
+      <li><strong>MCP for tool integration</strong> — pi deliberately omits MCP; its extension model covers the need.</li>
+    </ul>
+
+    <h3>Risks &amp; mitigations</h3>
+    <ul>
+      <li><strong>Pi protocol drift</strong> (no version handshake): pin the exact version in CI; recorded fixtures are the contract; serde catch-alls for resilience; the fake-pi binary doubles as the contract spec.</li>
+      <li><strong>Node dependency creep:</strong> hard rule — Operator mode must never require pi/Node; CI's main job runs the full suite without pi installed.</li>
+      <li><strong>Control-plane contract drift:</strong> Python fixture-export tests + Rust fixture-decoding tests run in the same CI pipeline; a contract change fails loudly on both sides.</li>
+      <li><strong>TUI input starvation under event floods:</strong> dual queues (priority input / bulk stream), coalesced redraws, capped model buffer; the flood test asserts p99 input latency &lt; 50 ms, not merely "no drops".</li>
+      <li><strong>Implicit durable actions:</strong> promote-to-goal always passes through a confirmation editor showing title, description, project, and active-run status before any <code>POST</code>.</li>
+    </ul>
+
+    <h3>Research sources</h3>
+    <ul>
+      <li><a href="https://mariozechner.at/posts/2025-11-30-pi-coding-agent/">"What I learned building an opinionated and minimal coding agent" — Mario Zechner</a> (philosophy, pi-tui rendering, minimal tool core)</li>
+      <li><a href="https://github.com/earendil-works/pi">earendil-works/pi</a> (current repo; packages <code>@earendil-works/pi-*</code>; MIT) — README: modes, session format, extension API (<code>pi.registerTool()</code>), CLI flags; <code>docs/rpc.md</code>: full RPC protocol</li>
+      <li>Codebase: <code>control_plane/api.py</code> + <code>schemas.py</code> + <code>runtime_snapshot.py</code> (REST/SSE contract and snapshot-vs-durable split), <code>forge_runtime/auth.py</code> (token repair semantics), <code>pge_launcher.py</code> (manifest), <code>docs/A2A.md</code></li>
+    </ul>
+
+    <div class="callout">
+      <strong>Image slots:</strong> the five <code>{{...IMAGE}}</code> placeholders in this plan are intentionally
+      left as annotated comments — <code>OPENAI_API_KEY</code> was not available in the authoring environment.
+      Run the planf3 <em>Image Generation → Create</em> sub-workflow to fill them
+      (<code>uv run scripts/generate_gpt_image.py … --size 1536x1024 --quality high</code>, output to
+      <code>specs/forge-rust-tui-pi-harness/</code>).
+    </div>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <details>
+      <summary>2026-07-12T07:10:14Z — Scope reduction and correctness fixes after design review</summary>
+      <p>
+        Restructured per review: (1) collapsed eight phases into five (Phase 0 contract-and-pi spike, operator CLI,
+        operator TUI, pi session, hardening) with Phases 1–2 as independent Node-free shippable milestones;
+        (2) moved <code>forge-tools</code> and <code>forge-agent</code> out of the plan into an evidence-driven
+        Backlog — pi already ships read/write/edit/bash/grep/find/ls, and typed custom tools require a TypeScript
+        extension via <code>pi.registerTool()</code> (a CLI + README is not tool registration, as the original
+        Phase 6 wrongly assumed); (3) split control-plane contract into distinct types
+        (<code>RuntimeRunSnapshot</code> keyed by <code>id</code>, <code>DurableRun</code>, <code>RunEvent</code>,
+        <code>RunStartResult</code>, <code>OfflineRunManifest</code>, newtype <code>ProjectId</code>/<code>RunId</code>)
+        instead of one normalized struct; (4) corrected the token-file claim — Python repairs loose permissions with
+        <code>chmod 0600</code> and continues (<code>forge_runtime/auth.py</code>), Rust now mirrors that;
+        (5) replaced the single TUI event channel with dual priority/bulk queues, coalesced redraws, and a flood test
+        asserting p99 input latency &lt; 50 ms rather than "no drops"; (6) replaced the hand-written axum contract
+        mock with Python-exported OpenAPI + fixtures (axum kept for transport behavior only); (7) switched the SSE
+        decoder to the standards-aware <code>eventsource-stream</code> crate; (8) gated promote-to-goal behind a
+        confirmation editor; (9) fixed packaging claims (one Rust binary, rustls, optional external pinned pi;
+        no "static-ish" ambiguity) and the stale package name — now <code>@earendil-works/pi-coding-agent</code>
+        from <code>earendil-works/pi</code>; (10) dropped the immediate <code>forge-core</code> extraction — three
+        crates until shared ownership emerges.
+      </p>
+    </details>
+    <details>
+      <summary>2026-07-12T11:32:48Z — Implemented in PR #6; Cycle 2 planned</summary>
+      <p>
+        This plan was implemented and shipped as
+        <a href="https://github.com/sciencenerd-des/forge/pull/6">PR #6</a> (commits <code>dbdc852</code>,
+        <code>8ab70de</code>; CI fully green including the pinned-Pi compatibility job). The implementation
+        review found ten issues, seven of which were fixed pre-merge. The remaining gaps — hand-written
+        contract fixtures, unfinished session lifecycle UX (stats footer, session picker, steer/follow-up,
+        multi-line editor, unverified <code>--resume</code> flag), watch-mode offline fallback, and the
+        toy-channel flood test — plus the deferred evidence work (Pi tool benchmark for the forge-tools
+        go/no-go, A2A client) are scoped in the follow-up plan
+        <a href="forge-rust-tui-cycle2.html">specs/forge-rust-tui-cycle2.html</a> (see forward refs).
+      </p>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>
