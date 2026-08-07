@@ -103,6 +103,14 @@ def test_mismatched_image_digest_is_incomparable():
     assert any("sandbox_image_digest" in r for r in reasons)
 
 
+def test_mismatched_verifier_image_and_sandbox_mode_are_incomparable():
+    verifier_reasons = comparability_reasons(_v2(), _v2(verifier_image_digest="d2"))
+    mode_reasons = comparability_reasons(_v2(), _v2(sandbox_mode="host"))
+
+    assert any("verifier_image_digest" in reason for reason in verifier_reasons)
+    assert any("sandbox_mode" in reason for reason in mode_reasons)
+
+
 def test_mismatched_reasoning_profile_is_incomparable():
     reasons = comparability_reasons(_v2(), _v2(reasoning_effort="low"))
     assert any("reasoning_effort" in r for r in reasons)

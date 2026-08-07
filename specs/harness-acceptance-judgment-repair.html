@@ -194,7 +194,7 @@
       <li><span class="tag existing">existing</span> <code>evals/orchestrator.py</code> — preflight call gains the verifier-runtime requirement; <code>_verdict_from</code> consumes the sharpened acceptance taxonomy unchanged (verify mapping only).</li>
       <li><span class="tag existing">existing</span> <code>docker/sandbox/Dockerfile</code> — already pins numpy/scikit-learn; the image must be <em>rebuilt</em> and its digest recorded.</li>
       <li><span class="tag existing">existing</span> <code>tests/test_acceptance_contracts.py</code> — extend with taxonomy, pruning, and translation cases.</li>
-      <li><span class="tag existing">existing</span> <code>evals/results/baseline-v2.partial.json</code> — read-only evidence; source of the recorded fixtures below. Never rewritten.</li>
+      <li><span class="tag existing">existing</span> <code>evals/results/baseline-v2.partial.pre-requalification-20260716.json</code> — preserved read-only copy of the July-15 evidence used to derive the recorded fixtures below. The canonical <code>baseline-v2.partial.json</code> path is reserved for the fresh full-suite checkpoint.</li>
     </ul>
 
     <h3>New Files</h3>
@@ -219,6 +219,7 @@
         <li><code class="status">[x]</code> In <code>_PY_PREAMBLE</code>'s <code>_emit</code> (evals/acceptance.py ≈316), serialize with <code>json.dumps(payload, default=str)</code> so any non-JSON value (enums, Paths, custom objects) degrades to its string form instead of killing the run.</li>
         <li><code class="status">[x]</code> Add a preamble helper <code>_plain(v)</code> → <code>getattr(v, "value", v)</code> and route every driver's <code>got</code> through it before comparison and before appending to <code>cases</code>, so <code>Player.X</code> (value <code>"X"</code>) satisfies <code>as_x()</code> and serializes cleanly.</li>
         <li><code class="status">[x]</code> Update the tic-tac-toe driver's <code>as_x</code>/<code>as_none</code> predicates to compare against <code>_plain(v)</code> and <code>str(v)</code> (covers <code>Player.X</code>, <code>"X"</code>, <code>1</code>, and <code>None</code>-likes).</li>
+        <li><code class="status">[x]</code> Keep result emission outside the untrusted candidate process. Python artifacts now execute behind a narrow RPC worker; candidate <code>stdout</code>/<code>sys.__stdout__</code> is diagnostic-only, while the trusted parent owns expectations, comparisons, and the sole result sentinel. Direct emitter calls, emitter replacement, and <code>sys.__stdout__</code> + <code>os._exit(0)</code> forgeries are regression-pinned as non-passes.</li>
       </ul>
 
       <h4>2. Three-way failure attribution in <code>_finalize</code></h4>
@@ -259,22 +260,22 @@ def _attribute_failure(driver_error: str) -> str:
     </div>
 
     <div class="phase">
-      <h3><code class="status">[]</code> Phase 2: Discovery and Snapshot Hygiene</h3>
+      <h3><code class="status">[x]</code> Phase 2: Discovery and Snapshot Hygiene</h3>
       <p>Agent-controlled dependency trees must never be candidates for "the deliverable". The digits verifier executed <code>scipy/_lib/cobyqa/main.py</code> because <code>.forge-home</code> sorts before <code>main.py</code> and no prune rule excludes it.</p>
 
       <h4>1. Prune the workspace-local Forge internals everywhere</h4>
       <ul class="checklist">
-        <li><code class="status">[]</code> Add <code>".forge-home"</code>, <code>".forge-internal"</code>, <code>".forge-sandbox-host-import-v1"</code> to <code>_PRUNE_DIRS</code> (evals/acceptance.py ≈59).</li>
-        <li><code class="status">[]</code> Add <code>".forge-home"</code>, <code>".forge-internal"</code> to <code>_SNAPSHOT_PRUNE</code> (forge_runtime/sandbox.py ≈62) so snapshot digests hash the artifact, not the agent's pip cache.</li>
-        <li><code class="status">[]</code> Harden <code>discover()</code>: skip any candidate whose relative path contains a component starting with <code>"."</code> — hidden trees are never deliverables; explicit prune sets remain for byproduct dirs like <code>node_modules</code>.</li>
-        <li><code class="status">[]</code> Prefer shallow matches on name-hint ties: sort candidates by <code>(len(p.parts), str(p))</code> so a top-level <code>main.py</code> always beats a nested one.</li>
+        <li><code class="status">[x]</code> Add <code>".forge-home"</code>, <code>".forge-internal"</code>, <code>".forge-sandbox-host-import-v1"</code> to <code>_PRUNE_DIRS</code> (evals/acceptance.py ≈59).</li>
+        <li><code class="status">[x]</code> Add <code>".forge-home"</code>, <code>".forge-internal"</code> to <code>_SNAPSHOT_PRUNE</code> (forge_runtime/sandbox.py ≈62) so snapshot digests hash the artifact, not the agent's pip cache.</li>
+        <li><code class="status">[x]</code> Harden <code>discover()</code>: skip any candidate whose relative path contains a component starting with <code>"."</code> — hidden trees are never deliverables; explicit prune sets remain for byproduct dirs like <code>node_modules</code>.</li>
+        <li><code class="status">[x]</code> Prefer shallow matches on name-hint ties: sort candidates by <code>(len(p.parts), str(p))</code> so a top-level <code>main.py</code> always beats a nested one.</li>
       </ul>
 
       <h4>2. Testing Strategy</h4>
       <p>Fixture workspace reproducing the digits layout: stub top-level <code>main.py</code> plus a <code>.forge-home/.local/lib/python3.11/site-packages/scipy/_lib/cobyqa/main.py</code> decoy. Edge cases: workspace whose <em>only</em> python file is hidden (must be unverifiable, not judged on hidden bytes), snapshot digest equality before/after adding <code>.forge-home</code> content.</p>
       <ul class="checklist">
-        <li><code class="status">[]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py tests/regression/test_sandbox.py -k "prune or hidden or forge_home or discover"</code> — discovery picks the real file; digests ignore agent pip trees.</li>
-        <li><code class="status">[]</code> <code>uv run --extra dev ruff check evals/acceptance.py forge_runtime/sandbox.py</code> — lint clean.</li>
+        <li><code class="status">[x]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py tests/regression/test_sandbox.py -k "prune or hidden or forge_home or discover"</code> — discovery picks the real file; digests ignore agent pip trees.</li>
+        <li><code class="status">[x]</code> <code>uv run --extra dev ruff check evals/acceptance.py forge_runtime/sandbox.py</code> — lint clean.</li>
       </ul>
       <div class="loop">
         🔁 <strong>Do not exit this phase until every box above is checked.</strong>
@@ -283,7 +284,7 @@ def _attribute_failure(driver_error: str) -> str:
     </div>
 
     <div class="phase">
-      <h3><code class="status">[]</code> Phase 3: Container Command Fidelity</h3>
+      <h3><code class="status">[x]</code> Phase 3: Container Command Fidelity</h3>
       <p>The verifier container must receive commands it can execute, and the evidence must record the command that actually ran. Today <code>_to_container</code> translates only the Python interpreter and mount-relative paths — the host's <code>node</code> path sailed through and killed the email-validator verification; meanwhile every recorded <code>Check.command</code> shows the <em>untranslated</em> host form.</p>
       <figure>
         <img src="harness-acceptance-judgment-repair/phase3-translation.png" alt="Host tool paths crossing the container boundary and being rewritten to container-native binaries">
@@ -306,16 +307,16 @@ if candidate.is_absolute():
             return candidate.name          # host tool → container binary
 return token</code></pre>
       <ul class="checklist">
-        <li><code class="status">[]</code> Extend <code>_to_container</code> per the sketch: absolute paths outside the mount whose basename is a known toolchain binary map to the bare basename; anything else still passes through untouched (never mangle data arguments).</li>
-        <li><code class="status">[]</code> Audit contract call sites that resolve host tools (<code>shutil.which("node")</code> in the email contract, cargo/g++ in manifest contracts): under a <code>ContainerRunner</code> they must not fail early because the <em>host</em> lacks a tool the <em>image</em> has — gate the which() check on <code>active_runner().gateable</code>.</li>
-        <li><code class="status">[]</code> Record executed commands: give <code>Runner</code> a <code>render(cmd, cwd) → list[str]</code> (identity on <code>HostRunner</code>; the full docker argv on <code>ContainerRunner</code>) and populate a new <code>Check.executed_command</code> alongside the logical <code>command</code> wherever checks are built, so the report shows both intent and reality.</li>
+        <li><code class="status">[x]</code> Extend <code>_to_container</code> per the sketch: absolute paths outside the mount whose basename is a known toolchain binary map to the bare basename; anything else still passes through untouched (never mangle data arguments).</li>
+        <li><code class="status">[x]</code> Audit contract call sites that resolve host tools (<code>shutil.which("node")</code> in the email contract, cargo/g++ in manifest contracts): under a <code>ContainerRunner</code> they must not fail early because the <em>host</em> lacks a tool the <em>image</em> has — gate the which() check on <code>active_runner().gateable</code>.</li>
+        <li><code class="status">[x]</code> Record executed commands: give <code>Runner</code> a <code>render(cmd, cwd) → list[str]</code> (identity on <code>HostRunner</code>; the full docker argv on <code>ContainerRunner</code>) and populate a new <code>Check.executed_command</code> alongside the logical <code>command</code> wherever checks are built, so the report shows both intent and reality.</li>
       </ul>
 
       <h4>2. Testing Strategy</h4>
       <p>Unit tests on <code>_to_container</code> (no Docker): host node path → <code>node</code>, venv python → <code>python3</code>, mount-internal path → <code>/verify/…</code>, a <code>-c "code; with; semicolons"</code> data token unchanged, a non-tool absolute path unchanged. Docker-gated: email-validator fixture verified end-to-end in the real container.</p>
       <ul class="checklist">
-        <li><code class="status">[]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py -k "to_container or executed_command or render"</code> — translation and evidence fidelity pinned.</li>
-        <li><code class="status">[]</code> <code>FORGE_TEST_DOCKER=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py -k "container"</code> — real-boundary verification passes.</li>
+        <li><code class="status">[x]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py -k "to_container or executed_command or render"</code> — translation and evidence fidelity pinned.</li>
+        <li><code class="status">[x]</code> <code>FORGE_TEST_DOCKER=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py -k "container"</code> — real-boundary verification passes.</li>
       </ul>
       <div class="loop">
         🔁 <strong>Do not exit this phase until every box above is checked.</strong>
@@ -324,21 +325,21 @@ return token</code></pre>
     </div>
 
     <div class="phase">
-      <h3><code class="status">[]</code> Phase 4: Broaden the Dijkstra Battery and Close the Tests Gap</h3>
+      <h3><code class="status">[x]</code> Phase 4: Broaden the Dijkstra Battery and Close the Tests Gap</h3>
       <p>A contract that cannot speak the artifact's calling convention judges nothing. The dijkstra driver must try the graph formats agents actually produce — and the goal text says "with useful tests", a requirement the contract never checks (the July-15 artifact would <em>still</em> deserve rejection, for the right reason).</p>
 
       <h4>1. Add the missing graph-format strategies</h4>
       <ul class="checklist">
-        <li><code class="status">[]</code> Add <code>EDGE_LIST_GRAPH = {"A": [("B",1),("C",4)], "B": [("C",2),("D",5)], "C": [("D",1)], "D": []}</code> beside <code>GRAPH_DICT</code> (evals/acceptance.py ≈623) and extend <code>getters()</code> to the cross-product: both formats × <code>f(g, "A")</code>, <code>f("A", g)</code>, <code>f(g, "A", node)</code> — the winning strategy is still chosen once against node <code>"D"</code> and reused for every node.</li>
-        <li><code class="status">[]</code> Normalize tuple returns: <code>_dist_from</code> already unwraps <code>(distance, path)</code>; assert it handles a bare numeric distance for the per-target signature.</li>
-        <li><code class="status">[]</code> Add a <code>"has useful tests"</code> check to <code>contract_dijkstra</code>: reuse the non-vacuous-assert scan from <code>contract_nonvacuous_artifact</code> (a test file exists and contains at least one meaningful <code>assert</code>). A correct algorithm without tests → <span class="v-bad">rejected</span> with the failing check named, never <span class="v-good">accepted</span>.</li>
+        <li><code class="status">[x]</code> Add <code>EDGE_LIST_GRAPH = {"A": [("B",1),("C",4)], "B": [("C",2),("D",5)], "C": [("D",1)], "D": []}</code> beside <code>GRAPH_DICT</code> (evals/acceptance.py ≈623) and extend <code>getters()</code> to the cross-product: both formats × <code>f(g, "A")</code>, <code>f("A", g)</code>, <code>f(g, "A", node)</code> — the winning strategy is still chosen once against node <code>"D"</code> and reused for every node.</li>
+        <li><code class="status">[x]</code> Normalize tuple returns: <code>_dist_from</code> already unwraps <code>(distance, path)</code>; assert it handles a bare numeric distance for the per-target signature.</li>
+        <li><code class="status">[x]</code> Add a <code>"has useful tests"</code> check to <code>contract_dijkstra</code>: parse shipped test files with the Python AST and require an actual non-literal <code>ast.Assert</code>. Comments and strings containing the word <code>assert</code>, plus literal tautologies, cannot satisfy the gate. A correct algorithm without tests → <span class="v-bad">rejected</span> with the failing check named, never <span class="v-good">accepted</span>.</li>
       </ul>
 
       <h4>2. Testing Strategy</h4>
       <p>Fixtures: the recorded July-15 dijkstra (tuple adjacency, <code>(graph, start, end)</code>, correct) with and without a real test file — with tests → accepted, without → rejected on exactly the tests check; the dict-of-dicts fixture must keep passing (no regression on the old format).</p>
       <ul class="checklist">
-        <li><code class="status">[]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py -k "dijkstra"</code> — both formats drive; the tests requirement gates acceptance.</li>
-        <li><code class="status">[]</code> <code>uv run --extra dev ruff check evals/acceptance.py</code> — lint clean.</li>
+        <li><code class="status">[x]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py -k "dijkstra"</code> — both formats drive; the tests requirement gates acceptance.</li>
+        <li><code class="status">[x]</code> <code>uv run --extra dev ruff check evals/acceptance.py</code> — lint clean.</li>
       </ul>
       <div class="loop">
         🔁 <strong>Do not exit this phase until every box above is checked.</strong>
@@ -347,7 +348,7 @@ return token</code></pre>
     </div>
 
     <div class="phase">
-      <h3><code class="status">[]</code> Phase 5: Verifier Runtime Preflight and Image Rebuild</h3>
+      <h3><code class="status">[x]</code> Phase 5: Verifier Runtime Preflight and Image Rebuild</h3>
       <p>The July-6 image silently lacked numpy — the fingerprint recorded the stale digest but nothing <em>acted</em> on it, breaking the digits verifier and burning a full goal budget on in-container pip installs. Preflight must prove the image satisfies the contracts' runtime needs before any goal launches, and fail closed in seconds.</p>
       <figure>
         <img src="harness-acceptance-judgment-repair/phase5-preflight.png" alt="A preflight gate checking numpy, sklearn, and node inside the verifier image before a long run is allowed to start">
@@ -370,17 +371,18 @@ def check_verifier_runtimes(image: str) -> Check:
                          f"{name} probe failed in {image}: {r.stderr.strip()[:160]}")
     return Check("verifier_runtimes", True, f"{image} satisfies contract runtimes")</code></pre>
       <ul class="checklist">
-        <li><code class="status">[]</code> Rebuild the pinned image first: <code>docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .</code> — the Dockerfile already pins <code>numpy==2.1.3</code>/<code>scikit-learn==1.6.0</code>; only the build is missing.</li>
-        <li><code class="status">[]</code> Add <code>check_verifier_runtimes()</code> to evals/preflight.py and wire it into <code>run_preflight()</code> as a <em>blocking</em> check whenever a container-gated suite is requested.</li>
-        <li><code class="status">[]</code> Wire the orchestrator's preflight call to pass the sandbox image so the check runs before the lease is spent on a doomed suite.</li>
-        <li><code class="status">[]</code> Record the rebuilt digest in the next run's environment fingerprint (already automatic via <code>image_digest()</code> — verify, don't assume).</li>
+        <li><code class="status">[x]</code> Rebuild the pinned image first: <code>docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .</code> — the Dockerfile already pins <code>numpy==2.1.3</code>/<code>scikit-learn==1.6.0</code>; only the build is missing.</li>
+        <li><code class="status">[x]</code> Add <code>check_verifier_runtimes()</code> to evals/preflight.py and wire it into <code>run_preflight()</code> as a <em>blocking</em> check whenever a container-gated suite is requested.</li>
+        <li><code class="status">[x]</code> Wire the orchestrator's preflight call to pass the sandbox image so the check runs before the lease is spent on a doomed suite.</li>
+        <li><code class="status">[x]</code> Record the rebuilt digest in the next run's environment fingerprint (already automatic via <code>image_digest()</code> — verify, don't assume).</li>
+        <li><code class="status">[x]</code> Resolve mutable sandbox/verifier tags once to immutable Docker image IDs before preflight. Use those exact IDs for preflight probes, child sandbox launches, every container verifier, and both fingerprint fields so a concurrent retag cannot invalidate comparability evidence.</li>
       </ul>
 
       <h4>2. Testing Strategy</h4>
       <p>Unit: monkeypatched subprocess proves fail-closed on a nonzero probe. Docker-gated: the probe passes against the freshly rebuilt image and fails against a bare <code>debian:bookworm-slim</code> (no numpy) — both directions proven.</p>
       <ul class="checklist">
-        <li><code class="status">[]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_eval_orchestrator.py tests/test_acceptance_contracts.py -k "preflight or runtime"</code> — fail-closed behavior pinned.</li>
-        <li><code class="status">[]</code> <code>docker run --rm forge-sandbox:latest python3 -c "import numpy, sklearn; print(numpy.__version__, sklearn.__version__)"</code> — the rebuilt image really has the pinned stack.</li>
+        <li><code class="status">[x]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_eval_orchestrator.py tests/test_acceptance_contracts.py -k "preflight or runtime"</code> — fail-closed behavior pinned.</li>
+        <li><code class="status">[x]</code> <code>docker run --rm forge-sandbox:latest python3 -c "import numpy, sklearn; print(numpy.__version__, sklearn.__version__)"</code> — the rebuilt image really has the pinned stack.</li>
       </ul>
       <div class="loop">
         🔁 <strong>Do not exit this phase until every box above is checked.</strong>
@@ -389,27 +391,27 @@ def check_verifier_runtimes(image: str) -> Check:
     </div>
 
     <div class="phase">
-      <h3><code class="status">[]</code> Phase 6: Replay the Recorded Misjudgments and Re-Qualify</h3>
+      <h3><code class="status">[wip]</code> Phase 6: Replay the Recorded Misjudgments and Re-Qualify</h3>
       <p>The proof of the repair is the July-15 evidence re-judged correctly. Encode all five misjudgments as named fixtures, then re-run the affected goals live against the rebuilt image.</p>
 
       <h4>1. Recorded-misjudgment fixture suite</h4>
       <ul class="checklist">
-        <li><code class="status">[]</code> Create <code>tests/test_recorded_misjudgments.py</code> with five fixtures distilled from the July-15 containers: enum-returning tic-tac-toe → <span class="v-good">accepted</span>; tuple-adjacency dijkstra <em>with</em> tests → <span class="v-good">accepted</span>; the same <em>without</em> tests → <span class="v-bad">rejected</span> (tests check); stub digits + <code>.forge-home</code> decoy → <span class="v-bad">rejected</span> ("no results.json", target = top-level <code>main.py</code>); SyntaxError json-parser → <span class="v-bad">rejected</span> ("artifact defect"); bare-export email validator (Docker-gated) → <span class="v-good">accepted</span>.</li>
-        <li><code class="status">[]</code> Each test asserts the verdict <em>and</em> the reason category, so a future taxonomy regression fails with the goal's name in the test id.</li>
+        <li><code class="status">[x]</code> Create <code>tests/test_recorded_misjudgments.py</code> with five fixtures distilled from the July-15 containers: enum-returning tic-tac-toe → <span class="v-good">accepted</span>; tuple-adjacency dijkstra <em>with</em> tests → <span class="v-good">accepted</span>; the same <em>without</em> tests → <span class="v-bad">rejected</span> (tests check); stub digits + <code>.forge-home</code> decoy → <span class="v-bad">rejected</span> ("no results.json", target = top-level <code>main.py</code>); SyntaxError json-parser → <span class="v-bad">rejected</span> ("artifact defect"); bare-export email validator (Docker-gated) → <span class="v-good">accepted</span>.</li>
+        <li><code class="status">[x]</code> Each test asserts the verdict <em>and</em> the reason category, so a future taxonomy regression fails with the goal's name in the test id.</li>
       </ul>
 
       <h4>2. Live re-qualification</h4>
       <ul class="checklist">
-        <li><code class="status">[]</code> Re-run the four misjudged goals individually through the real driver (<code>--only</code> index per goal: digits, tic-tac-toe, dijkstra, email-validator) with the rebuilt image; inspect each acceptance block — verdicts must be behavioral, never runtime-availability errors.</li>
-        <li><code class="status">[]</code> If all four re-judge cleanly, run the full eight-goal suite to produce a fresh partial baseline; keep <code>baseline_status</code> honest if any goal still times out — a low verified rate is acceptable evidence, a misattributed verdict is not.</li>
+        <li><code class="status">[wip]</code> The four original targeted re-runs were <span class="v-good">verified / accepted</span>, but their fingerprints predate the final process-isolation contract. Preserve them as historical evidence; the final-contract full run below is the current qualification authority.</li>
+        <li><code class="status">[wip]</code> Re-run the full eight-goal suite through the consolidated production orchestrator with a 75-minute per-goal wall-clock budget (<code>--timeout 4500</code>). The run started from a green blocking preflight with immutable image ID <code>sha256:458ef96d…</code>; do not promote <code>baseline-v2.json</code> unless all eight final-contract results qualify.</li>
       </ul>
 
       <h4>3. Testing Strategy</h4>
       <p>The fixture suite is the fast gate; the live re-run is the slow proof. Order: fixtures → single goals → full suite. A live model (LM Studio gemma-4-12b-qat) and the docker Postgres on :5433 are required for the live half — mark <code>[f]</code> with evidence if either is down, never fabricate.</p>
       <ul class="checklist">
-        <li><code class="status">[]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_recorded_misjudgments.py tests/test_acceptance_contracts.py tests/test_manifest_contracts.py</code> — every recorded misjudgment now judges correctly.</li>
-        <li><code class="status">[]</code> <code>uv run --extra dev python -m evals.goal_suite_tui --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --only 6 --output evals/results/requalify-ttt-v2.json</code> — tic-tac-toe re-judged live (repeat with <code>--only 2/7/8</code> for digits/dijkstra/email).</li>
-        <li><code class="status">[]</code> <code>uv run --extra dev python -m evals.goal_suite_tui --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --output evals/results/baseline-v2.json</code> — full-suite re-qualification with correct judgments.</li>
+        <li><code class="status">[x]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_recorded_misjudgments.py tests/test_acceptance_contracts.py tests/test_manifest_contracts.py</code> — every recorded misjudgment now judges correctly.</li>
+        <li><code class="status">[wip]</code> <code>uv run --extra dev python -m evals.goal_suite_tui --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --only N --output evals/results/requalify-*-v2.json</code> for <code>N = 2, 6, 7, 8</code> — historical targeted artifacts are retained, but final-contract qualification is delegated to the current full-catalog run.</li>
+        <li><code class="status">[wip]</code> <code>uv run --extra dev python -m evals.goal_suite_tui --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --timeout 4500 --output evals/results/baseline-v2.json</code> — active in persistent session <code>forge-baseline-75m-final</code>; the older five-verified/three-timeout partial was copied to <code>baseline-v2.partial.pre-75m-final-20260716.json</code> before launch.</li>
       </ul>
       <div class="loop">
         🔁 <strong>Do not exit this phase until every box above is checked.</strong>
@@ -423,11 +425,11 @@ def check_verifier_runtimes(image: str) -> Check:
     <h2>Validation Commands</h2>
     <p>Execute these commands to validate the entire plan is complete:</p>
     <ul class="checklist">
-      <li><code class="status">[]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests</code> — full Python suite green, including the new misjudgment fixtures.</li>
-      <li><code class="status">[]</code> <code>FORGE_TEST_DOCKER=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py tests/regression/test_sandbox.py</code> — real container boundary green against the rebuilt image.</li>
-      <li><code class="status">[]</code> <code>uv run --extra dev ruff check .</code> — repository lint green.</li>
-      <li><code class="status">[]</code> <code>docker run --rm forge-sandbox:latest python3 -c "import numpy, sklearn"</code> — the verifier image satisfies its runtime contract.</li>
-      <li><code class="status">[]</code> <code>uv run --extra dev python -m evals.goal_suite_tui --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --output evals/results/baseline-v2.json</code> — live re-qualification: every verdict behavioral, zero misattributed failures.</li>
+      <li><code class="status">[x]</code> <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests</code> — 479 passed, 19 skipped; full Python suite green, including Python/JavaScript process-isolation, AST-test, immutable-image, and recorded-misjudgment regressions.</li>
+      <li><code class="status">[wip]</code> <code>FORGE_TEST_DOCKER=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --extra dev python -m pytest -q -o addopts='' tests/test_acceptance_contracts.py tests/regression/test_sandbox.py</code> — final combined rerun deferred until the live qualification is idle; the acceptance/replay container slice is green.</li>
+      <li><code class="status">[x]</code> <code>uv run --extra dev ruff check .</code> — repository lint green.</li>
+      <li><code class="status">[x]</code> <code>docker run --rm forge-sandbox:latest python3 -c "import numpy, sklearn"</code> — verifier runtime imports passed with numpy 2.1.3 and scikit-learn 1.6.0.</li>
+      <li><code class="status">[wip]</code> <code>uv run --extra dev python -m evals.goal_suite_tui --model google/gemma-4-12b-qat --base-url http://127.0.0.1:1234/v1 --timeout 4500 --output evals/results/baseline-v2.json</code> — active final-contract live re-qualification; baseline promotion remains locked pending all eight results.</li>
     </ul>
     <div class="loop">
       🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong>
@@ -475,6 +477,22 @@ def check_verifier_runtimes(image: str) -> Check:
   <section id="amendments">
     <h2>Amendments</h2>
     <!-- Populated by the Update Plan / Update References workflows. Append-only. -->
+    <details open>
+      <summary>2026-07-16 — live qualification disk gate and trust hardening</summary>
+      <p class="qa-answer">Added an emitter-forgery regression guard, persisted successful preflight evidence, fingerprinted the observed sandbox mode and the exact verifier image separately, made suite definitions hash their goal catalog plus metric semantics, and made baseline CLI exit nonzero unless <code>baseline_status == "created"</code>. The tic-tac-toe live child completed and its exported snapshot was accepted in the rebuilt verifier, but the canonical replay correctly failed closed after free disk fell below the 2 GiB preflight minimum. No baseline was promoted.</p>
+    </details>
+    <details open>
+      <summary>2026-07-16 — cleanup recovery and completed live re-qualification</summary>
+      <p class="qa-answer">Removed exactly the fourteen terminal July-15 eval containers and their obsolete image without deleting Docker volumes, snapshots, result evidence, user work, or the loaded LM Studio model. After Docker recovery, all four affected goals verified and accepted live. A persistent full eight-goal production run then completed with a green preflight and rebuilt verifier digest: five goals verified, Snake/JSON Parser/Dijkstra timed out, no harness errors or false greens occurred, and <code>baseline-v2.json</code> was correctly withheld while the fresh partial recorded <code>not_created_qualification_failed</code>.</p>
+    </details>
+    <details open>
+      <summary>2026-07-16 — adversarial blocker repair</summary>
+      <p class="qa-answer">A final hostile review reproduced two same-process sentinel forgeries, a comment-only Dijkstra test false positive, and a mutable verifier-tag comparability race. Candidate Python now runs in a separate RPC worker while the trusted parent alone evaluates and emits results; useful tests are AST-checked; and image tags resolve once to immutable IDs used consistently by preflight, sandbox launch, verifier execution, and fingerprints. The new regressions pass in both host and Docker-gated suites.</p>
+    </details>
+    <details open>
+      <summary>2026-07-17 — final isolation closure and 75-minute qualification</summary>
+      <p class="qa-answer">Moved email-validator and Node CLI candidate loading into forked workers so untrusted JavaScript cannot write the trusted result stream, and made unresolved mutable Docker tags a blocking preflight failure even when an injected override is permissive. The full suite is green at 479 passed / 19 skipped. A final eight-goal production run is active with <code>--timeout 4500</code>; its older partial was preserved, its image IDs resolved immutably, and Phase 6 remains explicitly in progress until the final result is checkpointed.</p>
+    </details>
   </section>
 
 </main>

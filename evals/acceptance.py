@@ -38,6 +38,7 @@ A contract returns one of four verdicts. Only ``accepted`` is a pass:
 
 from __future__ import annotations
 
+import ast
 import contextvars
 import json
 import os
@@ -48,7 +49,9 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
+
+from evals.reproduction import ReproductionSpec, evaluate_reproduction
 
 PYTHON = os.environ.get("SUITE_PYTHON", sys.executable)
 RESULT_SENTINEL = "@@ACCEPTANCE_RESULT@@"
@@ -60,12 +63,17 @@ _INFRA_MARKERS = (
     "no such file or directory: unknown",
     "container init",
 )
+_ARTIFACT_MARKERS = (
+    "candidate attempted to invoke the trusted result emitter",
+    "candidate process:",
+)
 
 # Directories that are agent-run byproducts, not source. Copying them into the
 # independent re-run would let cached state (compiled bytecode, a virtualenv,
 # installed node_modules) mask a workspace that is not actually self-contained.
 _PRUNE_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache",
-               "node_modules", ".venv", "venv", ".tox", ".ruff_cache"}
+               "node_modules", ".venv", "venv", ".tox", ".ruff_cache",
+               ".forge-home", ".forge-internal", ".forge-sandbox-host-import-v1"}
 
 
 # --------------------------------------------------------------------------- #
@@ -80,6 +88,7 @@ class Check:
     passed: bool
     detail: str = ""
     command: list[str] | None = None
+    executed_command: list[str] | None = None
     stdout: str = ""
     stderr: str = ""
 
@@ -89,6 +98,7 @@ class Check:
             "passed": self.passed,
             "detail": self.detail,
             "command": self.command,
+            "executed_command": self.executed_command,
             "stdout": _clip(self.stdout),
             "stderr": _clip(self.stderr),
         }
@@ -171,6 +181,10 @@ class Runner:
     label = "abstract"
     gateable = False
 
+    def render(self, cmd: list[str], cwd: Path) -> list[str]:
+        """Return the exact argv this runner will execute."""
+        return list(cmd)
+
     def run(self, cmd: list[str], cwd: Path, *, timeout: int,
             stdin: str | None = None) -> subprocess.CompletedProcess:
         raise NotImplementedError
@@ -200,7 +214,7 @@ class ContainerRunner(Runner):
         self.mount_root = Path(mount_root).resolve() if mount_root else None
         self.memory, self.cpus, self.pids = memory, cpus, pids
 
-    def run(self, cmd, cwd, *, timeout, stdin=None):  # noqa: ANN001
+    def render(self, cmd: list[str], cwd: Path) -> list[str]:
         cwd = Path(cwd).resolve()
         root = self.mount_root or cwd
         try:
@@ -209,7 +223,7 @@ class ContainerRunner(Runner):
             root, rel = cwd, Path(".")
         container_cwd = str(PurePosixPath("/verify") / rel)
         translated = [self._to_container(token, root) for token in cmd]
-        docker_cmd = [
+        return [
             "docker", "run", "--rm", "--network", "none",
             "--memory", self.memory, "--cpus", self.cpus, "--pids-limit", str(self.pids),
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -218,6 +232,9 @@ class ContainerRunner(Runner):
             "-v", f"{root}:/verify:rw", "-w", container_cwd,
             "-i", self.image, *translated,
         ]
+
+    def run(self, cmd, cwd, *, timeout, stdin=None):  # noqa: ANN001
+        docker_cmd = self.render(cmd, cwd)
         return subprocess.run(docker_cmd, input=stdin, text=True,
                               capture_output=True, timeout=timeout + 15)
 
@@ -229,12 +246,20 @@ class ContainerRunner(Runner):
         image, and absolute host paths under the mount must become ``/verify``
         paths. Anything else (flags, code strings, plain args) passes through.
         """
+        container_tools = {
+            "node", "npm", "npx", "python", "python3", "pytest", "cargo",
+            "rustc", "g++", "gcc", "cc", "make", "cmake",
+        }
         if token == PYTHON or token == str(PYTHON):
             return "python3"
         try:
             candidate = Path(token)
             if candidate.is_absolute():
-                return str(PurePosixPath("/verify") / candidate.resolve().relative_to(root))
+                try:
+                    return str(PurePosixPath("/verify") / candidate.resolve().relative_to(root))
+                except ValueError:
+                    if candidate.name in container_tools:
+                        return candidate.name
         except (ValueError, OSError):
             pass
         return token
@@ -253,7 +278,19 @@ def active_runner() -> Runner:
 def _run(cmd: list[str], cwd: Path, *, timeout: int, stdin: str | None = None) -> subprocess.CompletedProcess:
     """Execute one contract command through the active runner (never a bare
     host subprocess unless the active runner is explicitly HostRunner)."""
-    return active_runner().run(cmd, cwd, timeout=timeout, stdin=stdin)
+    runner = active_runner()
+    executed_command = runner.render(cmd, cwd)
+    proc = runner.run(cmd, cwd, timeout=timeout, stdin=stdin)
+    proc.executed_command = executed_command
+    return proc
+
+
+def _executed_command(proc: subprocess.CompletedProcess) -> list[str] | None:
+    return getattr(proc, "executed_command", None)
+
+
+def _render_command(cmd: list[str], cwd: Path) -> list[str]:
+    return active_runner().render(cmd, cwd)
 
 
 def discover(root: Path, *, name_hints: tuple[str, ...], content_any: tuple[str, ...],
@@ -265,11 +302,13 @@ def discover(root: Path, *, name_hints: tuple[str, ...], content_any: tuple[str,
     """
 
     candidates = [
-        p for p in sorted(root.rglob(f"*{suffix}"))
+        p for p in root.rglob(f"*{suffix}")
         if p.is_file()
         and not p.name.startswith("_acceptance")
-        and not any(part in _PRUNE_DIRS for part in p.parts)
+        and not any(part in _PRUNE_DIRS for part in p.relative_to(root).parts)
+        and not any(part.startswith(".") for part in p.relative_to(root).parts)
     ]
+    candidates.sort(key=lambda p: (len(p.relative_to(root).parts), str(p.relative_to(root))))
     impl = [p for p in candidates if not _looks_like_test(p.name)]
 
     for hint in name_hints:
@@ -297,6 +336,30 @@ def _looks_like_test(name: str) -> bool:
     return stem.startswith("test_") or stem.endswith("_test") or stem in {"tests", "conftest"}
 
 
+def _has_nonvacuous_test(root: Path) -> bool:
+    """Return whether a shipped Python test contains a meaningful assertion."""
+
+    for test_file in list(root.rglob("test_*.py")) + list(root.rglob("*_test.py")):
+        try:
+            tree = ast.parse(test_file.read_text(errors="ignore"), filename=str(test_file))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assert):
+                continue
+            if isinstance(node.test, ast.Constant):
+                continue
+            if isinstance(node.test, ast.Compare):
+                operands = [node.test.left, *node.test.comparators]
+                if all(isinstance(operand, ast.Constant) for operand in operands):
+                    continue
+            # This is an executable assertion and is not one of the known
+            # literal tautology shapes. Comments and strings never create an
+            # ast.Assert node, so they cannot satisfy the gate.
+            return True
+    return False
+
+
 def _parse_driver_output(stdout: str) -> dict[str, Any] | None:
     records = [line for line in stdout.splitlines() if line.startswith(RESULT_SENTINEL)]
     if len(records) != 1:
@@ -316,12 +379,18 @@ def _attribute_failure(driver_error: str) -> str:
     """
 
     frames = re.findall(r'File "([^"]+)"', driver_error or "")
+    lowered = (driver_error or "").lower()
+    if any(marker in lowered for marker in _ARTIFACT_MARKERS):
+        return "artifact"
     driver_frames = [path for path in frames if "_acceptance_driver" in Path(path).name]
     if driver_frames:
-        driver_root = str(PurePosixPath(driver_frames[0]).parent)
+        driver_root = os.path.realpath(str(PurePosixPath(driver_frames[0]).parent))
         workspace_frames = [
             path for path in frames
-            if path == driver_root or path.startswith(driver_root.rstrip("/") + "/")
+            if (
+                os.path.realpath(path) == driver_root
+                or os.path.realpath(path).startswith(driver_root.rstrip("/") + "/")
+            )
         ]
         if workspace_frames:
             deepest = workspace_frames[-1]
@@ -332,25 +401,232 @@ def _attribute_failure(driver_error: str) -> str:
         deepest = verify_frames[-1]
         return "harness" if "_acceptance_driver" in Path(deepest).name else "artifact"
 
-    lowered = (driver_error or "").lower()
     if any(marker in lowered for marker in _INFRA_MARKERS):
         return "harness"
     return "unknown"
 
 
+_PY_WORKER = r'''
+import importlib.util, json, os, sys, traceback
+
+_requests = os.fdopen(os.dup(0), "r", encoding="utf-8")
+_responses = os.fdopen(int(sys.argv[2]), "w", encoding="utf-8", buffering=1)
+# Candidate stdout, including sys.__stdout__, is diagnostic-only. The trusted
+# parent owns the acceptance result stream in a different process.
+sys.stdout = sys.stderr
+_objects = {}
+_next_id = 1
+
+def _emit(*args, **kwargs):
+    raise RuntimeError("candidate attempted to invoke the trusted result emitter")
+
+def _store(value):
+    global _next_id
+    object_id = _next_id
+    _next_id += 1
+    _objects[object_id] = value
+    return object_id
+
+def _encode(value):
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return {"kind": "value", "value": value}
+    if isinstance(value, tuple):
+        return {"kind": "tuple", "items": [_encode(item) for item in value]}
+    if isinstance(value, list):
+        return {"kind": "list", "items": [_encode(item) for item in value]}
+    if isinstance(value, dict):
+        return {"kind": "dict", "items": [[_encode(k), _encode(v)] for k, v in value.items()]}
+    enum_value = getattr(value, "value", None)
+    if enum_value is not None and value.__class__.__module__ != "builtins":
+        return {"kind": "plain", "value": _encode(enum_value), "string": str(value)}
+    return {
+        "kind": "ref",
+        "id": _store(value),
+        "ref_kind": "class" if isinstance(value, type) else ("callable" if callable(value) else "object"),
+    }
+
+def _decode(value):
+    kind = value.get("kind")
+    if kind == "value":
+        return value.get("value")
+    if kind == "tuple":
+        return tuple(_decode(item) for item in value.get("items", []))
+    if kind == "list":
+        return [_decode(item) for item in value.get("items", [])]
+    if kind == "dict":
+        return {_decode(k): _decode(v) for k, v in value.get("items", [])}
+    if kind == "ref":
+        return _objects[value["id"]]
+    raise ValueError("unsupported RPC value")
+
+try:
+    spec = importlib.util.spec_from_file_location("agent_mod", sys.argv[1])
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["agent_mod"] = module
+    spec.loader.exec_module(module)
+    _objects[0] = module
+    _responses.write(json.dumps({"ok": True}) + "\n")
+except BaseException:
+    _responses.write(json.dumps({"ok": False, "type": "ImportError", "traceback": traceback.format_exc()}) + "\n")
+    raise SystemExit(1)
+
+for line in _requests:
+    try:
+        request = json.loads(line)
+        obj = _objects[request["id"]]
+        op = request["op"]
+        if op == "dir":
+            result = {"kind": "list", "items": [_encode(name) for name in dir(obj)]}
+        elif op == "getattr":
+            result = _encode(getattr(obj, request["name"]))
+        elif op == "call":
+            args = [_decode(item) for item in request.get("args", [])]
+            kwargs = {name: _decode(item) for name, item in request.get("kwargs", {}).items()}
+            result = _encode(obj(*args, **kwargs))
+        else:
+            raise ValueError("unknown RPC operation")
+        _responses.write(json.dumps({"ok": True, "result": result}, default=str) + "\n")
+    except BaseException as exc:
+        _responses.write(json.dumps({
+            "ok": False,
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+        }, default=str) + "\n")
+'''
+
+
 _PY_PREAMBLE = f"""
-import importlib.util, json, sys, traceback
+import atexit, json, os, subprocess, sys, traceback
 
 _driver_stdout = sys.stdout
 # Candidate imports and function calls may print arbitrary bytes. Keep those
 # diagnostics on stderr so only the trusted driver can emit the result record.
 sys.stdout = sys.stderr
+_candidate_processes = []
+
+class _RemotePlain:
+    def __init__(self, value, string):
+        self.value = value
+        self.string = string
+    def __str__(self):
+        return self.string
+
+class _CandidateRPC:
+    def __init__(self, path):
+        self.path = os.path.realpath(path)
+        read_fd, write_fd = os.pipe()
+        self._responses = os.fdopen(read_fd, "r", encoding="utf-8")
+        self._proc = subprocess.Popen(
+            [sys.executable, sys.argv[2], self.path, str(write_fd)],
+            stdin=subprocess.PIPE, stdout=sys.stderr, stderr=sys.stderr,
+            text=True, pass_fds=(write_fd,), close_fds=True,
+        )
+        os.close(write_fd)
+        _candidate_processes.append(self._proc)
+        ready = self._read()
+        if not ready.get("ok"):
+            self._raise(ready)
+    def _read(self):
+        line = self._responses.readline()
+        if not line:
+            raise RuntimeError(
+                'candidate process ended before replying\\n  File "' + self.path + '", line 0'
+            )
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                'candidate produced an invalid RPC reply\\n  File "' + self.path + '", line 0'
+            ) from exc
+    def _raise(self, response):
+        detail = response.get("traceback") or (
+            'File "' + self.path + '", line 0\\n' + response.get("message", "candidate call failed")
+        )
+        exc_type = {{
+            "TypeError": TypeError, "KeyError": KeyError, "ValueError": ValueError,
+            "AttributeError": AttributeError, "RuntimeError": RuntimeError,
+        }}.get(response.get("type"), RuntimeError)
+        raise exc_type(detail)
+    def request(self, op, object_id, **payload):
+        if self._proc.poll() is not None:
+            raise RuntimeError(
+                'candidate process is not running\\n  File "' + self.path + '", line 0'
+            )
+        request = {{"op": op, "id": object_id, **payload}}
+        try:
+            self._proc.stdin.write(json.dumps(request, default=str) + "\\n")
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
+            raise RuntimeError(
+                'candidate process closed its request channel\\n  File "' + self.path + '", line 0'
+            ) from exc
+        response = self._read()
+        if not response.get("ok"):
+            self._raise(response)
+        return self.decode(response["result"])
+    def encode(self, value):
+        if isinstance(value, _Remote):
+            if value._rpc is not self:
+                raise TypeError("remote objects cannot cross candidate processes")
+            return {{"kind": "ref", "id": value._id}}
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return {{"kind": "value", "value": value}}
+        if isinstance(value, tuple):
+            return {{"kind": "tuple", "items": [self.encode(item) for item in value]}}
+        if isinstance(value, list):
+            return {{"kind": "list", "items": [self.encode(item) for item in value]}}
+        if isinstance(value, dict):
+            return {{"kind": "dict", "items": [[self.encode(k), self.encode(v)] for k, v in value.items()]}}
+        raise TypeError("unsupported argument for isolated candidate call: " + type(value).__name__)
+    def decode(self, value):
+        kind = value.get("kind")
+        if kind == "value":
+            return value.get("value")
+        if kind == "tuple":
+            return tuple(self.decode(item) for item in value.get("items", []))
+        if kind == "list":
+            return [self.decode(item) for item in value.get("items", [])]
+        if kind == "dict":
+            return {{self.decode(k): self.decode(v) for k, v in value.get("items", [])}}
+        if kind == "plain":
+            return _RemotePlain(self.decode(value["value"]), value.get("string", ""))
+        if kind == "ref":
+            return _Remote(self, value["id"], value.get("ref_kind", "object"))
+        raise RuntimeError("candidate returned an unsupported RPC value")
+
+class _Remote:
+    def __init__(self, rpc, object_id, kind):
+        self._rpc, self._id, self._kind = rpc, object_id, kind
+    def __dir__(self):
+        return self._rpc.request("dir", self._id)
+    def __getattr__(self, name):
+        return self._rpc.request("getattr", self._id, name=name)
+    def __call__(self, *args, **kwargs):
+        if self._kind not in ("class", "callable"):
+            raise TypeError("remote object is not callable")
+        return self._rpc.request(
+            "call", self._id,
+            args=[self._rpc.encode(item) for item in args],
+            kwargs={{name: self._rpc.encode(item) for name, item in kwargs.items()}},
+        )
+
+def _cleanup_candidates():
+    for proc in _candidate_processes:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+atexit.register(_cleanup_candidates)
 
 def _load(path):
-    spec = importlib.util.spec_from_file_location("agent_mod", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    rpc = _CandidateRPC(path)
+    return _Remote(rpc, 0, "module")
+
+def _is_class(value):
+    return isinstance(value, _Remote) and value._kind == "class"
 
 def _emit(cases, error=None, extra=None):
     for case in cases:
@@ -384,8 +660,10 @@ def _find(mod, names):
 
 def _run_python_driver(root: Path, target: Path, body: str, *, timeout: int = 90) -> tuple[list[str], subprocess.CompletedProcess]:
     driver = root / "_acceptance_driver.py"
+    worker = root / "_acceptance_worker.py"
     driver.write_text(_PY_PREAMBLE + "\n" + body, encoding="utf-8")
-    cmd = [PYTHON, str(driver), str(target)]
+    worker.write_text(_PY_WORKER, encoding="utf-8")
+    cmd = [PYTHON, str(driver), str(target), str(worker)]
     proc = _run(cmd, root, timeout=timeout)
     return cmd, proc
 
@@ -397,10 +675,12 @@ def _cases_to_checks(cmd: list[str], proc: subprocess.CompletedProcess,
         driver_error = proc.stderr if _attribute_failure(proc.stderr) == "harness" else "no result"
         return ([Check("driver produced parseable result", False,
                        detail="no @@ACCEPTANCE_RESULT@@ line in stdout",
-                       command=cmd, stdout=proc.stdout, stderr=proc.stderr)], driver_error)
+                       command=cmd, executed_command=_executed_command(proc),
+                       stdout=proc.stdout, stderr=proc.stderr)], driver_error)
     if payload.get("error"):
         return ([Check("driver ran without error", False, detail=str(payload["error"]),
-                       command=cmd, stdout=proc.stdout, stderr=proc.stderr)], str(payload["error"]))
+                       command=cmd, executed_command=_executed_command(proc),
+                       stdout=proc.stdout, stderr=proc.stderr)], str(payload["error"]))
     checks: list[Check] = []
     for case in payload.get("cases", []):
         checks.append(Check(
@@ -411,6 +691,7 @@ def _cases_to_checks(cmd: list[str], proc: subprocess.CompletedProcess,
     # Attach the command/output to the first check for auditability.
     if checks:
         checks[0].command = cmd
+        checks[0].executed_command = _executed_command(proc)
         checks[0].stdout = proc.stdout
         checks[0].stderr = proc.stderr
     return checks, None
@@ -459,7 +740,7 @@ try:
     Cls = None
     for attr in dir(mod):
         obj = getattr(mod, attr)
-        if isinstance(obj, type) and hasattr(obj, "get") and hasattr(obj, "put"):
+        if _is_class(obj) and hasattr(obj, "get") and hasattr(obj, "put"):
             Cls = obj; break
     if Cls is None:
         _emit([], error="no class exposing both get() and put()"); sys.exit(0)
@@ -586,13 +867,15 @@ def _rpn_cli(root: Path, target: Path) -> list[Check]:
             try:
                 proc = _run(cmd, target.parent, timeout=30, stdin=stdin)
             except subprocess.TimeoutExpired:
-                checks.append(Check(f"cli rpn({expr!r})", False, detail="timed out", command=cmd))
+                checks.append(Check(f"cli rpn({expr!r})", False, detail="timed out", command=cmd,
+                                    executed_command=_render_command(cmd, target.parent)))
                 continue
             got = _last_number(proc.stdout)
             ok = got is not None and abs(got - want) < 1e-6
             checks.append(Check(f"cli rpn({expr!r})", ok,
                                 detail=f"stdout={proc.stdout.strip()!r} want={want}",
-                                command=cmd, stdout=proc.stdout, stderr=proc.stderr))
+                                command=cmd, executed_command=_executed_command(proc),
+                                stdout=proc.stdout, stderr=proc.stderr))
         return checks
 
     forms = [
@@ -673,10 +956,12 @@ def contract_dijkstra(root: Path) -> ContractResult:
         return res
     res.target_file = str(target)
     body = r'''
-import glob, os, importlib.util
+import glob, os
 
 EDGES = [("A", "B", 1), ("A", "C", 4), ("B", "C", 2), ("B", "D", 5), ("C", "D", 1)]
 GRAPH_DICT = {"A": {"B": 1, "C": 4}, "B": {"C": 2, "D": 5}, "C": {"D": 1}, "D": {}}
+EDGE_LIST_GRAPH = {"A": [("B", 1), ("C", 4)], "B": [("C", 2), ("D", 5)],
+                   "C": [("D", 1)], "D": []}
 WANT = {"B": 1, "C": 3, "D": 4}  # shortest distances from source "A"
 
 def _dist_from(result, node):
@@ -696,15 +981,14 @@ def _build_graph(mod):
     def collect(m):
         for a in dir(m):
             o = getattr(m, a)
-            if isinstance(o, type) and hasattr(o, "add_edge"):
+            if _is_class(o) and hasattr(o, "add_edge"):
                 classes.append(o)
     collect(mod)
     for p in glob.glob(os.path.join(os.path.dirname(sys.argv[1]), "*.py")):
-        if p.endswith("_acceptance_driver.py"):
+        if os.path.basename(p).startswith("_acceptance"):
             continue
         try:
-            spec = importlib.util.spec_from_file_location("sib_" + os.path.basename(p)[:-3], p)
-            m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); collect(m)
+            collect(_load(p))
         except Exception:
             continue
     for Cls in classes:
@@ -725,8 +1009,10 @@ try:
     G = _build_graph(mod)
     # Candidate ways to obtain the distance to a target node, most specific last.
     def getters(node):
-        yield lambda: _dist_from(f(GRAPH_DICT, "A"), node)
-        yield lambda: _dist_from(f("A", GRAPH_DICT), node)
+        for graph in (GRAPH_DICT, EDGE_LIST_GRAPH):
+            yield lambda graph=graph: _dist_from(f(graph, "A"), node)
+            yield lambda graph=graph: _dist_from(f("A", graph), node)
+            yield lambda graph=graph: _dist_from(f(graph, "A", node), node)
         if G is not None:
             yield lambda: _dist_from(f(G, "A", node), node)
             yield lambda: _dist_from(f(G, "A"), node)
@@ -755,6 +1041,12 @@ except Exception:
 '''
     cmd, proc = _run_python_driver(root, target, body)
     checks, err = _cases_to_checks(cmd, proc, _parse_driver_output(proc.stdout))
+    has_tests = _has_nonvacuous_test(root)
+    checks.append(Check(
+        "has a non-vacuous test assertion",
+        has_tests,
+        detail="found a real assert" if has_tests else "only vacuous or missing asserts",
+    ))
     return _finalize(res, checks, err)
 
 
@@ -812,6 +1104,42 @@ except Exception:
     return _finalize(res, checks, err)
 
 
+# Top-level modules the pinned verifier image contractually provides — preflight
+# probes them (evals/preflight.VERIFIER_RUNTIME_PROBES) before any suite runs.
+# joblib/threadpoolctl/scipy ship as scikit-learn's dependency closure.
+_CONTRACT_RUNTIME_MODULES = frozenset(
+    {"numpy", "sklearn", "scipy", "joblib", "threadpoolctl"})
+
+
+def _classify_import_failure(stderr: str) -> tuple[str, str] | None:
+    """Attribute a training-run import failure: harness contract vs artifact.
+
+    Only ``No module named 'X'`` where X is a module the verifier image
+    *promises* is a harness/runtime fault (the preflight contract was broken).
+    Any other missing module means the artifact is not self-contained (the
+    agent imported something it never shipped), and ``cannot import name``
+    means the module exists but the agent misused its API — both are artifact
+    defects, never the harness's. Returns (verdict, reason) or None when the
+    stderr shows no import failure at all.
+    """
+    match = re.search(r"No module named '([^']+)'", stderr or "")
+    if match:
+        top_level = match.group(1).split(".")[0]
+        if top_level in _CONTRACT_RUNTIME_MODULES:
+            return ("error",
+                    f"contract runtime module {top_level!r} unavailable in the "
+                    f"verifier image (preflight contract violated)")
+        return ("rejected",
+                f"artifact defect: training script imports {match.group(1)!r}, "
+                f"which is neither shipped with the artifact nor part of the "
+                f"verifier runtime contract")
+    if re.search(r"\bImportError\b|cannot import name", stderr or ""):
+        return ("rejected",
+                "artifact defect: training script failed at import "
+                "(module present, symbol or usage wrong)")
+    return None
+
+
 def contract_digits(root: Path) -> ContractResult:
     """Re-run the training command and require a reproduced results.json whose
     accuracy is a real number above 0.95 — not merely a present file."""
@@ -837,18 +1165,25 @@ def contract_digits(root: Path) -> ContractResult:
     except subprocess.TimeoutExpired as exc:
         res.verdict = "rejected"
         res.reason = "training command did not finish within 600s"
-        res.checks.append(Check("training command completes", False, detail=str(exc), command=cmd))
+        res.checks.append(Check("training command completes", False, detail=str(exc), command=cmd,
+                                executed_command=_render_command(cmd, target.parent)))
         return res
 
     ran_ok = proc.returncode == 0
     res.checks.append(Check("training command exits 0", ran_ok,
                             detail=f"returncode={proc.returncode}", command=cmd,
+                            executed_command=_executed_command(proc),
                             stdout=proc.stdout, stderr=proc.stderr))
     if not ran_ok:
-        # Distinguish a missing runtime (environment error) from a real crash.
-        if "ModuleNotFoundError" in proc.stderr or "ImportError" in proc.stderr:
-            res.verdict = "error"
-            res.reason = "training dependency unavailable in re-run environment"
+        # Attribute the failure precisely: a missing *contract* runtime module
+        # is the harness's fault (preflight promised it); a module the agent
+        # imported but never shipped, an API misuse, or any other crash is the
+        # artifact's. The old blanket "any ImportError -> harness error" let a
+        # non-self-contained artifact masquerade as an infrastructure problem
+        # and un-counted false completions.
+        import_verdict = _classify_import_failure(proc.stderr)
+        if import_verdict is not None:
+            res.verdict, res.reason = import_verdict
         else:
             res.verdict = "rejected"
             res.reason = "training command failed on independent re-run"
@@ -906,7 +1241,8 @@ def _extract_accuracy(data: Any) -> float | None:
 def contract_email_validator(root: Path) -> ContractResult:
     """Drive the JS validator under node with a valid/invalid battery."""
     res = ContractResult(slug="email-validator")
-    node = shutil.which("node") or (os.environ.get("SUITE_NODE"))
+    node = (shutil.which("node") or os.environ.get("SUITE_NODE")
+            or ("node" if active_runner().gateable else None))
     target = discover(root, name_hints=("email_validator.js", "validator.js", "email.js", "index.js"),
                       content_any=("email", "@", "regex", "test("), suffix=".js")
     if target is None:
@@ -919,8 +1255,10 @@ def contract_email_validator(root: Path) -> ContractResult:
         return res
 
     driver = root / "_acceptance_driver.js"
-    driver.write_text(_JS_DRIVER, encoding="utf-8")
-    cmd = [node, str(driver), str(target)]
+    worker = root / "_acceptance_node_worker.js"
+    driver.write_text(_JS_PARENT_PREAMBLE + _JS_DRIVER, encoding="utf-8")
+    worker.write_text(_JS_WORKER, encoding="utf-8")
+    cmd = [node, str(driver), str(target), str(worker)]
     try:
         proc = _run(cmd, root, timeout=60)
     except subprocess.TimeoutExpired as exc:
@@ -933,39 +1271,121 @@ def contract_email_validator(root: Path) -> ContractResult:
     return _finalize(res, checks, err)
 
 
-_JS_DRIVER = r'''
+_JS_WORKER = r'''
 const path = require("path");
-function emit(cases, error) {
-  console.log("''' + RESULT_SENTINEL + r''' " + JSON.stringify({cases: cases, error: error || null}));
-}
+let candidate = null;
+let loadError = null;
 try {
-  let mod = require(path.resolve(process.argv[2]));
-  let fn = null;
-  if (typeof mod === "function") fn = mod;
-  else if (mod && typeof mod.default === "function") fn = mod.default;
-  else if (mod) {
-    for (const k of ["validate", "validateEmail", "isValid", "isValidEmail", "isEmail", "emailValidator", "checkEmail", "validEmail"]) {
-      if (typeof mod[k] === "function") { fn = mod[k]; break; }
+  candidate = require(path.resolve(process.argv[2]));
+} catch (err) {
+  loadError = err;
+}
+
+function findFunction(names) {
+  if (typeof candidate === "function") return candidate;
+  if (candidate && typeof candidate.default === "function") return candidate.default;
+  if (candidate) {
+    for (const name of names) {
+      if (typeof candidate[name] === "function") return candidate[name];
     }
   }
-  if (!fn) { emit([], "no validator function exported (module.exports)"); process.exit(0); }
+  return null;
+}
+
+process.on("message", async (request) => {
+  try {
+    if (loadError) throw loadError;
+    const fn = findFunction(request.names || []);
+    if (!fn) {
+      process.send({id: request.id, ok: false, error: "no matching function exported"});
+      return;
+    }
+    const value = await fn(...(request.args || []));
+    process.send({id: request.id, ok: true, value: value === undefined ? null : value});
+  } catch (err) {
+    process.send({
+      id: request.id,
+      ok: false,
+      error: err && err.message ? err.message : String(err),
+      errorName: err && err.name ? err.name : "Error",
+    });
+  }
+});
+'''
+
+
+_JS_PARENT_PREAMBLE = r'''
+const path = require("path");
+const {fork} = require("child_process");
+const trustedStdout = process.stdout;
+
+function emit(cases, error) {
+  trustedStdout.write("''' + RESULT_SENTINEL + r''' " + JSON.stringify({cases: cases, error: error || null}) + "\n");
+}
+
+function startCandidate(target) {
+  const child = fork(path.resolve(process.argv[3]), [path.resolve(target)], {
+    silent: true,
+    serialization: "json",
+  });
+  let sequence = 0;
+  let fatal = null;
+  const pending = new Map();
+  child.stdout.on("data", (chunk) => process.stderr.write(chunk));
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  child.on("message", (response) => {
+    const pair = pending.get(response.id);
+    if (!pair) return;
+    pending.delete(response.id);
+    if (response.ok) pair.resolve(response.value);
+    else pair.reject(new Error((response.errorName || "Error") + ": " + (response.error || "candidate call failed")));
+  });
+  child.on("exit", (code, signal) => {
+    fatal = new Error("candidate process exited before replying (code=" + code + ", signal=" + signal + ")");
+    for (const pair of pending.values()) pair.reject(fatal);
+    pending.clear();
+  });
+  return {
+    call(names, args) {
+      if (fatal) return Promise.reject(fatal);
+      const id = ++sequence;
+      return new Promise((resolve, reject) => {
+        pending.set(id, {resolve, reject});
+        try { child.send({id, names, args}); }
+        catch (err) { pending.delete(id); reject(err); }
+      });
+    },
+    close() { if (child.connected) child.disconnect(); if (!child.killed) child.kill(); },
+  };
+}
+'''
+
+
+_JS_DRIVER = r'''
+(async () => {
+  const candidate = startCandidate(process.argv[2]);
+  try {
+  const names = ["validate", "validateEmail", "isValid", "isValidEmail", "isEmail", "emailValidator", "checkEmail", "validEmail"];
   const valid = ["john@example.com", "john.doe@example.co.uk", "a_b+c@sub.domain.org"];
   const invalid = ["plainaddress", "@no-local.com", "no-at.com", "a@b", "a b@c.com", "two@@at.com", ""];
   const cases = [];
   for (const e of valid) {
     let ok = false, got;
-    try { got = fn(e); ok = !!got; } catch (err) { got = "threw:" + err.name; }
+    try { got = await candidate.call(names, [e]); ok = !!got; } catch (err) { got = "threw:" + err.name; }
     cases.push({name: "valid: " + JSON.stringify(e), ok: ok, got: got, want: true});
   }
   for (const e of invalid) {
     let ok = false, got;
-    try { got = fn(e); ok = !got; } catch (err) { got = "threw:" + err.name; ok = false; }
+    try { got = await candidate.call(names, [e]); ok = !got; } catch (err) { got = "threw:" + err.name; ok = false; }
     cases.push({name: "invalid: " + JSON.stringify(e), ok: ok, got: got, want: false});
   }
   emit(cases);
-} catch (err) {
-  emit([], "driver failed to load module: " + (err && err.message ? err.message : String(err)));
-}
+  } catch (err) {
+    emit([], "candidate process: " + (err && err.message ? err.message : String(err)));
+  } finally {
+    candidate.close();
+  }
+})().catch((err) => emit([], "candidate process: " + String(err)));
 '''
 
 
@@ -1003,7 +1423,8 @@ def contract_snake(root: Path) -> ContractResult:
     except subprocess.TimeoutExpired as exc:
         res.verdict = "rejected"
         res.reason = "game loop never terminated even under a scripted-input stub"
-        res.checks.append(Check("terminates under scripted input", False, detail=str(exc), command=cmd))
+        res.checks.append(Check("terminates under scripted input", False, detail=str(exc), command=cmd,
+                                executed_command=_render_command(cmd, target.parent)))
         return res
 
     probe_path = target.parent / "_snake_probe.json"
@@ -1011,6 +1432,7 @@ def contract_snake(root: Path) -> ContractResult:
         res.verdict = "unverifiable"
         res.reason = "program did not run under the curses stub (no probe written)"
         res.checks.append(Check("runs under curses stub", False, command=cmd,
+                                executed_command=_executed_command(proc),
                                 stdout=proc.stdout, stderr=proc.stderr))
         return res
 
@@ -1023,6 +1445,7 @@ def contract_snake(root: Path) -> ContractResult:
     loop = Check("input-driven render loop (>=3 getch and >=3 draws)",
                  getch >= 3 and draws >= 3,
                  detail=f"getch_calls={getch} draw_calls={draws}", command=cmd,
+                 executed_command=_executed_command(proc),
                  stdout=proc.stdout, stderr=proc.stderr)
     no_crash = Check("runs without crashing under scripted input", not crashed,
                      detail=(crashed or "clean"))
@@ -1195,15 +1618,18 @@ except Exception:
             tproc = _run(tcmd, root, timeout=120)
             checks.append(Check("agent pytest suite passes", tproc.returncode == 0,
                                 detail=f"returncode={tproc.returncode}", command=tcmd,
+                                executed_command=_executed_command(tproc),
                                 stdout=tproc.stdout, stderr=tproc.stderr))
         except subprocess.TimeoutExpired as exc:
-            checks.append(Check("agent pytest suite passes", False, detail=str(exc), command=tcmd))
+            checks.append(Check("agent pytest suite passes", False, detail=str(exc), command=tcmd,
+                                executed_command=_render_command(tcmd, root)))
     return _finalize(res, checks, err)
 
 
 def contract_node_cli(root: Path) -> ContractResult:
     res = ContractResult(slug="node-cli-arg-parser")
-    node = shutil.which("node") or os.environ.get("SUITE_NODE")
+    node = (shutil.which("node") or os.environ.get("SUITE_NODE")
+            or ("node" if active_runner().gateable else None))
     target = discover(root, name_hints=("parser.js", "args.js", "cli.js", "argparse.js", "index.js"),
                       content_any=("--name", "--count", "process.argv", "argv"), suffix=".js")
     if target is None:
@@ -1218,8 +1644,10 @@ def contract_node_cli(root: Path) -> ContractResult:
     checks: list[Check] = []
     # Authoritative behavior: parse --name alice --count 3 -> {name: alice, count: 3}.
     driver = root / "_acceptance_node_cli.js"
-    driver.write_text(_NODE_CLI_DRIVER, encoding="utf-8")
-    dcmd = [node, str(driver), str(target)]
+    worker = root / "_acceptance_node_worker.js"
+    driver.write_text(_JS_PARENT_PREAMBLE + _NODE_CLI_DRIVER, encoding="utf-8")
+    worker.write_text(_JS_WORKER, encoding="utf-8")
+    dcmd = [node, str(driver), str(target), str(worker)]
     got_behavior = False
     try:
         dproc = _run(dcmd, root, timeout=60)
@@ -1239,9 +1667,11 @@ def contract_node_cli(root: Path) -> ContractResult:
             ok = "alice" in out and "3" in cproc.stdout
             checks.append(Check("cli parses --name/--count", ok,
                                 detail=f"stdout={cproc.stdout.strip()!r}", command=ccmd,
+                                executed_command=_executed_command(cproc),
                                 stdout=cproc.stdout, stderr=cproc.stderr))
         except subprocess.TimeoutExpired as exc:
-            checks.append(Check("cli parses --name/--count", False, detail=str(exc), command=ccmd))
+            checks.append(Check("cli parses --name/--count", False, detail=str(exc), command=ccmd,
+                                executed_command=_render_command(ccmd, target.parent)))
 
     # Honor "node --test passes" if the agent shipped tests.
     if any(root.rglob("*.test.js")) or any("node:test" in p.read_text(errors="ignore")
@@ -1251,31 +1681,23 @@ def contract_node_cli(root: Path) -> ContractResult:
             tproc = _run(tcmd, root, timeout=90)
             checks.append(Check("node --test passes", tproc.returncode == 0,
                                 detail=f"returncode={tproc.returncode}", command=tcmd,
+                                executed_command=_executed_command(tproc),
                                 stdout=tproc.stdout, stderr=tproc.stderr))
         except subprocess.TimeoutExpired as exc:
-            checks.append(Check("node --test passes", False, detail=str(exc), command=tcmd))
+            checks.append(Check("node --test passes", False, detail=str(exc), command=tcmd,
+                                executed_command=_render_command(tcmd, root)))
     return _finalize(res, checks, None)
 
 
 _NODE_CLI_DRIVER = r'''
-const path = require("path");
-function emit(cases, error) {
-  console.log("''' + RESULT_SENTINEL + r''' " + JSON.stringify({cases: cases, error: error || null}));
-}
-try {
-  let mod = require(path.resolve(process.argv[2]));
-  let fn = null;
-  if (typeof mod === "function") fn = mod;
-  else if (mod && typeof mod.default === "function") fn = mod.default;
-  else if (mod) {
-    for (const k of ["parse", "parseArgs", "parseArguments", "parser", "argparse"]) {
-      if (typeof mod[k] === "function") { fn = mod[k]; break; }
-    }
-  }
-  if (!fn) { emit([], "no parser function exported"); process.exit(0); }
+(async () => {
+  const candidate = startCandidate(process.argv[2]);
+  try {
+  const names = ["parse", "parseArgs", "parseArguments", "parser", "argparse"];
   const argv = ["--name", "alice", "--count", "3"];
   let out;
-  try { out = fn(argv); } catch (e) { emit([], "parser threw: " + e.name); process.exit(0); }
+  try { out = await candidate.call(names, [argv]); }
+  catch (e) { emit([], "candidate process: parser threw: " + e.name); return; }
   const name = out && (out.name !== undefined ? out.name : out.Name);
   const count = out && (out.count !== undefined ? out.count : out.Count);
   const cases = [
@@ -1283,15 +1705,19 @@ try {
     {name: "parses --count", ok: String(count) === "3", got: count, want: 3},
   ];
   emit(cases);
-} catch (err) {
-  emit([], "driver failed to load module: " + (err && err.message ? err.message : String(err)));
-}
+  } catch (err) {
+    emit([], "candidate process: " + (err && err.message ? err.message : String(err)));
+  } finally {
+    candidate.close();
+  }
+})().catch((err) => emit([], "candidate process: " + String(err)));
 '''
 
 
 def contract_cpp_reverse(root: Path) -> ContractResult:
     res = ContractResult(slug="cpp-string-reverse")
-    cxx = shutil.which("g++") or shutil.which("clang++") or os.environ.get("SUITE_CXX")
+    cxx = (shutil.which("g++") or shutil.which("clang++") or os.environ.get("SUITE_CXX")
+           or ("g++" if active_runner().gateable else None))
     impl = None
     for p in sorted(root.rglob("*.cpp")):
         if "_acceptance" in p.name:
@@ -1323,7 +1749,8 @@ def contract_cpp_reverse(root: Path) -> ContractResult:
         try:
             build = _run(ccmd, root, timeout=120)
         except subprocess.TimeoutExpired as exc:
-            res.checks.append(Check("compile authoritative harness", False, detail=str(exc), command=ccmd))
+            res.checks.append(Check("compile authoritative harness", False, detail=str(exc), command=ccmd,
+                                    executed_command=_render_command(ccmd, root)))
             continue
         if build.returncode != 0:
             continue  # try the next signature
@@ -1335,7 +1762,8 @@ def contract_cpp_reverse(root: Path) -> ContractResult:
         ok = runp.returncode == 0 and "ALL_OK" in runp.stdout
         res.checks.append(Check("reverse_string round-trips (independent harness)", ok,
                                 detail=f"returncode={runp.returncode} stdout={runp.stdout.strip()!r}",
-                                command=[str(binpath)], stdout=runp.stdout, stderr=runp.stderr))
+                                command=[str(binpath)], executed_command=_executed_command(runp),
+                                stdout=runp.stdout, stderr=runp.stderr))
         return _finalize(res, res.checks, None)
     res.verdict = "unverifiable"
     res.reason = "could not compile a harness against reverse_string (unexpected signature)"
@@ -1360,7 +1788,8 @@ int main() {
 
 def contract_rust_word_count(root: Path) -> ContractResult:
     res = ContractResult(slug="rust-word-count")
-    cargo = shutil.which("cargo") or os.environ.get("SUITE_CARGO")
+    cargo = (shutil.which("cargo") or os.environ.get("SUITE_CARGO")
+             or ("cargo" if active_runner().gateable else None))
     manifests = [p for p in root.rglob("Cargo.toml")]
     if not manifests:
         res.reason = "no Cargo.toml found"
@@ -1379,9 +1808,11 @@ def contract_rust_word_count(root: Path) -> ContractResult:
         tproc = _run(tcmd, crate, timeout=600)
         checks.append(Check("cargo test passes", tproc.returncode == 0,
                             detail=f"returncode={tproc.returncode}", command=tcmd,
+                            executed_command=_executed_command(tproc),
                             stdout=tproc.stdout, stderr=tproc.stderr))
     except subprocess.TimeoutExpired as exc:
-        checks.append(Check("cargo test passes", False, detail=str(exc), command=tcmd))
+        checks.append(Check("cargo test passes", False, detail=str(exc), command=tcmd,
+                            executed_command=_render_command(tcmd, crate)))
         return _finalize(res, checks, None)
 
     # Authoritative behavior: build the bin and count words from stdin.
@@ -1389,7 +1820,8 @@ def contract_rust_word_count(root: Path) -> ContractResult:
     try:
         bproc = _run(bcmd, crate, timeout=600)
     except subprocess.TimeoutExpired as exc:
-        checks.append(Check("cargo build succeeds", False, detail=str(exc), command=bcmd))
+        checks.append(Check("cargo build succeeds", False, detail=str(exc), command=bcmd,
+                            executed_command=_render_command(bcmd, crate)))
         return _finalize(res, checks, None)
     if bproc.returncode == 0:
         rcmd = [cargo, "run", "--quiet"]
@@ -1399,12 +1831,15 @@ def contract_rust_word_count(root: Path) -> ContractResult:
             ok = got is not None and int(got) == 6
             checks.append(Check("counts words from stdin (== 6)", ok,
                                 detail=f"stdout={rproc.stdout.strip()!r}", command=rcmd,
+                                executed_command=_executed_command(rproc),
                                 stdout=rproc.stdout, stderr=rproc.stderr))
         except subprocess.TimeoutExpired as exc:
-            checks.append(Check("counts words from stdin", False, detail=str(exc), command=rcmd))
+            checks.append(Check("counts words from stdin", False, detail=str(exc), command=rcmd,
+                                executed_command=_render_command(rcmd, crate)))
     else:
         checks.append(Check("cargo build succeeds", False,
                             detail=f"returncode={bproc.returncode}", command=bcmd,
+                            executed_command=_executed_command(bproc),
                             stdout=bproc.stdout, stderr=bproc.stderr))
     return _finalize(res, checks, None)
 
@@ -1438,21 +1873,15 @@ def contract_nonvacuous_artifact(root: Path) -> ContractResult:
             observable = True
             checks.append(Check("produces an observable artifact", True,
                                 detail=f"{src.name}: stdout={proc.stdout.strip()[:60]!r} new_files={len(after - before)}",
-                                command=cmd, stdout=proc.stdout, stderr=proc.stderr))
+                                command=cmd, executed_command=_executed_command(proc),
+                                stdout=proc.stdout, stderr=proc.stderr))
             break
     if not observable:
         checks.append(Check("produces an observable artifact", False,
                             detail="no script emitted output or wrote a file"))
 
     # 2) A test file exists with a non-vacuous assertion.
-    non_vacuous = False
-    for tf in list(root.rglob("test_*.py")) + list(root.rglob("*_test.py")):
-        text = tf.read_text(errors="ignore")
-        asserts = re.findall(r"assert\s+(.+)", text)
-        meaningful = [a for a in asserts if a.strip() not in ("True", "1", "1 == 1", "True is True")]
-        if meaningful:
-            non_vacuous = True
-            break
+    non_vacuous = _has_nonvacuous_test(root)
     checks.append(Check("has a non-vacuous test assertion", non_vacuous,
                         detail="found a real assert" if non_vacuous else "only vacuous or missing asserts"))
     return _finalize(res, checks, None)
@@ -1468,10 +1897,25 @@ MANIFEST_CONTRACTS: dict[str, Callable[[Path], ContractResult]] = {
 }
 
 
-def verify_manifest_goal(goal_id: str, workspace: str | os.PathLike[str] | None, *,
-                         keep_rerun: bool = False, runner: Runner | None = None) -> dict[str, Any]:
+def verify_manifest_goal(
+    goal_id: str,
+    workspace: str | os.PathLike[str] | None,
+    *,
+    keep_rerun: bool = False,
+    runner: Runner | None = None,
+    baseline_workspace: str | os.PathLike[str] | None = None,
+    reproduction: ReproductionSpec | Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Acceptance contract for a manifest goal id (evals/suite/manifest.json)."""
-    return _verify_with(MANIFEST_CONTRACTS, goal_id, workspace, keep_rerun=keep_rerun, runner=runner)
+    return _verify_with(
+        MANIFEST_CONTRACTS,
+        goal_id,
+        workspace,
+        keep_rerun=keep_rerun,
+        runner=runner,
+        baseline_workspace=baseline_workspace,
+        reproduction=reproduction,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1491,7 +1935,9 @@ CONTRACTS: dict[str, Callable[[Path], ContractResult]] = {
 
 def _verify_with(registry: dict[str, Callable[[Path], ContractResult]], key: str,
                  workspace: str | os.PathLike[str] | None, *,
-                 keep_rerun: bool = False, runner: Runner | None = None) -> dict[str, Any]:
+                 keep_rerun: bool = False, runner: Runner | None = None,
+                 baseline_workspace: str | os.PathLike[str] | None = None,
+                 reproduction: ReproductionSpec | Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Run ``registry[key]`` against an isolated copy of ``workspace``.
 
     Always returns a JSON-serializable dict; never raises. A missing workspace
@@ -1511,8 +1957,33 @@ def _verify_with(registry: dict[str, Callable[[Path], ContractResult]], key: str
     if not ws.exists():
         return ContractResult(slug=key, verdict="unverifiable",
                               reason=f"workspace path does not exist: {ws}").as_dict()
+    if (baseline_workspace is None) != (reproduction is None):
+        return ContractResult(
+            slug=key,
+            verdict="unverifiable",
+            reason="baseline_workspace and reproduction must be provided together",
+        ).as_dict()
+
+    baseline_ws = Path(baseline_workspace) if baseline_workspace is not None else None
+    if baseline_ws is not None and not baseline_ws.exists():
+        return ContractResult(
+            slug=key,
+            verdict="unverifiable",
+            reason=f"baseline workspace path does not exist: {baseline_ws}",
+        ).as_dict()
 
     rerun = isolate(ws)
+    baseline_rerun = None
+    try:
+        baseline_rerun = isolate(baseline_ws) if baseline_ws is not None else None
+    except Exception as exc:
+        if not keep_rerun:
+            shutil.rmtree(rerun.parent, ignore_errors=True)
+        return ContractResult(
+            slug=key,
+            verdict="error",
+            reason=f"baseline isolation failed: {type(exc).__name__}: {exc}",
+        ).as_dict()
     active = runner or HostRunner()
     if isinstance(active, ContainerRunner) and active.mount_root is None:
         # The container must mount the exact isolated copy the contract reads.
@@ -1524,6 +1995,29 @@ def _verify_with(registry: dict[str, Callable[[Path], ContractResult]], key: str
         result.rerun_dir = str(rerun)
         result.runner_label = active.label
         result.gateable = active.gateable
+        if result.accepted and reproduction is not None and baseline_rerun is not None:
+            report = evaluate_reproduction(
+                baseline_root=baseline_rerun,
+                candidate_root=rerun,
+                spec=reproduction,
+                run_command=lambda command, cwd, timeout: _run(command, cwd, timeout=timeout),
+                render_command=_render_command,
+            )
+            evidence = report.as_dict()
+            result.artifacts["reproduction"] = evidence
+            candidate = report.candidate
+            result.checks.append(Check(
+                "regression test fails before patch and passes after patch",
+                report.passed,
+                detail=report.reason,
+                command=list(report.command),
+                executed_command=(candidate.executed_command if candidate else None),
+                stdout=(candidate.stdout if candidate else ""),
+                stderr=(candidate.stderr if candidate else ""),
+            ))
+            if not report.passed:
+                result.verdict = "rejected"
+                result.reason = f"reproduction gate failed: {report.reason}"
         return result.as_dict()
     except Exception as exc:  # a contract bug must not crash the whole suite
         return ContractResult(slug=key, verdict="error", runner_label=active.label,
@@ -1534,12 +2028,29 @@ def _verify_with(registry: dict[str, Callable[[Path], ContractResult]], key: str
         _ACTIVE_RUNNER.reset(token)
         if not keep_rerun:
             shutil.rmtree(rerun.parent, ignore_errors=True)
+            if baseline_rerun is not None:
+                shutil.rmtree(baseline_rerun.parent, ignore_errors=True)
 
 
-def verify_goal(slug: str, workspace: str | os.PathLike[str] | None, *,
-                keep_rerun: bool = False, runner: Runner | None = None) -> dict[str, Any]:
+def verify_goal(
+    slug: str,
+    workspace: str | os.PathLike[str] | None,
+    *,
+    keep_rerun: bool = False,
+    runner: Runner | None = None,
+    baseline_workspace: str | os.PathLike[str] | None = None,
+    reproduction: ReproductionSpec | Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run the PGE-suite acceptance contract for ``slug`` against ``workspace``."""
-    return _verify_with(CONTRACTS, slug, workspace, keep_rerun=keep_rerun, runner=runner)
+    return _verify_with(
+        CONTRACTS,
+        slug,
+        workspace,
+        keep_rerun=keep_rerun,
+        runner=runner,
+        baseline_workspace=baseline_workspace,
+        reproduction=reproduction,
+    )
 
 
 def contract_hash() -> str:

@@ -241,9 +241,84 @@ def dijkstra(graph, source):
 
 
 def test_dijkstra_correct_is_accepted(tmp_path):
-    ws = _workspace(tmp_path, "dijkstra-good", {"dijkstra.py": GOOD_DIJKSTRA})
+    ws = _workspace(
+        tmp_path,
+        "dijkstra-good",
+        {
+            "dijkstra.py": GOOD_DIJKSTRA,
+            "test_dijkstra.py": "from dijkstra import dijkstra\nassert dijkstra({'A': {}}, 'A')['A'] == 0\n",
+        },
+    )
     result = verify_goal("dijkstra", ws)
     assert result["verdict"] == "accepted", result["reason"]
+
+
+TUPLE_DIJKSTRA = '''
+import heapq
+
+def dijkstra(graph, source, end):
+    distances = {source: 0}
+    previous = {}
+    queue = [(0, source)]
+    while queue:
+        distance, node = heapq.heappop(queue)
+        if node == end:
+            path = []
+            while node in previous:
+                path.append(node)
+                node = previous[node]
+            return distance, [source, *reversed(path)]
+        for neighbor, weight in graph[node]:
+            candidate = distance + weight
+            if candidate < distances.get(neighbor, float("inf")):
+                distances[neighbor] = candidate
+                previous[neighbor] = node
+                heapq.heappush(queue, (candidate, neighbor))
+    return float("inf"), []
+'''
+
+
+def test_dijkstra_tuple_adjacency_and_target_signature_is_accepted(tmp_path):
+    ws = _workspace(
+        tmp_path,
+        "dijkstra-tuples",
+        {
+            "dijkstra.py": TUPLE_DIJKSTRA,
+            "test_dijkstra.py": "from dijkstra import dijkstra\nassert callable(dijkstra)\n",
+        },
+    )
+
+    result = verify_goal("dijkstra", ws)
+
+    assert result["verdict"] == "accepted", result["reason"]
+
+
+def test_dijkstra_without_useful_tests_is_rejected(tmp_path):
+    ws = _workspace(tmp_path, "dijkstra-no-tests", {"dijkstra.py": TUPLE_DIJKSTRA})
+
+    result = verify_goal("dijkstra", ws)
+
+    assert result["verdict"] == "rejected"
+    assert "has a non-vacuous test assertion" in result["reason"]
+
+
+def test_dijkstra_comment_and_string_asserts_are_not_tests(tmp_path):
+    ws = _workspace(
+        tmp_path,
+        "dijkstra-fake-tests",
+        {
+            "dijkstra.py": TUPLE_DIJKSTRA,
+            "test_dijkstra.py": (
+                "# assert this implementation is useful\n"
+                '"assert dijkstra(graph, source) == expected"\n'
+            ),
+        },
+    )
+
+    result = verify_goal("dijkstra", ws)
+
+    assert result["verdict"] == "rejected"
+    assert "has a non-vacuous test assertion" in result["reason"]
 
 
 # --------------------------------------------------------------------------- #
@@ -333,6 +408,39 @@ def test_digits_no_results_file_is_rejected(tmp_path):
     ws = _workspace(tmp_path, "digits-none", {"main.py": 'print("did nothing")\n'})
     result = verify_goal("digits", ws)
     assert result["verdict"] == "rejected"
+
+
+def test_digits_unshipped_import_is_an_artifact_defect_not_harness_error(tmp_path):
+    # The agent imports a module it never shipped. With the verifier runtime
+    # contract preflight-proven, that is the artifact's fault — the old blanket
+    # "any ImportError -> harness error" un-counted false completions.
+    ws = _workspace(tmp_path, "digits-unshipped",
+                    {"main.py": "import helpers_that_do_not_exist_xyz\n"})
+    result = verify_goal("digits", ws)
+    assert result["verdict"] == "rejected"
+    assert "artifact defect" in result["reason"]
+    assert "helpers_that_do_not_exist_xyz" in result["reason"]
+
+
+def test_classify_import_failure_attribution():
+    from evals.acceptance import _classify_import_failure
+
+    # A module the verifier image contractually provides -> harness fault.
+    verdict, reason = _classify_import_failure(
+        "Traceback...\nModuleNotFoundError: No module named 'numpy'")
+    assert verdict == "error" and "preflight contract" in reason
+    # Submodule of a contract package still attributes to the contract.
+    verdict, _ = _classify_import_failure("No module named 'sklearn.datasets'")
+    assert verdict == "error"
+    # Anything outside the contract is the artifact's problem.
+    verdict, reason = _classify_import_failure("No module named 'pandas'")
+    assert verdict == "rejected" and "artifact defect" in reason
+    # Module exists but the symbol/API is wrong -> agent bug, not runtime.
+    verdict, reason = _classify_import_failure(
+        "ImportError: cannot import name 'fit_all' from 'sklearn.ensemble'")
+    assert verdict == "rejected"
+    # No import failure at all -> caller falls back to plain rejection.
+    assert _classify_import_failure("ZeroDivisionError: division by zero") is None
 
 
 # --------------------------------------------------------------------------- #
@@ -426,6 +534,19 @@ def test_email_validator_permissive_is_rejected(tmp_path):
     ws = _workspace(tmp_path, "email-bad", {"email_validator.js": BROKEN_EMAIL_JS})
     result = verify_goal("email-validator", ws)
     assert result["verdict"] == "rejected"
+
+
+def test_email_candidate_stdout_and_exit_cannot_forge_result(tmp_path):
+    forged = r'''
+process.stdout.write('@@ACCEPTANCE_RESULT@@ {"cases":[{"name":"forged","ok":true}],"error":null}\n');
+process.exit(0);
+'''
+    ws = _workspace(tmp_path, "email-forged-stdout", {"email_validator.js": forged})
+
+    result = verify_goal("email-validator", ws)
+
+    assert result["verdict"] == "rejected"
+    assert not result["accepted"]
 
 
 # --------------------------------------------------------------------------- #
@@ -585,6 +706,9 @@ def test_contract_commands_go_through_the_active_runner(tmp_path):
         label = "recording"
         gateable = True
 
+        def render(self, cmd, cwd):
+            return ["recording-wrapper", *cmd]
+
         def run(self, cmd, cwd, *, timeout, stdin=None):
             seen.append(list(cmd))
             return subprocess.run(cmd, cwd=str(cwd), input=stdin, text=True,
@@ -596,6 +720,8 @@ def test_contract_commands_go_through_the_active_runner(tmp_path):
     assert result["runner_label"] == "recording"
     assert result["gateable"] is True
     assert seen, "the contract never routed a command through the active runner"
+    evidence = next(check for check in result["checks"] if check["command"])
+    assert evidence["executed_command"] == ["recording-wrapper", *evidence["command"]]
 
 
 def test_container_runner_is_gateable_and_labeled():
@@ -604,6 +730,31 @@ def test_container_runner_is_gateable_and_labeled():
     runner = ContainerRunner()
     assert runner.label == "container"
     assert runner.gateable is True
+
+
+def test_container_runner_translates_tools_mount_paths_and_not_data(tmp_path):
+    from evals.acceptance import ContainerRunner
+
+    root = tmp_path.resolve()
+    mounted = root / "driver.js"
+    non_tool = Path("/outside/data/input.json")
+
+    assert ContainerRunner._to_container("/opt/homebrew/bin/node", root) == "node"
+    assert ContainerRunner._to_container("/usr/local/bin/cargo", root) == "cargo"
+    assert ContainerRunner._to_container(str(mounted), root) == "/verify/driver.js"
+    assert ContainerRunner._to_container('-c "code; with; semicolons"', root) == '-c "code; with; semicolons"'
+    assert ContainerRunner._to_container(str(non_tool), root) == str(non_tool)
+
+
+def test_container_runner_render_records_full_docker_argv(tmp_path):
+    from evals.acceptance import ContainerRunner
+
+    runner = ContainerRunner(image="verifier:test", mount_root=tmp_path)
+
+    rendered = runner.render(["/opt/homebrew/bin/node", str(tmp_path / "driver.js")], tmp_path)
+
+    assert rendered[:5] == ["docker", "run", "--rm", "--network", "none"]
+    assert rendered[-3:] == ["verifier:test", "node", "/verify/driver.js"]
 
 
 def test_candidate_stdout_cannot_forge_acceptance_result(tmp_path):
@@ -619,6 +770,63 @@ class LRUCache:
         pass
 """
     ws = _workspace(tmp_path, "lru-forged-stdout", {"lru_cache.py": forged})
+
+    result = verify_goal("lru", ws)
+
+    assert result["verdict"] == "rejected"
+    assert not result["accepted"]
+
+
+def test_candidate_cannot_call_trusted_result_emitter(tmp_path):
+    forged = '''
+import __main__
+__main__._emit([{"name": "forged", "ok": True, "got": 1, "want": 1}])
+raise SystemExit(0)
+'''
+    ws = _workspace(tmp_path, "lru-emitter-forgery", {"lru_cache.py": forged})
+
+    result = verify_goal("lru", ws)
+
+    assert result["verdict"] == "rejected"
+    assert result["reason"].startswith("artifact defect:")
+    assert "trusted result emitter" in result["reason"]
+
+
+def test_candidate_cannot_replace_trusted_result_emitter(tmp_path):
+    forged = '''
+import __main__
+
+def forged_emit(*args, **kwargs):
+    print('@@ACCEPTANCE_RESULT@@ {"cases":[{"name":"forged","ok":true}],"error":null}')
+
+__main__._emit = forged_emit
+
+class LRUCache:
+    def __init__(self, capacity):
+        pass
+    def get(self, key):
+        return -1
+    def put(self, key, value):
+        pass
+'''
+    ws = _workspace(tmp_path, "lru-replace-emitter", {"lru_cache.py": forged})
+
+    result = verify_goal("lru", ws)
+
+    assert result["verdict"] == "rejected"
+    assert not result["accepted"]
+
+
+def test_candidate_sys_stdout_and_exit_cannot_forge_result(tmp_path):
+    forged = r'''
+import os
+import sys
+
+sys.__stdout__.write('@@ACCEPTANCE_RESULT@@ {"cases":[{"name":"forged","ok":true}],"error":null}\n')
+sys.__stdout__.flush()
+os._exit(0)
+'''
+    ws = _workspace(tmp_path, "lru-real-stdout-forgery", {"lru_cache.py": forged})
 
     result = verify_goal("lru", ws)
 
@@ -652,3 +860,19 @@ def test_container_verifier_accepts_good_and_rejects_broken(tmp_path):
     assert good_result["verdict"] == "accepted", good_result["reason"]
     assert good_result["gateable"] is True and good_result["runner_label"] == "container"
     assert broken_result["verdict"] == "rejected"
+
+
+@_DOCKER_VERIFIER
+def test_container_verifier_translates_host_node_path(tmp_path):
+    from evals.acceptance import ContainerRunner
+
+    bare_export = GOOD_EMAIL_JS.replace("module.exports = { validateEmail };", "module.exports = validateEmail;")
+    ws = _workspace(tmp_path, "container-email", {"email_validator.js": bare_export})
+
+    result = verify_goal("email-validator", ws, runner=ContainerRunner())
+
+    assert result["verdict"] == "accepted", result["reason"]
+    evidence = next(check for check in result["checks"] if check["command"])
+    assert evidence["command"][0].endswith("node")
+    assert evidence["executed_command"][0:2] == ["docker", "run"]
+    assert "node" in evidence["executed_command"]

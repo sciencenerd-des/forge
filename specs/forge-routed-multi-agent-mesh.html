@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan: Forge Routed Multi-Agent Mesh — Genuine Routing Across LangGraph Agent Nodes</title>
+<style>
+:root {
+  --bg: #101214;
+  --panel: #17191d;
+  --panel-2: #1d2025;
+  --ink: #e8e6e1;
+  --ink-dim: #9a978f;
+  --accent: #e8a33d;        /* forge amber */
+  --accent-2: #7fb4a2;      /* verdigris */
+  --router: #6fa8dc;        /* routing blue */
+  --danger: #d47069;
+  --new: #7fb4a2;
+  --existing: #8a9bb8;
+  --agent: #b48ead;         /* agent violet */
+  --rust: #dea584;          /* rust ochre */
+  --border: #2a2d33;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+main { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; letter-spacing: -0.02em; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+h2 { color: var(--accent); font-size: 1.35rem; margin-top: 3rem; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; margin-top: 2rem; }
+h4 { color: var(--accent-2); margin-top: 1.5rem; }
+h5 { color: var(--ink-dim); margin: 1.2rem 0 .4rem; font-size: .95rem; text-transform: uppercase; letter-spacing: .06em; }
+code { font-family: var(--mono); font-size: .85em; background: var(--panel-2); padding: .12em .4em; border-radius: 4px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+a { color: var(--accent-2); }
+figure { margin: 2rem 0; text-align: center; }
+figure img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+figcaption { color: var(--ink-dim); font-size: .85rem; margin-top: .6rem; }
+details.meta, #questionables details, #amendments details {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: .6rem 1rem; margin: .8rem 0;
+}
+details summary { cursor: pointer; color: var(--accent-2); font-weight: 600; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .3rem 1rem; margin: .8rem 0 0; }
+dt { color: var(--ink-dim); font-family: var(--mono); font-size: .8rem; }
+dd { margin: 0; font-family: var(--mono); font-size: .8rem; word-break: break-all; }
+.tag { font-family: var(--mono); font-size: .7rem; padding: .1em .5em; border-radius: 999px; margin-right: .4em; text-transform: uppercase; letter-spacing: .05em; }
+.tag.new { background: rgba(127,180,162,.15); color: var(--new); border: 1px solid var(--new); }
+.tag.existing { background: rgba(138,155,184,.12); color: var(--existing); border: 1px solid var(--existing); }
+.tag.agent { background: rgba(180,142,173,.15); color: var(--agent); border: 1px solid var(--agent); }
+.tag.router { background: rgba(111,168,220,.15); color: var(--router); border: 1px solid var(--router); }
+.tag.rust { background: rgba(222,165,132,.15); color: var(--rust); border: 1px solid var(--rust); }
+.phase { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.4rem 1.4rem; margin: 1.6rem 0; }
+.phase h3 { margin-top: .4rem; }
+ul.checklist { list-style: none; padding-left: .2rem; }
+ul.checklist li { margin: .35rem 0; }
+.status { color: var(--accent); }
+.loop { background: rgba(232,163,61,.08); border: 1px solid rgba(232,163,61,.35); border-radius: 8px; padding: .7rem 1rem; margin-top: 1rem; font-size: .92rem; }
+.callout { background: rgba(111,168,220,.07); border: 1px solid rgba(111,168,220,.3); border-left: 4px solid var(--router); border-radius: 8px; padding: .8rem 1.1rem; margin: 1.2rem 0; }
+.callout.warn { background: rgba(212,112,105,.07); border-color: rgba(212,112,105,.35); border-left-color: var(--danger); }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-2); color: var(--accent-2); font-weight: 600; }
+.ascii { font-family: var(--mono); font-size: .78rem; line-height: 1.35; white-space: pre; }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ===== HEADER + UPDATABLE METADATA ===== -->
+  <header>
+    <h1>Plan: Forge Routed Multi-Agent Mesh — Genuine Routing Across LangGraph Agent Nodes</h1>
+    <details class="meta">
+      <summary>Metadata</summary>
+      <dl>
+        <dt>created</dt>      <dd>2026-07-26</dd>
+        <dt>modified</dt>     <dd>2026-07-26, 2026-07-26</dd>
+        <dt>commits</dt>      <dd>a06d3cc</dd>
+        <dt>agent name</dt>   <dd>claude-opus-5, claude-opus-5</dd>
+        <dt>session id</dt>   <dd>546ad4cd-ddc3-4e3e-83fb-34dd2abcf5b5, 546ad4cd-ddc3-4e3e-83fb-34dd2abcf5b5</dd>
+        <dt>back refs</dt>    <dd>specs/convergent-autonomous-harness.html, specs/forge-rust-tui-pi-harness.html, specs/research-grounded-memory-v2.html, specs/harness-acceptance-judgment-repair.html, docs/LESSONS.md, AI_DOCS/research/INDEX.md</dd>
+        <dt>forward refs</dt> <dd>—</dd>
+      </dl>
+    </details>
+  </header>
+
+  <figure>
+    <!-- {{HERO_IMAGE: A central router hub dispatching to five distinct specialist agent nodes arranged radially, each node a labelled card with a tool badge; thin directed edges carry small decision labels; dark charcoal background, forge-amber hub, verdigris and violet agent accents, minimal flat vector, no more than 6 words total}} -->
+    <figcaption>A router hub that chooses the next specialist agent, instead of a fixed four-node cycle.</figcaption>
+  </figure>
+
+  <!-- ===== PURPOSE ===== -->
+  <section id="purpose">
+    <h2>Purpose</h2>
+    <p>
+      Convert Forge's PGE graph from a <strong>fixed pipeline with guard conditions</strong> into a
+      <strong>genuinely routed multi-agent mesh</strong>, where every LangGraph node is a declared agent
+      with its own capabilities, tool allowlist, model profile and budget — and a first-class
+      <strong>Router agent</strong> decides which agent runs next, records <em>why</em>, and streams that
+      decision live to the Rust TUI and the React web console so an operator can watch, audit and
+      override the routing in flight.
+    </p>
+    <p>
+      The end state: <code>planner → auditor → executor → evaluator → planner</code> stops being the
+      topology and becomes just one <em>possible path</em> through a roster of specialists that the
+      router selects between on evidence.
+    </p>
+  </section>
+
+  <!-- ===== PROBLEM ===== -->
+  <section id="problem">
+    <h2>Problem</h2>
+
+    <p>
+      Forge already <em>calls itself</em> a multi-agent system, but the code does not implement one.
+      Five specific gaps, each verified in the tree at <code>a06d3cc</code>:
+    </p>
+
+    <h4>1. The routers are guards, not routers</h4>
+    <p>
+      <a href="../engine/src/graph.py">engine/src/graph.py</a> compiles a static topology. Of its four
+      nodes, two edges are unconditional (<code>auditor → executor</code>, <code>executor → evaluator</code>).
+      The two "routers" only answer safety questions — <code>planner_router</code> asks
+      <em>"does a contract exist yet?"</em> and <em>"are we past the turn ceiling?"</em>;
+      <code>evaluator_router</code> asks <em>"is the goal verified / blocked / out of turns?"</em>.
+      Neither ever chooses <em>which agent is best suited to the work</em>, because there is never more
+      than one candidate. The topology is a cycle with a bypass.
+    </p>
+
+    <div class="ascii">  today                                   what "routing" implies
+  ─────                                   ──────────────────────
+  planner ──┬─► auditor ──► executor      planner   auditor   coder    tester
+            │                  │                ╲     │        │       ╱
+            └────────────────► │                 ╲    │        │      ╱
+                               ▼                  ╲   ▼        ▼     ╱
+                          evaluator ──► planner     ►  R O U T E R  ◄
+                                                    ╱   │      │    ╲
+       one path, guarded                     researcher │  reviewer  evaluator
+                                                    chosen on evidence, per turn</div>
+
+    <h4>2. A node is a procedure, not an agent</h4>
+    <p>
+      Nodes are plain functions over one shared <code>AgentState</code> TypedDict
+      (<a href="../engine/src/state/schema.py">engine/src/state/schema.py</a>, 65 lines). There is no agent
+      identity, no declared capability, no per-agent tool subset, and no per-agent budget.
+      <code>default_registry()</code> in <a href="../forge_runtime/tools.py">forge_runtime/tools.py</a>
+      hands the <strong>same eight tools</strong> to whoever asks — so the 955-line
+      <a href="../engine/src/nodes/executor_node.py">executor_node.py</a> is simultaneously the coder, the
+      build runner, the web researcher and the notebook editor. There is nothing to route <em>between</em>.
+    </p>
+    <p>
+      The one real foundation that <em>does</em> exist: <code>forge_config.ROLES</code> already routes a
+      distinct model per role (<code>planner/executor/auditor/evaluator/steward/general</code>), and
+      <code>forge_runtime.llm.client_for(role)</code> resolves it lazily. Agent identity is half-built already.
+    </p>
+
+    <h4>3. A working router exists and is dead code</h4>
+    <div class="callout">
+      <code>SteeringEngine.choose_next()</code> in
+      <a href="../forge_runtime/steering.py">forge_runtime/steering.py:66</a> is a complete, deterministic,
+      dependency-aware policy returning <code>execute | activate | decompose | repair_plan | verify_goal | blocked</code>.
+      It is exported from <code>forge_runtime/__init__.py</code> and <strong>never called anywhere in the
+      repository</strong> (only its <code>Lesson</code> dataclass is used, by <code>lessons.py</code> and
+      <code>lesson_store_db.py</code>). A tested routing brain is sitting on the shelf while
+      <code>graph.py</code> re-implements a weaker version inline.
+    </div>
+
+    <h4>4. The GUIs cannot show routing, because routing emits nothing</h4>
+    <p>
+      <a href="../run_pge.py">run_pge.py:370</a> calls <code>pge_graph.invoke(...)</code> — a blocking call
+      that yields nothing until the whole batch finishes. With no event to consume,
+      <a href="../control_plane/runtime_snapshot.py">control_plane/runtime_snapshot.py:186</a> reconstructs
+      the current node by <strong>grepping the log tail for the four node names</strong>:
+    </p>
+<pre><code>def _current_node(lines: list[str]) -&gt; str:
+    text = " ".join(lines).lower()
+    for node in ("evaluator", "executor", "auditor", "planner"):
+        if node in text:
+            return node</code></pre>
+    <p>
+      That single scraped string is the entire routing signal reaching both front ends:
+      <code>current_node: String</code> in
+      <a href="../experimental/crates/forge-api/src/types.rs">forge-api/src/types.rs:27,65</a> feeds the
+      2839-line Rust TUI, and <a href="../web/src/App.tsx">web/src/App.tsx:77</a> polls it on a 1.5s timer.
+      No agent identity, no reason, no alternatives, no history.
+    </p>
+
+    <h4>5. The operator cannot intervene at a decision point</h4>
+    <p>
+      <code>forge_approvals</code> and <code>/approvals</code> exist for <em>actions</em>
+      (<a href="../migrations/001_control_plane.sql">migrations/001_control_plane.sql</a>), but the graph
+      never calls LangGraph's <code>interrupt()</code>. An operator watching a run make a bad routing
+      choice can only stop the run — never redirect it.
+    </p>
+
+    <figure>
+      <!-- {{PROBLEM_IMAGE: Split panel. Left: a single monolithic box labelled with a tool cluster, one rigid arrow loop through four stages. Right: the same work spread over four small specialist cards but with a broken dashed line to a dimmed screen icon, showing the missing signal. Dark charcoal, muted red for the break, under 8 words total}} -->
+      <figcaption>One over-scoped executor, a fixed cycle, and a routing signal reconstructed by grepping logs.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== SOLUTION ===== -->
+  <section id="solution">
+    <h2>Solution</h2>
+
+    <p>
+      Eight ordered phases. Each is independently shippable and independently testable, and the first two
+      are strictly behaviour-preserving so the regression suite in
+      <a href="../tests/regression">tests/regression/</a> stays the safety net throughout.
+    </p>
+
+    <h3>The four load-bearing decisions</h3>
+
+    <h5>A. Agents are declared, not implied</h5>
+    <p>
+      A new <code>AgentSpec</code> registry makes each node a declared agent: stable <code>id</code>,
+      typed <code>capabilities</code>, a <strong>tool allowlist</strong>, a model role, a budget
+      (turns / tokens / wall-clock), and explicit input/output contracts. Routing is only meaningful if
+      candidates are distinguishable — this is what makes them distinguishable. It is also a real security
+      tightening: the researcher stops holding <code>write_file</code>, the coder stops holding
+      <code>browser_fetch</code>.
+    </p>
+
+    <h5>B. The Router is deterministic-first, model-second</h5>
+    <p>
+      Forge's whole thesis is <em>reliability over cleverness for small models</em>
+      (<a href="../ARCHITECTURE.md">ARCHITECTURE.md</a>). A router that asks a 12B model "who should go next?"
+      every turn would be exactly the fragility the project spent weeks removing. So:
+    </p>
+    <ol>
+      <li><strong>Policy tier</strong> — generalise the dead <code>SteeringEngine</code> into
+        <code>RoutingPolicy</code>. Dependency-ready work, attempt ceilings, stagnation signatures,
+        contract presence and failing-test classes are all decidable without a model. Expect this tier to
+        resolve the large majority of turns.</li>
+      <li><strong>Model tier</strong> — invoked <em>only</em> when the policy returns
+        <code>AMBIGUOUS</code> with two or more viable candidates. The model picks from a short enum with
+        the candidate rationales in front of it — a task small models do reliably.</li>
+      <li><strong>Operator tier</strong> — an <code>interrupt()</code> when risk is high or manual routing
+        is armed from the TUI/GUI.</li>
+    </ol>
+    <p>
+      Every decision records which tier produced it. That <code>mechanism</code> field is what later lets
+      the eval suite prove the router is not just an expensive coin flip.
+    </p>
+
+    <h5>C. Handoff via <code>Command</code>, cooperation via the blackboard</h5>
+    <p>
+      LangGraph <strong>1.2.7</strong> is already installed (verified: <code>Command</code>, <code>Send</code>
+      and <code>interrupt</code> all import cleanly) while <code>graph.py</code> is written in the
+      pre-0.2 string-returning style. Agents will return <code>Command(goto=..., update=...)</code>, which
+      removes the hardcoded edge maps and lets the roster grow without editing the topology.
+    </p>
+    <p>
+      Agents must <em>not</em> cooperate by growing <code>AgentState</code> — that is how you get a
+      1&nbsp;MB dict flowing through a 12B context. They cooperate through the <strong>durable blackboard
+      that already exists</strong>: <code>forge_memory_items</code>, <code>forge_file_changes</code>,
+      <code>forge_test_runs</code>, retrieved per-agent through
+      <a href="../forge_runtime/context_pack.py">forge_runtime/context_pack.py</a>. State stays thin;
+      artefacts stay durable and queryable.
+    </p>
+
+    <h5>D. Routing decisions are durable events, and the event is the product</h5>
+    <p>
+      <code>forge_run_events</code> already has everything needed — <code>run_id</code>, monotonic
+      <code>sequence</code> with a uniqueness constraint, <code>event_type</code>, <code>actor</code>,
+      and a <code>jsonb payload</code>. <code>actor</code> becomes the agent id. Swapping
+      <code>invoke()</code> for <code>stream(stream_mode="updates")</code> turns the graph into an event
+      source, the log-tail grep is deleted, and both front ends finally have something real to render.
+    </p>
+
+    <div class="callout warn">
+      <strong>The single biggest risk, stated up front.</strong> Genuine routing can reintroduce exactly the
+      runaway failures Forge already fixed — <code>docs/LESSONS.md</code> and the comments in
+      <code>graph.py</code> record a <code>planner→planner</code> <code>KeyError</code> crash, an
+      executor↔evaluator ping-pong that produced 5000+ no-progress checkpoints, and a two-day hang on a
+      poisoned contract. A free-form router is a <em>superset</em> of those failure modes.
+      Phase&nbsp;2 therefore ships the <strong>Routing Governor</strong> in the same phase as the router
+      itself, never after: hop budget, oscillation detection, per-agent attempt ceilings, and a
+      no-progress trip that falls back to the current fixed cycle.
+    </div>
+
+    <figure>
+      <!-- {{SOLUTION_IMAGE: Three stacked horizontal tiers feeding one router core. Top tier a deterministic policy gear, middle tier a small model chip, bottom tier a human cursor glyph; a single output arrow leaves the core into an event stream ribbon that splits toward a terminal window and a browser window. Dark charcoal, blue router core, amber event ribbon, under 8 words total}} -->
+      <figcaption>Policy first, model only on ambiguity, operator on demand — and every decision leaves as an event.</figcaption>
+    </figure>
+
+    <h3>Target roster</h3>
+    <table>
+      <tr><th>Agent</th><th>Origin</th><th>Capabilities</th><th>Tool allowlist</th><th>Model role</th></tr>
+      <tr><td><code>router</code></td><td><span class="tag router">new</span> from <code>SteeringEngine</code></td><td><code>route</code></td><td>— (reads only)</td><td><code>router</code> (new)</td></tr>
+      <tr><td><code>planner</code></td><td><span class="tag existing">existing</span></td><td><code>decompose</code>, <code>prioritise</code></td><td><code>recall_memory</code>, <code>list_files</code></td><td><code>planner</code></td></tr>
+      <tr><td><code>auditor</code></td><td><span class="tag existing">existing</span></td><td><code>derive_contract</code></td><td><code>read_file</code>, <code>list_files</code>, <code>search_text</code></td><td><code>auditor</code></td></tr>
+      <tr><td><code>coder</code></td><td><span class="tag agent">split from executor</span></td><td><code>edit_code</code>, <code>scaffold</code></td><td><code>read_file</code>, <code>write_file</code>, <code>list_files</code>, <code>search_text</code></td><td><code>executor</code></td></tr>
+      <tr><td><code>tester</code></td><td><span class="tag agent">split from executor</span></td><td><code>build</code>, <code>run_tests</code>, <code>lint</code></td><td><code>run_command</code>, <code>read_file</code></td><td><code>executor</code></td></tr>
+      <tr><td><code>researcher</code></td><td><span class="tag agent">split from executor</span></td><td><code>lookup_docs</code>, <code>recall</code></td><td><code>browser_fetch</code>, <code>recall_memory</code>, <code>search_text</code></td><td><code>steward</code></td></tr>
+      <tr><td><code>reviewer</code></td><td><span class="tag agent">new</span></td><td><code>diff_review</code>, <code>risk_flag</code></td><td><code>read_file</code>, <code>search_text</code></td><td><code>auditor</code></td></tr>
+      <tr><td><code>evaluator</code></td><td><span class="tag existing">existing</span></td><td><code>verify_contract</code></td><td><code>run_command</code>, <code>read_file</code></td><td><code>evaluator</code></td></tr>
+    </table>
+    <p>
+      Note that <code>coder</code>, <code>tester</code> and <code>researcher</code> all start on the
+      <em>same</em> <code>executor</code>-family model profile. Splitting the <em>agent</em> is independent
+      of splitting the <em>model</em>; operators can later route <code>tester</code> to a tiny fast model
+      and <code>coder</code> to a coding specialist purely through <code>.env</code>, with no code change.
+    </p>
+  </section>
+
+  <!-- ===== RELEVANT FILES ===== -->
+  <section id="files" class="files">
+    <h2>Relevant Files</h2>
+
+    <h3>Existing Files</h3>
+    <ul>
+      <li><span class="tag existing">existing</span> <code>engine/src/graph.py</code> — 218 lines; the static topology, <code>planner_router</code>, <code>evaluator_router</code>, <code>evaluator_with_control</code>. Rewritten in Phase 2 to a router-hub with <code>Command</code> handoffs.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/state/schema.py</code> — <code>AgentState</code> TypedDict. Gains routing fields; must stay thin.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/steering.py</code> — <code>SteeringEngine.choose_next()</code>, the dead deterministic router that becomes the policy tier.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/executor_node.py</code> — 955 lines; source material for <code>coder</code>/<code>tester</code>/<code>researcher</code> in Phase 3.</li>
+      <li><span class="tag existing">existing</span> <code>engine/src/nodes/planner_node.py</code>, <code>auditor_node.py</code>, <code>evaluator_node.py</code> — wrapped as agents in Phase 1, otherwise unchanged.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/tools.py</code> — <code>ToolRegistry</code> / <code>default_registry()</code>; gains per-agent allowlist scoping.</li>
+      <li><span class="tag existing">existing</span> <code>forge_config.py</code> — <code>ROLES</code> tuple and <code>provider_for(role)</code>; gains the new agent roles.</li>
+      <li><span class="tag existing">existing</span> <code>forge_runtime/context_pack.py</code> — per-agent context views for blackboard cooperation.</li>
+      <li><span class="tag existing">existing</span> <code>run_pge.py</code> — line 370 <code>pge_graph.invoke(...)</code> becomes a streaming consumer.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/api.py</code> — SSE at line 260; gains agent/routing endpoints and a browser-usable token exchange.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/runtime_snapshot.py</code> — <code>_current_node()</code> log grep, deleted in Phase 5.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/models.py</code>, <code>schemas.py</code>, <code>service.py</code> — routing decision persistence + serialisation.</li>
+      <li><span class="tag existing">existing</span> <code>web/src/App.tsx</code> — 1.5s/5s polling at lines 77–78, replaced by the event stream.</li>
+      <li><span class="tag existing">existing</span> <code>web/src/lib/control-plane.ts</code> — typed client; gains routing types and a stream subscription.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/crates/forge-api/src/types.rs</code> — <code>current_node: String</code> at 27 and 65, replaced by an agent/routing model.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/crates/forge-api/src/sse.rs</code> — existing SSE plumbing the TUI reuses.</li>
+      <li><span class="tag existing">existing</span> <code>experimental/forge-cli/src/tui.rs</code> — 2839 lines; gains the roster + routing trace panes.</li>
+      <li><span class="tag existing">existing</span> <code>evals/orchestrator.py</code>, <code>evals/acceptance.py</code>, <code>evals/goal_suite.py</code> — the harness that must prove routing beats the fixed cycle.</li>
+      <li><span class="tag existing">existing</span> <code>tests/regression/</code> — the pinned failure modes; every one must stay green.</li>
+      <li><span class="tag existing">existing</span> <code>migrations/001_control_plane.sql</code> — <code>forge_run_events</code>, the event spine; also <code>current_node varchar(32)</code> at line 9.</li>
+      <li><span class="tag existing">existing</span> <code>contracts/run-snapshot.schema.json</code> — <strong>the blocker</strong>: <code>current_node</code> is required, enum-closed to the four existing nodes, under <code>additionalProperties: false</code>. Must be widened before any fifth agent id exists.</li>
+      <li><span class="tag existing">existing</span> <code>contracts/openapi/control-plane.json</code>, <code>contracts/fixtures/runtime-runs.json</code>, <code>contracts/fixtures/durable-run.json</code> — byte-exact pinned artefacts regenerated with <code>FORGE_UPDATE_CONTRACT_FIXTURES=1</code>.</li>
+      <li><span class="tag existing">existing</span> <code>tests/contract/test_fixture_export.py</code> — enforces the fixtures and the OpenAPI schema byte-for-byte; the real gate for Phases 5–7.</li>
+      <li><span class="tag existing">existing</span> <code>control_plane/codex_runner.py</code> — <strong>second writer</strong> of <code>current_node</code> (<code>_set_stage</code>:144, <code>_finish</code>:153), on a path independent of the PGE graph.</li>
+      <li><span class="tag existing">existing</span> <code>tests/test_runtime_snapshot.py</code> — covers the module Phase 5 edits; must stay green after <code>_current_node()</code> is deleted.</li>
+      <li><span class="tag existing">existing</span> <code>docs/LESSONS.md</code> — the scar tissue the Routing Governor must respect.</li>
+    </ul>
+
+    <h3>New Files</h3>
+    <ul>
+      <li><span class="tag new">new</span> <code>engine/src/agents/__init__.py</code> — <code>AgentSpec</code>, <code>AgentRegistry</code>, capability enum, budget model.</li>
+      <li><span class="tag new">new</span> <code>engine/src/agents/adapter.py</code> — wraps an existing node function as a registered agent without changing its behaviour.</li>
+      <li><span class="tag new">new</span> <code>engine/src/agents/coder.py</code> — code-editing specialist split out of the executor.</li>
+      <li><span class="tag new">new</span> <code>engine/src/agents/tester.py</code> — build/test/lint specialist.</li>
+      <li><span class="tag new">new</span> <code>engine/src/agents/researcher.py</code> — docs/recall specialist.</li>
+      <li><span class="tag new">new</span> <code>engine/src/agents/reviewer.py</code> — pre-evaluation diff review and risk flagging.</li>
+      <li><span class="tag new">new</span> <code>engine/src/routing/policy.py</code> — deterministic <code>RoutingPolicy</code> built on <code>SteeringEngine</code>.</li>
+      <li><span class="tag new">new</span> <code>engine/src/routing/router_node.py</code> — the Router agent; policy → model → operator tiers, emits <code>Command</code>.</li>
+      <li><span class="tag new">new</span> <code>engine/src/routing/governor.py</code> — hop budget, oscillation detection, attempt ceilings, fixed-cycle fallback.</li>
+      <li><span class="tag new">new</span> <code>engine/src/routing/decision.py</code> — the <code>RoutingDecision</code> record and its digest.</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/agent_events.py</code> — typed routing/agent event emitter writing to <code>forge_run_events</code>.</li>
+      <li><span class="tag new">new</span> <code>forge_runtime/blackboard.py</code> — typed artefact read/write over the existing durable memory tables.</li>
+      <li><span class="tag new">new</span> <code>migrations/005_routing_decisions.sql</code> — <code>forge_routing_decisions</code> + indexes.</li>
+      <li><span class="tag new">new</span> <code>web/src/pages/Agents.tsx</code> — roster, live routing graph, agent inspector.</li>
+      <li><span class="tag new">new</span> <code>web/src/lib/agent-stream.ts</code> — SSE subscription and reducer for routing events.</li>
+      <li><span class="tag new">new</span> <code>evals/routing_eval.py</code> — routing-accuracy harness against labelled fixtures.</li>
+      <li><span class="tag new">new</span> <code>evals/suite/routing_fixtures.json</code> — labelled routing situations with expected agent.</li>
+      <li><span class="tag new">new</span> <code>tests/test_agent_registry.py</code>, <code>tests/test_routing_policy.py</code>, <code>tests/test_routing_governor.py</code>, <code>tests/test_agent_events.py</code>, <code>tests/regression/test_routing_no_oscillation.py</code> — the new safety net.</li>
+      <li><span class="tag new">new</span> <code>docs/ROUTING.md</code> — the routing contract, roster, and how to add an agent.</li>
+    </ul>
+  </section>
+
+  <!-- ===== IMPLEMENTATION PHASES ===== -->
+  <section id="phases">
+    <h2>Implementation Phases</h2>
+    <p><strong>IMPORTANT:</strong> Execute every phase and task step by step, in order, top to bottom.</p>
+    <p>Status markers: <code>[]</code> idle · <code>[wip]</code> in progress · <code>[x]</code> complete · <code>[f]</code> failed. All start as <code>[]</code>; the Build Plan workflow updates them as it works.</p>
+
+    <!-- ============ PHASE 1 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 1: Agent Contract &amp; Registry</h3>
+      <p>
+        Give every node an identity without changing what any node does. At the end of this phase the graph
+        behaves <em>byte-identically</em> to today — the only difference is that each node is now a declared
+        agent with a capability set, a scoped tool allowlist, a model role and a budget. This is the
+        vocabulary every later phase depends on.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: Four identical grey procedure boxes on the left transforming into four distinct agent cards on the right, each card showing three small badges for capability, tools and budget. Dark charcoal, violet agent accent, minimal flat vector, under 6 words total}} -->
+        <figcaption>Same behaviour, declared identity: capability, tool allowlist, model role, budget.</figcaption>
+      </figure>
+
+      <h4>1. Define the agent contract</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>engine/src/agents/__init__.py</code> with a frozen <code>AgentSpec</code> dataclass: <code>id</code>, <code>display_name</code>, <code>capabilities: frozenset[Capability]</code>, <code>tools: tuple[str, ...]</code>, <code>model_role: str</code>, <code>budget: AgentBudget</code>, <code>emits: frozenset[ArtifactKind]</code>, <code>consumes: frozenset[ArtifactKind]</code>.</li>
+        <li><code class="status">[]</code> Define <code>Capability</code> as a <code>str</code>-valued enum covering the roster table (<code>route</code>, <code>decompose</code>, <code>derive_contract</code>, <code>edit_code</code>, <code>build</code>, <code>run_tests</code>, <code>lookup_docs</code>, <code>diff_review</code>, <code>verify_contract</code>).</li>
+        <li><code class="status">[]</code> Define <code>AgentBudget</code>: <code>max_consecutive_turns</code>, <code>max_tokens_per_turn</code>, <code>max_wall_seconds</code>. Every field env-overridable via <code>FORGE_AGENT_&lt;ID&gt;_&lt;FIELD&gt;</code>, following the <code>forge_config.py</code> precedence convention.</li>
+        <li><code class="status">[]</code> Implement <code>AgentRegistry</code> with <code>register()</code>, <code>get(id)</code>, <code>by_capability(cap)</code>, <code>ids()</code>. Registration must reject duplicate ids and unknown tool names (validate against <code>ToolRegistry.names()</code>) — fail closed at import, not at turn 40.</li>
+      </ul>
+
+      <h4>2. Scope tools per agent</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add <code>ToolRegistry.scoped(allowlist: Sequence[str]) -&gt; ToolRegistry</code> in <code>forge_runtime/tools.py</code>, returning a view that raises a typed <code>ToolNotPermitted</code> for anything outside the allowlist.</li>
+        <li><code class="status">[]</code> Make the denial path <em>observable</em>: emit an OpenTelemetry counter via <code>forge_runtime/telemetry.py</code> and return a structured error the agent can read, so a mis-scoped agent self-corrects instead of dying.</li>
+        <li><code class="status">[]</code> Verify no existing caller loses a tool it actually uses — grep each node for tool names and set Phase-1 allowlists to the observed union (tightening happens in Phase 3, after the split).</li>
+      </ul>
+
+      <h4>3. Register the four existing nodes as agents</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>engine/src/agents/adapter.py</code> with <code>as_agent(spec, fn)</code> — wraps a node function, injects the scoped tool registry and the spec's model role, and preserves the existing <code>_traced()</code> telemetry wrapper from <code>graph.py</code>.</li>
+        <li><code class="status">[]</code> Register <code>planner</code>, <code>auditor</code>, <code>executor</code>, <code>evaluator</code> against the existing node functions with no behaviour change.</li>
+        <li><code class="status">[]</code> Add <code>"router"</code>, <code>"coder"</code>, <code>"tester"</code>, <code>"researcher"</code>, <code>"reviewer"</code> to <code>forge_config.ROLES</code> so provider profiles resolve; each falls back to a sensible existing role until explicitly configured.</li>
+        <li><code class="status">[]</code> Point <code>graph.py</code>'s <code>add_node</code> calls at the registered agents. Topology unchanged.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>
+        pytest against the registry contract plus the full existing suite as the behaviour-preservation
+        oracle. Edge cases: duplicate registration, unknown tool in an allowlist, a denied tool call,
+        budget parsing from a malformed env var, and an agent whose model role has no provider profile.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_agent_registry.py -q</code> — registry rejects duplicates and unknown tools, and resolves budgets from env.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/regression -q</code> — every pinned failure mode still passes; proves Phase 1 changed no behaviour.</li>
+        <li><code class="status">[]</code> <code>make test</code> — full suite green.</li>
+        <li><code class="status">[]</code> <code>make fmt</code> — ruff clean.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 2 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 2: The Routing Kernel + Governor</h3>
+      <p>
+        Introduce the Router agent and the safety governor <strong>together</strong>. The roster is still
+        the four original agents, so the router provably reproduces today's path — which is exactly the
+        point: it proves the kernel is correct before there is anything interesting to route to.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: A router core with three concentric input rings labelled by icon only - a gear, a chip, a cursor - and a protective outer ring drawn as a dashed containment boundary with a small counter dial. Dark charcoal, blue core, amber containment ring, under 6 words total}} -->
+        <figcaption>Three decision tiers inside one containment boundary: hop budget, oscillation trip, fallback.</figcaption>
+      </figure>
+
+      <h4>1. Model the decision</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>engine/src/routing/decision.py</code> with a frozen <code>RoutingDecision</code>: <code>run_id</code>, <code>turn</code>, <code>from_agent</code>, <code>to_agent</code>, <code>mechanism</code> (<code>policy|model|operator|fallback</code>), <code>reason</code>, <code>confidence</code>, <code>candidates</code> (each with its own score and rationale), <code>state_digest</code>.</li>
+        <li><code class="status">[]</code> Write <code>migrations/005_routing_decisions.sql</code> creating <code>forge_routing_decisions</code> with a FK to <code>forge_runs(id) ON DELETE CASCADE</code>, <code>UNIQUE(run_id, turn, sequence)</code>, a <code>jsonb candidates</code> column, and an index on <code>(run_id, turn)</code>. Follow the <code>BEGIN;/COMMIT;</code> + <code>IF NOT EXISTS</code> style of migrations 001–004.</li>
+        <li><code class="status">[]</code> Add the ORM model to <code>control_plane/models.py</code> and the response schema to <code>control_plane/schemas.py</code>.</li>
+      </ul>
+
+      <h4>2. Build the deterministic policy tier</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>engine/src/routing/policy.py</code>. Wrap <code>SteeringEngine.choose_next()</code> and map its <code>SteeringDecision.action</code> onto agent ids: <code>execute→coder</code>, <code>decompose→planner</code>, <code>repair_plan→planner</code>, <code>verify_goal→evaluator</code>, <code>blocked→END</code>.</li>
+        <li><code class="status">[]</code> Fold in the guards currently inline in <code>graph.py</code>: contract-absent and contract-poisoned both route to <code>auditor</code> (preserve the <code>_contract_poisoned</code> check verbatim — <code>graph.py</code> records it as the fix for a two-day hang).</li>
+        <li><code class="status">[]</code> Return a three-state result: <code>DECIDED(agent, reason)</code>, <code>AMBIGUOUS(candidates)</code>, or <code>TERMINAL(reason)</code>. Only <code>AMBIGUOUS</code> may reach the model tier.</li>
+        <li><code class="status">[]</code> Keep the policy <strong>pure</strong> — state in, decision out, no DB writes and no I/O — so it is exhaustively table-testable.</li>
+      </ul>
+
+      <h4>3. Build the Routing Governor</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>engine/src/routing/governor.py</code> enforcing, in order: global hop budget per batch (<code>PGE_MAX_HOPS</code>, default <code>3 × PGE_MAX_TURNS</code>); per-agent consecutive-turn ceiling from <code>AgentBudget</code>; oscillation detection over the last N transitions (A→B→A→B and 3-cycles) reusing the existing <code>recent_action_signatures</code> discipline.</li>
+        <li><code class="status">[]</code> On any trip, emit a <code>routing.governor_tripped</code> event and <strong>fall back to the fixed cycle</strong> for the remainder of the batch, recording <code>mechanism="fallback"</code>. Degrading to today's known-good behaviour is always available and always visible.</li>
+        <li><code class="status">[]</code> Preserve the durable task limits from <code>evaluator_with_control</code> (<code>MAX_ATTEMPTS_PER_TASK</code>, <code>MAX_NO_PROGRESS_ATTEMPTS</code>) — move them into the governor rather than duplicating them.</li>
+        <li><code class="status">[]</code> Guarantee the governor can never route to a non-existent node: validate <code>to_agent</code> against <code>AgentRegistry.ids()</code> before returning. This is the direct fix for the <code>KeyError: 'planner'</code> class of crash documented in <code>graph.py</code>.</li>
+      </ul>
+
+      <h4>4. Build the Router agent</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>engine/src/routing/router_node.py</code>: run policy → on <code>AMBIGUOUS</code> run the model tier with a strict JSON schema over the candidate enum (mirror the <code>*_SCHEMA</code> style in <code>forge_runtime/llm.py</code>) → pass the result through the governor → return <code>Command(goto=agent_id, update={...})</code>.</li>
+        <li><code class="status">[]</code> On model-tier failure (timeout, unparseable JSON, out-of-enum agent), fall back to the policy's highest-scoring candidate and record <code>mechanism="fallback"</code>. A router must never be able to take the run down.</li>
+        <li><code class="status">[]</code> Persist every <code>RoutingDecision</code> before the <code>Command</code> is returned, so a crash mid-handoff leaves an auditable trail.</li>
+      </ul>
+
+      <h4>5. Rewire the graph as a hub</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Rewrite <code>engine/src/graph.py</code>: <code>set_entry_point("router")</code>; register all agents; delete <code>planner_router</code> and <code>evaluator_router</code>; have each agent return <code>Command(goto="router")</code> by default.</li>
+        <li><code class="status">[]</code> Preserve the once-per-cycle checkpoint discipline — <code>_checkpoint()</code>'s comment records that per-node checkpointing ballooned the table to 10k+ rows. Checkpoint after the evaluator, not after every hop.</li>
+        <li><code class="status">[]</code> Add <code>PGE_ROUTING_MODE</code> = <code>fixed|policy|hybrid</code> (default <code>hybrid</code>), where <code>fixed</code> reproduces the pre-plan topology exactly. This is the rollback switch and the A/B lever for Phase 8.</li>
+      </ul>
+
+      <h4>6. Testing Strategy</h4>
+      <p>
+        Table-driven pytest over the pure policy; adversarial state fixtures for the governor; and the
+        existing regression suite run under <code>PGE_ROUTING_MODE=fixed</code> <em>and</em>
+        <code>hybrid</code> to prove equivalence on the old path. Edge cases: oscillation, hop exhaustion,
+        model returning an unknown agent id, model timeout, terminal-with-blockers, and an empty roster.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_routing_policy.py -q</code> — every <code>SteeringDecision</code> maps to a valid agent; poisoned contract routes to auditor.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_routing_governor.py -q</code> — oscillation and hop-budget trips both fall back and emit an event.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/regression/test_routing_no_oscillation.py -q</code> — a synthetic A→B→A→B router cannot exceed the hop budget.</li>
+        <li><code class="status">[]</code> <code>PGE_ROUTING_MODE=fixed uv run pytest tests/regression -q</code> — the pre-plan topology is bit-for-bit preserved.</li>
+        <li><code class="status">[]</code> <code>PGE_ROUTING_MODE=hybrid uv run pytest tests/regression -q</code> — hybrid routing violates no pinned failure mode.</li>
+        <li><code class="status">[]</code> <code>make test</code> — full suite green.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 3 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 3: The Specialist Roster</h3>
+      <p>
+        Give the router something worth choosing between. Split the 955-line executor into <code>coder</code>,
+        <code>tester</code> and <code>researcher</code>, and add <code>reviewer</code>. This is where routing
+        stops being architecture and starts being behaviour.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: One large overloaded box on the left labelled with a stack of four mismatched tool icons, splitting into four lean cards on the right each holding a single tool icon. Dark charcoal, verdigris for the clean split, under 6 words total}} -->
+        <figcaption>One over-scoped executor becomes four specialists with disjoint tool allowlists.</figcaption>
+      </figure>
+
+      <h4>1. Extract the shared executor substrate</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Identify the reusable machinery inside <code>executor_node.py</code> — sandbox acquisition (<code>get_workspace</code>), <code>_venv_env</code>, argv-vs-shell handling, <code>record_tool_msg</code>, heartbeat write-back — and lift it into <code>engine/src/agents/_execution.py</code> unchanged.</li>
+        <li><code class="status">[]</code> Do <strong>not</strong> refactor semantics during extraction. Move first, verify green, change second. The sandbox boundary in <code>forge_runtime/sandbox.py</code> is security-critical and the executor's shell handling is documented scar tissue.</li>
+      </ul>
+
+      <h4>2. Implement the specialists</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>engine/src/agents/coder.py</code> — reads and writes source. Allowlist: <code>read_file</code>, <code>write_file</code>, <code>list_files</code>, <code>search_text</code>. Explicitly <em>no</em> <code>run_command</code>: a coder that cannot run a build cannot fake a green test.</li>
+        <li><code class="status">[]</code> <code>engine/src/agents/tester.py</code> — owns build/test/lint via the stack-detecting tools described in <code>README.md</code>. Allowlist: <code>run_command</code>, <code>read_file</code>. Emits structured <code>TestOutcome</code> artefacts.</li>
+        <li><code class="status">[]</code> <code>engine/src/agents/researcher.py</code> — resolves unknown APIs and prior lessons. Allowlist: <code>browser_fetch</code>, <code>recall_memory</code>, <code>search_text</code>. Emits <code>ResearchNote</code> artefacts to the blackboard rather than into state.</li>
+        <li><code class="status">[]</code> <code>engine/src/agents/reviewer.py</code> — reviews the diff before the evaluator spends a full contract run. Allowlist: <code>read_file</code>, <code>search_text</code>. Emits <code>ReviewFinding</code> artefacts with a risk level.</li>
+        <li><code class="status">[]</code> Retire <code>executor</code> from the roster once the three specialists cover it; keep the module until Phase 8 proves no regression, then delete.</li>
+      </ul>
+
+      <h4>3. Teach the policy to distinguish them</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Extend <code>RoutingPolicy</code> with deterministic specialist signals: failing test with an unresolved import/symbol → <code>researcher</code>; contract test list present and code changed since last run → <code>tester</code>; unreviewed diff above a size threshold → <code>reviewer</code>; otherwise → <code>coder</code>.</li>
+        <li><code class="status">[]</code> Keep every signal computable from durable state (<code>forge_file_changes</code>, <code>forge_test_runs</code>, the contract rows) so the policy tier stays pure and the model tier stays rare.</li>
+        <li><code class="status">[]</code> Record which signal fired in <code>RoutingDecision.reason</code> — a routing decision an operator cannot explain is a routing decision they cannot trust.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>
+        Per-agent unit tests with a fake sandbox, plus tool-scoping assertions as security tests. Edge cases:
+        coder attempting <code>run_command</code>, researcher attempting <code>write_file</code>, tester on a
+        project with no detectable stack, reviewer on an empty diff.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_agent_coder.py tests/test_agent_tester.py tests/test_agent_researcher.py tests/test_agent_reviewer.py -q</code> — each specialist works in isolation.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_tool_scoping.py -q</code> — every out-of-allowlist call raises <code>ToolNotPermitted</code>; asserts the coder cannot execute commands.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/regression -q</code> — the split changed no pinned behaviour.</li>
+        <li><code class="status">[]</code> <code>make test</code> — full suite green.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 4 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 4: Cooperation Primitives</h3>
+      <p>
+        Make the agents actually <em>work together</em> rather than merely take turns: a typed blackboard,
+        explicit handoff contracts, and bounded parallel fan-out for genuinely independent work.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: Three agent cards writing typed artefact chips onto a shared horizontal board, with one fan-out arrow splitting to two parallel lanes that rejoin at a single merge diamond. Dark charcoal, verdigris artefacts, amber merge point, under 6 words total}} -->
+        <figcaption>Agents cooperate through durable typed artefacts, with bounded fan-out and an explicit join.</figcaption>
+      </figure>
+
+      <h4>1. Typed blackboard over durable memory</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>forge_runtime/blackboard.py</code> with <code>post(kind, payload, *, agent, task_id)</code> and <code>read(kind, *, task_id, limit)</code> mapping onto <code>ForgeMemoryItem</code> — reuse the existing <code>memory_type</code>, <code>tags</code> and <code>supersedes_id</code> columns rather than adding a table.</li>
+        <li><code class="status">[]</code> Define <code>ArtifactKind</code>: <code>ResearchNote</code>, <code>TestOutcome</code>, <code>ReviewFinding</code>, <code>ContractDelta</code>, <code>Blocker</code>. Each agent's <code>emits</code>/<code>consumes</code> sets are enforced at post/read time.</li>
+        <li><code class="status">[]</code> Extend <code>forge_runtime/context_pack.py</code> so each agent's pack is built from what it <em>consumes</em>, not from the whole history. This is what keeps a 12B model viable as the roster grows.</li>
+      </ul>
+
+      <h4>2. Handoff contracts</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Allow direct peer handoff (<code>Command(goto=peer)</code>, bypassing the router) only where a spec declares a <code>handoff_to</code> partner and the artefact contract is satisfied — e.g. <code>coder → tester</code> after a write.</li>
+        <li><code class="status">[]</code> Route every peer handoff through the governor anyway, so direct handoffs still count against the hop budget and oscillation detector.</li>
+        <li><code class="status">[]</code> Emit <code>agent.handoff</code> events distinctly from <code>routing.decided</code>, so the GUI can render peer edges differently from hub edges.</li>
+      </ul>
+
+      <h4>3. Bounded parallel fan-out</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Use LangGraph <code>Send</code> to fan out only where work is provably independent — the clearest case is <code>researcher</code> resolving an unknown API while <code>tester</code> establishes a baseline on untouched code.</li>
+        <li><code class="status">[]</code> Cap concurrency with <code>PGE_MAX_PARALLEL_AGENTS</code> (default <code>2</code>) and forbid parallel agents that both hold <code>write_file</code> — concurrent writers into one sandbox workspace is a corruption bug, not a feature.</li>
+        <li><code class="status">[]</code> Implement a deterministic join: collect artefacts, then return to the router with a merged summary. No agent may consume a partial fan-out result.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>
+        pytest with a real SQLite-backed blackboard (matching the existing dual-dialect test convention) plus
+        a concurrency test asserting the write-exclusion invariant. Edge cases: artefact posted by an agent
+        that does not declare it, fan-out where one branch fails, join with a partial result, and a peer
+        handoff whose contract is unsatisfied.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_blackboard.py -q</code> — emit/consume enforcement and supersede semantics.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_parallel_agents.py -q</code> — two <code>write_file</code> holders can never be scheduled together; a failed branch does not corrupt the join.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/regression/test_context_pack.py -q</code> — per-agent packs did not break existing steering expectations.</li>
+        <li><code class="status">[]</code> <code>make test</code> — full suite green.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 5 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 5: The Routing Event Spine</h3>
+      <p>
+        Replace the blocking <code>invoke()</code> and the log-tail grep with a real streamed event feed.
+        Everything the TUI and the web console will render is defined here — this phase is the contract
+        both front ends consume, so it lands before either of them.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: A graph execution timeline emitting discrete labelled event chips into a single ordered ribbon, which forks into two consumer endpoints drawn as a terminal glyph and a browser glyph; a crossed-out magnifying glass over a log file sits below. Dark charcoal, amber ribbon, muted red strike-through, under 8 words total}} -->
+        <figcaption>Typed events replace the log-tail grep as the one routing signal.</figcaption>
+      </figure>
+
+      <h4>1. Define the event contract</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>forge_runtime/agent_events.py</code> emitting to <code>forge_run_events</code> with <code>actor = agent_id</code>: <code>agent.started</code>, <code>agent.finished</code>, <code>agent.tool_called</code>, <code>agent.tool_denied</code>, <code>routing.decided</code>, <code>agent.handoff</code>, <code>routing.governor_tripped</code>, <code>routing.interrupt_requested</code>, <code>budget.exceeded</code>.</li>
+        <li><code class="status">[]</code> Reuse the table's existing <code>UNIQUE(run_id, sequence)</code> for monotonic ordering — resumable cursors come free, and both front ends can reconnect with <code>?after=</code>.</li>
+        <li><code class="status">[]</code> Publish the payload schemas in <code>contracts/</code> alongside the existing control-plane schemas, and pin them with a fixture test so a payload change cannot silently break the Rust client.</li>
+      </ul>
+
+      <h4>2. Stream the graph</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Replace <code>pge_graph.invoke(...)</code> at <code>run_pge.py:370</code> with <code>pge_graph.stream(..., stream_mode="updates")</code>, emitting an event per node update while preserving the existing final-state handling and the batch/stagnation accounting around it.</li>
+        <li><code class="status">[]</code> Keep emission strictly best-effort: an event-sink failure must never fail a batch. This mirrors the discipline already used in <code>forge_runtime/durable_queue.py</code> and <code>telemetry.py</code>.</li>
+      </ul>
+
+      <h4>3. Break the <code>current_node</code> contract deliberately</h4>
+      <div class="callout warn">
+        <strong>Added 2026-07-26 after a pre-implementation review.</strong> <code>current_node</code> is
+        far more load-bearing than "a scraped string". It is a <strong>required field with a closed enum
+        of exactly the four current node names</strong> in <code>contracts/run-snapshot.schema.json</code>,
+        inside a schema marked <code>additionalProperties: false</code>. It is also a
+        <code>varchar(32)</code> DB column, two OpenAPI schemas, three checked-in fixtures, and a second
+        independent writer. Introducing a fifth agent id breaks all of it at once. Sequence this task
+        <em>before</em> Phase 3 lands <code>coder</code>, or the contract suite goes red the moment a
+        specialist is registered.
+      </div>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Widen the contract first: in <code>contracts/run-snapshot.schema.json</code> replace the closed <code>current_node</code> enum with a <code>string</code>, and add an <code>active_agents</code> array. <code>additionalProperties: false</code> means the new field must be declared before any handler can emit it.</li>
+        <li><code class="status">[]</code> Resolve the scalar-vs-parallel contradiction between this phase and Phase 4: a single <code>current_node</code> cannot represent two concurrently-running agents. Keep <code>current_node</code> as a <strong>deprecated compatibility scalar</strong> (the first active agent) and make <code>active_agents</code> the truth. Do not drop the scalar in this phase — the Rust TUI and web console still read it until Phases 6 and 7.</li>
+        <li><code class="status">[]</code> Check the <code>varchar(32)</code> width on <code>forge_runs.current_node</code> (<code>migrations/001_control_plane.sql:9</code>) against the longest agent id; add a migration if any id would truncate.</li>
+        <li><code class="status">[]</code> Update the <strong>second writer</strong> the original plan missed: <code>control_plane/codex_runner.py:144</code> (<code>_set_stage</code>) and <code>:153</code> (<code>_finish</code>) both assign <code>run.current_node</code> on a path unrelated to the PGE graph. Deleting the log grep does not touch it.</li>
+        <li><code class="status">[]</code> Only then delete <code>_current_node()</code> from <code>control_plane/runtime_snapshot.py:186</code> and source the active agents from the latest <code>agent.started</code>/<code>agent.finished</code> events.</li>
+        <li><code class="status">[]</code> Regenerate the pinned fixtures in the same commit: <code>FORGE_UPDATE_CONTRACT_FIXTURES=1 uv run pytest tests/contract -q</code>. <code>test_contract_fixtures_are_current</code> compares generated OpenAPI and fixtures <strong>byte-for-byte</strong> against the checked-in files.</li>
+      </ul>
+
+      <h4>4. Expose the feed</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add <code>GET /runs/{run_id}/routing</code> (decision history) and <code>GET /agents</code> (roster with live budget consumption) to <code>control_plane/api.py</code>.</li>
+        <li><code class="status">[]</code> Solve the browser-auth gap the code already documents at <code>api.py:262</code> — <em>"native EventSource cannot attach an Authorization header"</em>. Add a short-lived, single-run, single-use stream ticket exchanged at <code>POST /runs/{run_id}/events/ticket</code> and accepted as a query parameter by the SSE endpoint. Ticket TTL ≤ 60s, bound to the run id, never logged.</li>
+      </ul>
+
+      <h4>5. Testing Strategy</h4>
+      <p>
+        FastAPI <code>TestClient</code> for endpoints and SSE framing, plus a graph-level test asserting the
+        emitted event sequence for a scripted run. Edge cases: reconnect with <code>after=</code> mid-stream,
+        event sink raising, an expired ticket, a ticket replayed against a different run, and a run with zero
+        events.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_agent_events.py -q</code> — event ordering, payload schema, and best-effort failure isolation.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_control_plane_routing_api.py -q</code> — <code>/routing</code>, <code>/agents</code>, and ticketed SSE all behave; expired and cross-run tickets are rejected.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/contract -q</code> — the real gate: <code>test_contract_fixtures_are_current</code> (byte-exact OpenAPI + fixtures), <code>test_runtime_fixture_keys_follow_the_handler_response_model</code> (fixture keys must equal the schema properties exactly), and <code>test_runtime_handler_rejects_a_drifted_snapshot</code>.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_runtime_snapshot.py -q</code> — still green after <code>_current_node()</code> is removed.</li>
+        <li><code class="status">[]</code> <code>cd experimental &amp;&amp; cargo test -q</code> — run here too, not just in Phase 6: the fixtures are <code>include_str!</code>'d into the Rust tests at <em>compile time</em>, so a Python-side shape change breaks the Rust build immediately.</li>
+        <li><code class="status">[]</code> <code>make test</code> — full suite green.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 6 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 6: TUI Routing Surface</h3>
+      <p>
+        Make the Rust TUI a routing console: which agents exist, who is running, why the router chose them,
+        what they are spending — and let the operator take the wheel.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: A terminal window split into three panes - a left roster list with small status dots, a centre scrolling decision trace, a right detail card with two budget bars. Monospace aesthetic, dark charcoal, amber and verdigris accents, under 6 words total}} -->
+        <figcaption>Roster, live decision trace, and per-agent budget — inside the existing TUI.</figcaption>
+      </figure>
+
+      <h4>1. Extend the Rust API client</h4>
+      <div class="callout warn">
+        <strong>Hard ordering constraint (added 2026-07-26 after review).</strong> The fixture JSON files are
+        pulled into the Rust tests with <code>include_str!</code> at <em>compile time</em>
+        (<code>forge-api/tests/fixtures.rs:8-21</code>), and the Python side asserts those same files
+        byte-for-byte. The Python schema change, the fixture regeneration and the Rust type change
+        <strong>must land in a single commit</strong> — there is no intermediate state where both languages
+        build.
+      </div>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add <code>active_agents: Vec&lt;AgentActivity&gt;</code> to <code>experimental/crates/forge-api/src/types.rs</code> alongside the existing <code>current_node: String</code> (lines 27 and 65) — <strong>add before removing</strong>. Drop the scalar only once <code>tui.rs:1756</code> and <code>:2021</code>, plus <code>web/src/lib/control-plane.ts:7,32</code> and <code>App.tsx:51,89,90,224</code>, have all migrated.</li>
+        <li><code class="status">[]</code> Add <code>RoutingDecision</code>, <code>AgentSpec</code> and <code>AgentBudgetState</code> types mirroring the Phase-5 contracts.</li>
+        <li><code class="status">[]</code> Extend <code>forge-api/src/client.rs</code> with <code>agents()</code> and <code>routing(run_id)</code>; extend <code>sse.rs</code> to decode the new event types.</li>
+        <li><code class="status">[]</code> Update the fixture tests in <code>forge-api/tests/fixtures.rs</code> and <code>transport.rs</code> against the pinned <code>contracts/</code> payloads.</li>
+      </ul>
+
+      <h4>2. Build the panes</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add an <strong>Agent Roster</strong> pane: one row per agent with a live status dot (idle / running / blocked / over-budget), turn count and last decision reason.</li>
+        <li><code class="status">[]</code> Add a <strong>Routing Trace</strong> pane: a scrolling <code>from → to</code> feed with mechanism badge (<code>policy</code>/<code>model</code>/<code>operator</code>/<code>fallback</code>) and the reason string, colour-coded by mechanism.</li>
+        <li><code class="status">[]</code> Add an <strong>Agent Inspector</strong>: selected agent's spec, tool allowlist, budget bars, recent artefacts and denied tool calls.</li>
+        <li><code class="status">[]</code> Follow the existing key conventions in <code>tui.rs</code> — new bindings must not collide with the documented set (<code>Tab</code>, <code>Ctrl+M/T/K/R/G/Q</code>, <code>j/k</code>, <code>s/x/a/y/n</code>) and must appear in the footer help line.</li>
+      </ul>
+
+      <h4>3. Operator re-routing</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Add <code>interrupt()</code> at the router when manual routing is armed or the decision is flagged high-risk; surface it as a pending decision in the TUI.</li>
+        <li><code class="status">[]</code> Bind an arm/disarm toggle plus an agent picker so the operator can approve, deny, or redirect to a chosen agent; resume the graph with the operator's choice recorded as <code>mechanism="operator"</code>.</li>
+        <li><code class="status">[]</code> Respect the existing offline read-only mode — the TUI already distinguishes it in the footer; re-routing must be unavailable there rather than failing at the API.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>
+        <code>cargo test</code> over the API types and transport fixtures, plus the TUI's existing key-handling
+        tests. Edge cases: an unknown agent id from a newer server, an interrupt that expires before the
+        operator answers, event-stream disconnect and resume, and re-route attempted while offline.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cd experimental &amp;&amp; cargo test -q</code> — API types, SSE decoding and TUI key handling all pass.</li>
+        <li><code class="status">[]</code> <code>cd experimental &amp;&amp; cargo clippy --all-targets -- -D warnings</code> — no new lint debt.</li>
+        <li><code class="status">[]</code> <code>uv run pytest tests/test_manifest_contracts.py -q</code> — Rust fixtures and Python contracts still agree.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 7 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 7: Web Routing Console</h3>
+      <p>
+        Give the React console the one thing a terminal cannot do well: a live routing graph. Nodes are
+        agents, edges are decisions that actually happened, and clicking an edge shows why.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: A browser window showing a force-directed graph of agent nodes with one highlighted active node and directed edges of varying thickness, beside a side panel listing decision entries. Dark charcoal, blue edges, amber active node, under 6 words total}} -->
+        <figcaption>A live routing graph where edge weight is how often that handoff was actually chosen.</figcaption>
+      </figure>
+
+      <h4>1. Replace polling with the stream</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>web/src/lib/agent-stream.ts</code>: fetch a stream ticket, open <code>EventSource</code>, reduce routing events into state, reconnect with the last <code>sequence</code> as <code>after=</code>, and fall back to the existing polling path if SSE is unavailable.</li>
+        <li><code class="status">[]</code> Remove the 1.5s/5s <code>setInterval</code> pair at <code>web/src/App.tsx:77-78</code>, keeping the slow poll only for genuinely static data (config, projects).</li>
+        <li><code class="status">[]</code> Add the routing and agent types to <code>web/src/lib/control-plane.ts</code>, mirroring the Phase-5 contracts.</li>
+      </ul>
+
+      <h4>2. Build the console</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>web/src/pages/Agents.tsx</code> with the live routing graph — SVG, no new charting dependency; edge thickness = decision count, edge colour = mechanism, active node pulsing.</li>
+        <li><code class="status">[]</code> Add a decision timeline beside the graph: newest first, filterable by agent and by mechanism, each entry expandable to the candidates considered and their scores.</li>
+        <li><code class="status">[]</code> Add an agent inspector card: spec, tool allowlist, budget consumption, recent artefacts, denied tool calls.</li>
+        <li><code class="status">[]</code> Wire operator re-routing to the same interrupt API the TUI uses — one server-side mechanism, two front ends.</li>
+      </ul>
+
+      <h4>3. Testing Strategy</h4>
+      <p>
+        TypeScript build as the type oracle plus the existing lint gate, and a manual smoke against a live
+        run. Edge cases: SSE unsupported or blocked (fallback path), ticket expiry mid-stream, a run with no
+        decisions yet, and a roster larger than the graph layout comfortably fits.
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>cd web &amp;&amp; npm run build</code> — <code>tsc -b</code> passes with the new routing types.</li>
+        <li><code class="status">[]</code> <code>cd web &amp;&amp; npm run lint</code> — eslint clean.</li>
+        <li><code class="status">[]</code> <code>make serve</code> + <code>make gui</code> against a live run — routing graph updates without polling; re-route from the browser lands as <code>mechanism="operator"</code>.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+
+    <!-- ============ PHASE 8 ============ -->
+    <div class="phase">
+      <h3><code class="status">[]</code> Phase 8: Routing Evals &amp; Acceptance Gate</h3>
+      <p>
+        Prove the router earns its complexity. Forge's own standard is that a claim counts only when the
+        evaluator independently runs the evidence — routing must meet the same bar, or
+        <code>PGE_ROUTING_MODE</code> stays <code>fixed</code> and the mesh ships disabled.
+      </p>
+
+      <figure>
+        <!-- {{PHASE_IMAGE: Two side-by-side vertical bar groups under a single pass-fail gate glyph, with a small dial showing a percentage beneath. Dark charcoal, verdigris for the passing group, muted grey for the baseline, under 6 words total}} -->
+        <figcaption>Routed mesh versus fixed cycle on the same goal suite — the gate decides the default.</figcaption>
+      </figure>
+
+      <h4>1. Routing accuracy harness</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Create <code>evals/suite/routing_fixtures.json</code> — labelled situations (durable state snapshot + expected agent + acceptable alternatives), covering each policy signal from Phase 3 plus deliberate ambiguity cases.</li>
+        <li><code class="status">[]</code> Create <code>evals/routing_eval.py</code> reporting: policy-tier hit rate, model-tier invocation rate, accuracy per tier, fallback rate, and mean hops per completed task.</li>
+        <li><code class="status">[]</code> Follow the evidence conventions already established in <code>evals/acceptance.py</code> and <code>evals/contracts.py</code> so results land in <code>evals/results/</code> in the existing schema.</li>
+      </ul>
+
+      <h4>2. A/B against the fixed cycle</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Run the existing goal suite (<code>evals/goal_suite.py</code>, <code>evals/orchestrator.py</code>) under <code>PGE_ROUTING_MODE=fixed</code> and <code>=hybrid</code> on the same local model, same seeds.</li>
+        <li><code class="status">[]</code> Compare on: goals verified complete, turns to completion, total tokens, wall-clock, and blocked-run rate. Record token cost explicitly — the mesh adds router calls, and a small accuracy win that doubles token spend is not a win.</li>
+        <li><code class="status">[]</code> Write results and the verdict into <code>evals/results/</code> and summarise in <code>docs/ROUTING.md</code>, in the same honest style as <code>docs/DURABLE_SUBSTRATE.md</code>'s experiment log — including a negative result if that is what the numbers say.</li>
+      </ul>
+
+      <h4>3. Ship the gate</h4>
+      <ul class="checklist">
+        <li><code class="status">[]</code> Define the promotion criterion before running: <code>hybrid</code> becomes the default only if goals-verified is <strong>&gt;=</strong> fixed and no regression-suite failure mode reappears. Turns and tokens may worsen within a stated bound; correctness may not.</li>
+        <li><code class="status">[]</code> If the criterion fails, keep <code>PGE_ROUTING_MODE=fixed</code> as the default, ship the observability (Phases 5–7 are valuable regardless), and record why in the amendments section.</li>
+        <li><code class="status">[]</code> Write <code>docs/ROUTING.md</code>: the roster, the three tiers, the governor's limits, how to add an agent, and how to read the routing trace.</li>
+      </ul>
+
+      <h4>4. Testing Strategy</h4>
+      <p>
+        The eval harness is itself the test, run against a real local backend. Edge cases: a fixture whose
+        expected agent no longer exists, a model backend that is unreachable mid-suite, and a suite run where
+        the governor trips (which must be reported, not silently averaged away).
+      </p>
+      <ul class="checklist">
+        <li><code class="status">[]</code> <code>uv run python evals/routing_eval.py --output evals/results/routing-v1.json</code> — accuracy and tier-mix reported.</li>
+        <li><code class="status">[]</code> <code>PGE_ROUTING_MODE=fixed make evals EVAL_OUTPUT=evals/results/ab-fixed.json</code> — baseline captured.</li>
+        <li><code class="status">[]</code> <code>PGE_ROUTING_MODE=hybrid make evals EVAL_OUTPUT=evals/results/ab-hybrid.json</code> — routed run captured.</li>
+        <li><code class="status">[]</code> <code>make test</code> — full suite green under the shipped default mode.</li>
+      </ul>
+      <div class="loop">
+        🔁 <strong>Do not exit this phase until every box above is checked.</strong>
+        If any command fails, fix the cause and re-run — loop until all pass.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== GLOBAL VALIDATION ===== -->
+  <section id="validation">
+    <h2>Validation Commands</h2>
+    <p>Execute these commands to validate the entire plan is complete:</p>
+    <ul class="checklist">
+      <li><code class="status">[]</code> <code>make test</code> — the whole Python suite, including every pinned regression, passes.</li>
+      <li><code class="status">[]</code> <code>PGE_ROUTING_MODE=fixed uv run pytest tests/regression -q</code> — the pre-plan topology is still exactly reproducible.</li>
+      <li><code class="status">[]</code> <code>PGE_ROUTING_MODE=hybrid uv run pytest tests/regression -q</code> — routing reintroduces no historical failure mode.</li>
+      <li><code class="status">[]</code> <code>make fmt</code> — ruff lint and format clean.</li>
+      <li><code class="status">[]</code> <code>cd experimental &amp;&amp; cargo test -q</code> — Rust API types, SSE decoding and TUI handling pass.</li>
+      <li><code class="status">[]</code> <code>cd web &amp;&amp; npm run build &amp;&amp; npm run lint</code> — the console compiles and lints with routing types.</li>
+      <li><code class="status">[]</code> <code>uv run python evals/routing_eval.py --output evals/results/routing-v1.json</code> — routing accuracy and tier mix recorded.</li>
+      <li><code class="status">[]</code> <code>uv run pytest tests/contract -q</code> — the byte-exact OpenAPI + fixture gate passes with the widened contract.</li>
+      <li><code class="status">[]</code> <code>grep -rn "_current_node" control_plane/</code> — returns nothing; the log-tail scrape is gone.</li>
+      <li><code class="status">[]</code> <code>grep -rn "current_node" control_plane/codex_runner.py</code> — the second writer has been migrated, not just the snapshot path.</li>
+      <li><code class="status">[]</code> <code>grep -rn "pge_graph.invoke" run_pge.py</code> — returns nothing; the graph is streamed.</li>
+      <li><code class="status">[]</code> <code>forge serve</code> + <code>make gui</code> against a live run — the routing graph updates from the event stream and an operator re-route is recorded as <code>mechanism="operator"</code>.</li>
+    </ul>
+    <div class="loop">
+      🔁 <strong>The plan is not complete until every box is checked and every command passes. If for some reason a step is not possible to complete, mark it with [f] and move on if possible.</strong>
+    </div>
+  </section>
+
+  <!-- ===== QUESTIONABLES ===== -->
+  <section id="questionables">
+    <h2>Questionables</h2>
+    <p>
+      Open decisions where a different answer changes the work. Each records the assumption this plan
+      proceeds under, so a reader can override it deliberately rather than discover it late.
+    </p>
+
+    <figure>
+      <!-- {{QUESTIONABLES_IMAGE: A single fork in a path with three diverging branches, each branch marked by a distinct small glyph - a scale, a clock, a shield - under a question mark. Dark charcoal, muted amber path, under 5 words total}} -->
+      <figcaption>The forks that would change the shape of this work.</figcaption>
+    </figure>
+
+    <details>
+      <summary>Does genuine routing actually beat the fixed cycle for small local models?</summary>
+      <p class="qa-answer">
+        <strong>Unknown, and deliberately not assumed.</strong> The fixed cycle is heavily tuned scar tissue;
+        a router adds a decision point that can be wrong. Specialisation should help most where the current
+        executor is over-scoped (an unknown API sending it down a guess-and-check spiral), and hurt where
+        routing overhead dominates a short goal. This is precisely why Phase 8 defines its promotion
+        criterion <em>before</em> running, why <code>PGE_ROUTING_MODE</code> exists, and why a negative
+        result is an acceptable, publishable outcome. Phases 5–7 deliver value regardless of the verdict.
+      </p>
+    </details>
+
+    <details>
+      <summary>Hub-and-spoke, or a full mesh where any agent can hand off to any other?</summary>
+      <p class="qa-answer">
+        This plan assumes <strong>hub-and-spoke with declared peer exceptions</strong>. A full mesh makes
+        every agent a router, which multiplies the surfaces that can oscillate and destroys the single
+        auditable decision point the GUIs depend on. Declared peer handoffs (<code>coder → tester</code>)
+        recover most of the latency benefit while keeping the governor and the event stream authoritative.
+        Revisit only if the trace shows the hub is a measurable bottleneck.
+      </p>
+    </details>
+
+    <details>
+      <summary>Should the router use a model at all?</summary>
+      <p class="qa-answer">
+        Assumption: <strong>yes, but rarely and never load-bearing.</strong> A pure-policy router is more
+        predictable and cheaper, and it may well be sufficient — the tier-mix metric in Phase 8 will show
+        how often ambiguity actually arises. If the model tier fires on under ~5% of turns and does not beat
+        the policy's top candidate on those, delete it. The architecture is deliberately built so that
+        deleting the model tier is a one-line change, not a redesign.
+      </p>
+    </details>
+
+    <details>
+      <summary>Is splitting the executor worth destabilising 955 lines of hardened code?</summary>
+      <p class="qa-answer">
+        This is the highest-risk phase. <code>executor_node.py</code> encodes real scar tissue —
+        argv-vs-shell handling, venv PATH resolution, placeholder detection, sandbox interaction. The
+        mitigation is strict: lift shared machinery <em>unchanged</em> into <code>_execution.py</code>
+        first, verify green, and only then split responsibilities. If the split proves destabilising, a
+        viable fallback is a single <code>executor</code> agent with <em>capability-scoped modes</em> — the
+        router still chooses a mode and the trace still explains it, but there is one code path. That
+        retains most of the routing value at a fraction of the risk.
+      </p>
+    </details>
+
+    <details>
+      <summary>Where do parallel agents write?</summary>
+      <p class="qa-answer">
+        Assumption: <strong>only one writer per workspace, ever.</strong> The sandbox in
+        <code>forge_runtime/sandbox.py</code> is a per-project container with a Docker-managed volume;
+        concurrent writers into one workspace is a corruption bug. Phase 4 therefore forbids scheduling two
+        <code>write_file</code> holders together. Genuine parallel editing would need per-agent workspace
+        branches and a merge step — a substantially larger design, explicitly out of scope here.
+      </p>
+    </details>
+
+    <details>
+      <summary>Does the stream ticket weaken control-plane auth?</summary>
+      <p class="qa-answer">
+        It is a real widening of the auth surface and is treated as such. Mitigations: TTL ≤ 60s,
+        single-use, bound to one <code>run_id</code>, never logged, and issued only to an already
+        bearer-authenticated caller. The alternative — keeping the browser on polling forever — is what the
+        code comment at <code>api.py:262</code> settles for today. If even a scoped ticket is unacceptable,
+        the fallback is a same-origin proxy that injects the header, which the Vite dev proxy already models.
+      </p>
+    </details>
+
+    <details>
+      <summary>Is <code>AgentState</code> still the right carrier?</summary>
+      <p class="qa-answer">
+        Assumption: <strong>yes, kept deliberately thin.</strong> State carries routing control fields only;
+        artefacts go to the durable blackboard. The temptation as the roster grows will be to add one more
+        field per agent — that path ends in a state dict too large for a 12B context. If state grows past a
+        stated budget, that is the signal to move the field to the blackboard, not to raise the budget.
+      </p>
+    </details>
+  </section>
+
+  <!-- ===== NOTES ===== -->
+  <section id="notes">
+    <h2>Notes</h2>
+
+    <h3>Verified facts this plan rests on</h3>
+    <p>Each was confirmed in the working tree at <code>a06d3cc</code>, not assumed:</p>
+    <table>
+      <tr><th>Fact</th><th>Evidence</th></tr>
+      <tr><td>LangGraph 1.2.7 is installed; <code>Command</code>, <code>Send</code> and <code>interrupt</code> all import cleanly</td><td><code>.venv/bin/pip show langgraph</code>; direct import check</td></tr>
+      <tr><td>The graph has 4 nodes, 2 unconditional edges, 2 guard-style conditional routers</td><td><code>engine/src/graph.py</code></td></tr>
+      <tr><td><code>SteeringEngine.choose_next()</code> is never called anywhere</td><td>repo-wide grep; only <code>Lesson</code> is consumed</td></tr>
+      <tr><td>All eight tools go to every caller</td><td><code>forge_runtime/tools.py:493</code> <code>default_registry()</code></td></tr>
+      <tr><td>Per-role model routing already exists</td><td><code>forge_config.ROLES</code>, <code>provider_for(role)</code></td></tr>
+      <tr><td>Current node is derived by grepping the log tail</td><td><code>control_plane/runtime_snapshot.py:186</code></td></tr>
+      <tr><td>The graph is invoked blocking, not streamed</td><td><code>run_pge.py:370</code></td></tr>
+      <tr><td>The web console polls on 1.5s/5s timers</td><td><code>web/src/App.tsx:77-78</code></td></tr>
+      <tr><td>SSE exists but is unusable from a browser without a header</td><td><code>control_plane/api.py:260-262</code></td></tr>
+      <tr><td><code>forge_run_events</code> already has run/sequence/type/actor/jsonb</td><td><code>migrations/001_control_plane.sql</code></td></tr>
+    </table>
+
+    <h3>Pre-implementation review — 2026-07-26</h3>
+    <p>
+      Before any code was written, the full baseline was executed and the plan's own gates were verified
+      against the tree. <strong>Baseline is entirely green</strong>, so any red during implementation is
+      attributable to the change, not to pre-existing debt:
+    </p>
+    <table>
+      <tr><th>Gate</th><th>Result</th></tr>
+      <tr><td><code>.venv/bin/ruff check .</code></td><td>All checks passed</td></tr>
+      <tr><td><code>pytest</code> (58 test files)</td><td>All passed, 0 failed</td></tr>
+      <tr><td><code>cargo test</code> (experimental)</td><td>33 passed, 0 failed, 2 ignored</td></tr>
+      <tr><td><code>cargo clippy --all-targets -- -D warnings</code></td><td>Clean</td></tr>
+      <tr><td><code>npm run build</code> (web)</td><td>Built, 1744 modules</td></tr>
+      <tr><td><code>npm run lint</code> (web)</td><td>Clean</td></tr>
+      <tr><td><code>uv</code> availability (plan uses <code>uv run</code>)</td><td>uv 0.8.22 present; <code>uv run pytest</code> works</td></tr>
+      <tr><td>All plan-referenced paths exist</td><td>Confirmed</td></tr>
+    </table>
+    <p>
+      The review also found three defects <em>in this plan</em>, now corrected above and recorded in
+      Amendments: the <code>current_node</code> contract chain was underestimated, <code>codex_runner.py</code>
+      was missed as a second writer, and Phases 4 and 5/6 contradicted each other on whether the active agent
+      is a scalar or a set.
+    </p>
+
+    <h3>Dependencies</h3>
+    <p>
+      <strong>No new runtime dependencies are required.</strong> LangGraph 1.2.7, FastAPI, SQLAlchemy,
+      pgvector, React 19 and ratatui are all already present, and the routing graph is drawn with plain SVG
+      rather than a charting library. If a force-directed layout later proves worth a dependency, add it via
+      <code>npm</code> in <code>web/</code> only — the Python side should stay unchanged.
+      Anything Python-side would be added with <code>uv add</code>.
+    </p>
+
+    <h3>Rejected approaches</h3>
+    <ul>
+      <li><strong>Adopt a multi-agent framework (CrewAI, AutoGen, swarm libraries).</strong> Forge's value is
+        in what it does <em>around</em> the loop — durable Postgres state, the sandbox boundary, the
+        independent evaluator, the acceptance gate. A framework would own the loop and force all of that to
+        be re-earned through its extension points. LangGraph is already the substrate and already supports
+        everything needed.</li>
+      <li><strong>Pure-LLM supervisor routing.</strong> Rejected as the primary tier for the reason stated
+        throughout: a model deciding topology every turn is exactly the fragility Forge removed. It survives
+        as the ambiguity tiebreak only.</li>
+      <li><strong>Agents as separate processes / A2A peers.</strong> Forge already has an A2A adapter
+        (<code>forge_a2a/</code>, <code>docs/A2A.md</code>), so cross-process agents are reachable later. But
+        in-process nodes share the sandbox, the DB session and the checkpoint — going cross-process first
+        would buy isolation nobody asked for at the cost of the durability story. Revisit if agents ever need
+        to run on different machines.</li>
+      <li><strong>Fat <code>AgentState</code> as the cooperation medium.</strong> Simplest to write, fatal at
+        roster scale for small-model contexts. The durable blackboard already exists and is queryable.</li>
+    </ul>
+
+    <h3>Sequencing rationale</h3>
+    <p>
+      The order is chosen so that value lands early and risk lands late. Phases 1–2 are behaviour-preserving
+      and reversible via <code>PGE_ROUTING_MODE</code>. Phase 5 (the event spine) deliberately precedes both
+      GUIs, because a front end built against a scraped string would have to be rewritten. Phase 3 — the
+      executor split — is the highest-risk change and is placed after the kernel is proven but before the
+      GUIs, so the front ends are built against the final roster. Phase 8 decides the default and is allowed
+      to conclude "keep it off".
+    </p>
+
+    <h3>Research grounding</h3>
+    <p>
+      <code>AI_DOCS/research/INDEX.md</code> sets a strict convention: each entry states what the paper
+      establishes and what Forge does with it, and there is an explicit <em>"cited but not verifiable"</em>
+      section. The following should be fetched and indexed the same way before Phase 2 hardens the router
+      design. Listed as <strong>directions to verify</strong>, not as settled citations:
+    </p>
+    <ul>
+      <li><strong>CoALA</strong> (Sumers et al., 2023) — <em>already in the library</em>. Its decision-procedure
+        framing (propose → evaluate → select over an action space) is the closest published analogue to the
+        three-tier router, and its memory taxonomy already governs Forge's <code>memory_type</code> naming.
+        This is the most directly applicable existing entry.</li>
+      <li><strong>Reflexion</strong> (Shinn et al., NeurIPS 2023) — <em>already in the library</em>. Relevant
+        to the <code>reviewer</code> agent: verbal self-reflection on failure, re-injected, beats blind retry.</li>
+      <li><strong>AutoGen</strong> (Wu et al., 2023) — multi-agent conversation framework whose group-chat
+        manager is a routing analogue. Worth reading specifically for how it handles speaker selection and
+        termination, which are the same two problems the governor solves.</li>
+      <li><strong>Role-specialised software-agent systems</strong> (the MetaGPT and ChatDev line, 2023) —
+        prior art for splitting a coding agent into declared roles. Verify the specific claims before citing;
+        the useful question is whether their reported gains survive at 12B scale, which is Forge's regime.</li>
+      <li><strong>LLM query routing</strong> (the RouteLLM line, 2024) — routing between cheap and strong
+        models by predicted difficulty. Directly applicable to Forge's per-role provider profiles: the same
+        signals that pick an <em>agent</em> could pick a <em>model tier</em> for that agent.</li>
+    </ul>
+    <p>
+      Follow the INDEX.md discipline: if a paper cannot be located or its claims cannot be verified, record it
+      under "cited but not verifiable" and treat it as directional. Do not let an unverified citation justify
+      a design decision.
+    </p>
+
+    <h3>Future work, explicitly out of scope</h3>
+    <ul>
+      <li>Cross-process / cross-machine agents over the existing A2A adapter.</li>
+      <li>Per-agent workspace branches with a merge step, enabling true parallel editing.</li>
+      <li>Learned routing — using <code>forge_routing_decisions</code> plus outcomes as training signal to
+        improve the policy tier. The schema is designed to make this possible later; nothing in this plan
+        depends on it.</li>
+      <li>Per-agent model auto-selection by predicted difficulty (the RouteLLM direction above).</li>
+    </ul>
+
+    <figure>
+      <!-- {{NOTES_IMAGE: A layered stack diagram with four horizontal bands - durable store, agent runtime, routing kernel, operator surfaces - with a single vertical event ribbon threading through all four. Dark charcoal, amber ribbon, verdigris band labels, under 8 words total}} -->
+      <figcaption>The event ribbon is the only thing every layer shares — which is why Phase 5 precedes both front ends.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== AMENDMENTS ===== -->
+  <section id="amendments">
+    <h2>Amendments</h2>
+    <p class="qa-answer" style="color:var(--ink-dim);font-size:.9rem;">
+      Append-only. Populated by the Update Plan and Update References workflows after first execution.
+    </p>
+
+    <details>
+      <summary>2026-07-26 — Pre-implementation review: baseline verified green, three plan defects corrected</summary>
+      <p>
+        A review pass was run <strong>before any implementation</strong> (no phase had been started; the only
+        change in the tree was this plan file). Two things came out of it.
+      </p>
+      <p>
+        <strong>1. Baseline verification.</strong> Every gate this plan relies on was executed against
+        <code>a06d3cc</code> and all pass: ruff clean, 58 pytest files green, 33 Rust tests green, clippy
+        clean under <code>-D warnings</code>, web build and lint clean, <code>uv</code> 0.8.22 present so the
+        <code>uv run</code> command form is valid, and every plan-referenced path exists. Recorded in Notes
+        so future red is unambiguously attributable to the change.
+      </p>
+      <p>
+        <strong>2. Three defects in the plan itself, corrected in place.</strong>
+      </p>
+      <ul>
+        <li>
+          <strong>The <code>current_node</code> contract chain was badly underestimated.</strong> The original
+          Phase 5 treated it as "a scraped string" to delete. It is in fact a <em>required</em> field with a
+          <em>closed enum</em> of exactly the four existing node names in
+          <code>contracts/run-snapshot.schema.json</code>, under <code>additionalProperties: false</code> —
+          so registering a fifth agent breaks the contract suite, and the new <code>active_agents</code>
+          field cannot even be added without widening the schema first. It is additionally a
+          <code>varchar(32)</code> column, two OpenAPI schemas, and three fixtures that
+          <code>tests/contract/test_fixture_export.py</code> compares <em>byte-for-byte</em>. Those same
+          fixtures are <code>include_str!</code>'d into the Rust tests at compile time, making this a
+          single-commit cross-language change. Phase 5 gained a dedicated task, Phase 6 gained an explicit
+          ordering constraint, and the <code>FORGE_UPDATE_CONTRACT_FIXTURES=1</code> regeneration step —
+          absent from the original plan — is now called out.
+        </li>
+        <li>
+          <strong><code>codex_runner.py</code> is a second writer of <code>current_node</code></strong>
+          (<code>_set_stage</code>:144, <code>_finish</code>:153) on a path independent of the PGE graph.
+          The original plan named only <code>runtime_snapshot._current_node()</code>, so deleting the grep
+          would have left half the producers untouched. Added to Relevant Files, to the Phase 5 checklist,
+          and to global validation.
+        </li>
+        <li>
+          <strong>Phases 4 and 5/6 contradicted each other.</strong> Phase 4 introduces parallel agents;
+          Phases 5–6 kept a single scalar current agent in the DB column, the JSON schema and the OpenAPI
+          contract. One scalar cannot represent two concurrent agents. Resolved by making
+          <code>active_agents</code> the truth and retaining <code>current_node</code> as a deprecated
+          compatibility scalar until the TUI and web console have migrated — an add-before-remove sequence
+          that keeps both front ends building throughout.
+        </li>
+      </ul>
+      <p>
+        No phase status markers were changed; all remain <code>[]</code>. Implementation has not begun.
+      </p>
+    </details>
+  </section>
+
+</main>
+</body>
+</html>

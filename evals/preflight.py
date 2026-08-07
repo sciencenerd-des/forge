@@ -11,8 +11,14 @@ stops, or mutates anything) and never raises; a failure is data, not a crash.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+VERIFIER_RUNTIME_PROBES = (
+    ("python-sci", ["python3", "-c", "import numpy, sklearn"]),
+    ("node", ["node", "--version"]),
+)
 
 
 @dataclass
@@ -89,8 +95,6 @@ def check_docker(image: str | None = None, *, required: bool = True) -> Check:
     docker = shutil.which("docker")
     if not docker:
         return Check("docker", not required, "docker CLI not found", blocking=required)
-    import subprocess  # noqa: PLC0415
-
     try:
         info = subprocess.run([docker, "info", "--format", "{{.ServerVersion}}"],
                               capture_output=True, text=True, timeout=8)
@@ -127,6 +131,44 @@ def check_runtimes(required: tuple[str, ...] = ()) -> Check:
     return Check("runtimes", True, f"present: {', '.join(required) or '(none required)'}")
 
 
+def check_verifier_runtimes(image: str | None) -> Check:
+    """Prove required contract runtimes inside the exact verifier image."""
+
+    docker = shutil.which("docker")
+    if not image:
+        return Check("verifier_runtimes", False, "no verifier image configured")
+    if not docker:
+        return Check("verifier_runtimes", False, "docker CLI not found")
+    for name, probe in VERIFIER_RUNTIME_PROBES:
+        try:
+            result = subprocess.run(
+                [docker, "run", "--rm", "--network", "none", image, *probe],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except Exception as exc:  # noqa: BLE001 - preflight is data, never an exception
+            return Check("verifier_runtimes", False, f"{name} probe failed in {image}: {exc}")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()[:160]
+            return Check(
+                "verifier_runtimes",
+                False,
+                f"{name} probe failed in {image}: {detail}",
+            )
+    return Check("verifier_runtimes", True, f"{image} satisfies contract runtimes")
+
+
+def check_container_sandbox(*, required: bool = True) -> Check:
+    """Refuse qualifying suites when the executor is configured for host mode."""
+
+    from forge_runtime.sandbox import sandbox_mode
+
+    mode = sandbox_mode()
+    ok = mode == "container" or not required
+    return Check("container_sandbox", ok, f"observed sandbox mode: {mode}", blocking=required)
+
+
 def check_no_active_runs(load_run_state: Callable[[], dict], process_is_alive: Callable[[Any], bool]) -> Check:
     """A live run from a prior suite means resources are contended; fail closed.
 
@@ -144,6 +186,7 @@ def check_no_active_runs(load_run_state: Callable[[], dict], process_is_alive: C
 
 def run_preflight(*, database_url: str | None, base_url: str | None, model: str | None,
                   sandbox_image: str | None = None, require_docker: bool = True,
+                  verifier_image: str | None = None, require_container_sandbox: bool = True,
                   required_runtimes: tuple[str, ...] = (), min_free_gb: float = 2.0) -> PreflightReport:
     """Aggregate every gate into one report. Callers refuse to launch on any
     blocking failure."""
@@ -153,6 +196,9 @@ def run_preflight(*, database_url: str | None, base_url: str | None, model: str 
     report.add(check_database(database_url))
     report.add(check_model_endpoint(base_url, model))
     report.add(check_docker(sandbox_image, required=require_docker))
+    report.add(check_container_sandbox(required=require_container_sandbox))
+    if require_docker:
+        report.add(check_verifier_runtimes(verifier_image or sandbox_image))
     report.add(check_disk(min_free_gb))
     report.add(check_runtimes(required_runtimes))
     report.add(check_no_active_runs(load_run_state, process_is_alive))

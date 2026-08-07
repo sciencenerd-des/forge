@@ -1,0 +1,87 @@
+- generic [ref=e4]:
+  - complementary "Application navigation" [ref=e5]:
+    - generic [ref=e6]: FORGE
+    - navigation "Primary" [ref=e13]:
+      - button "Runs" [pressed] [ref=e14] [cursor=pointer]
+      - button "Agents" [ref=e17] [cursor=pointer]
+      - button "Projects" [ref=e21] [cursor=pointer]
+      - button "Approvals" [ref=e25] [cursor=pointer]
+      - button "Config" [ref=e29] [cursor=pointer]
+      - button "Settings" [ref=e33] [cursor=pointer]
+    - status "Gateway connecting" [ref=e40]
+  - main [ref=e47]:
+    - generic [ref=e48]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e52]: running
+          - generic [ref=e53]: /
+          - generic [ref=e54]: idle
+        - heading "No active PGE run" [level=1] [ref=e55]
+      - button "Stop" [disabled] [ref=e57]
+    - generic [ref=e62]:
+      - generic [ref=e63]:
+        - generic [ref=e64]: Start a durable run
+        - heading "Give Forge one concrete goal." [level=2] [ref=e65]
+      - generic [ref=e66]:
+        - generic [ref=e67]: Run goal
+        - textbox "Run goal" [ref=e68]:
+          - /placeholder: Fix the parser bug and make every regression test pass
+      - button "Start run" [disabled] [ref=e69]
+    - generic [ref=e70]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: Batch
+        - generic [ref=e77]: 0 pid stopped
+      - generic [ref=e82]:
+        - generic [ref=e83]: Task progress
+        - generic [ref=e84]: 0 / 0 0% complete
+      - generic [ref=e98]:
+        - generic [ref=e99]: Evidence
+        - generic [ref=e100]: 0 files 0 tests
+      - generic [ref=e106]:
+        - generic [ref=e107]: Runtime
+        - generic [ref=e108]: idle 0 active · gateway off
+    - generic [ref=e109]:
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - generic [ref=e113]:
+            - paragraph [ref=e114]: Workflow
+            - heading "Deterministic node state" [level=2] [ref=e115]
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e118]: "01"
+              - generic [ref=e121]: Planner
+              - generic [ref=e122]: Waiting
+            - generic [ref=e123]:
+              - generic [ref=e124]: "02"
+              - generic [ref=e127]: Auditor
+              - generic [ref=e128]: Waiting
+            - generic [ref=e129]:
+              - generic [ref=e130]: "03"
+              - generic [ref=e133]: Executor
+              - generic [ref=e134]: Waiting
+            - generic [ref=e135]:
+              - generic [ref=e136]: "04"
+              - generic [ref=e139]: Evaluator
+              - generic [ref=e140]: Waiting
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - heading "Live execution" [level=2] [ref=e150]
+            - generic [ref=e151]:
+              - generic [ref=e155]: Search events
+              - textbox "Search events" [ref=e156]:
+                - /placeholder: Filter output
+          - paragraph [ref=e165]: "No run output yet. Start one with `forge run --goal …`."
+      - complementary [ref=e166]:
+        - paragraph [ref=e167]: Current task
+        - heading "No active task" [level=2] [ref=e168]
+        - paragraph [ref=e169]: Durable PGE state from PostgreSQL and the lifecycle manifest.
+        - generic [ref=e170]:
+          - generic [ref=e177]:
+            - generic [ref=e178]: Project
+            - generic [ref=e179]: unknown
+          - generic [ref=e184]:
+            - generic [ref=e185]: Attempts
+            - generic [ref=e186]: 0 total · 0 no-progress
+          - generic [ref=e191]:
+            - generic [ref=e192]: Executor model
+            - generic [ref=e193]: local model

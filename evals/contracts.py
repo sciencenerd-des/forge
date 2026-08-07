@@ -102,6 +102,7 @@ class EnvironmentFingerprint(BaseModel):
     endpoint_identity: str | None = None     # redacted host:port, never full URL w/ creds
     sandbox_mode: str | None = None          # "container" | "host-unsafe" | ...
     sandbox_image_digest: str | None = None
+    verifier_image_digest: str | None = None
     resource_limits: dict[str, Any] = Field(default_factory=dict)
     python_version: str | None = None
     pi_version: str | None = None
@@ -220,7 +221,8 @@ class SuiteResultV2(BaseModel):
 # on purpose: these are conditions of the experiment, not its outcome.
 COMPARABILITY_FIELDS = (
     "schema_version", "suite_hash", "contract_hash", "model", "provider",
-    "sandbox_image_digest", "max_turns", "reasoning_effort",
+    "sandbox_image_digest", "verifier_image_digest", "sandbox_mode",
+    "max_turns", "reasoning_effort",
     "llm_request_timeout_s", "llm_max_retries", "replicate_count",
 )
 

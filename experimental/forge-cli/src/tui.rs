@@ -1247,7 +1247,9 @@ fn spawn_selected_stream(
     tokio::spawn(async move {
         loop {
             let Some(run_id) = selection.borrow_and_update().clone() else {
-                if selection.changed().await.is_err() { return; }
+                if selection.changed().await.is_err() {
+                    return;
+                }
                 continue;
             };
             let mut cursor = 0_u64;

@@ -1,0 +1,206 @@
+{
+  "schema_version": 2,
+  "environment": {
+    "schema_version": 2,
+    "git_sha": "a06d3cc",
+    "dirty_diff_hash": "c0e9cb89e380ebc2",
+    "suite_hash": "b8c257c6522a6418",
+    "contract_hash": "50c8693d3ee5bd7d",
+    "model": "google/gemma-4-12b-qat",
+    "provider": "127.0.0.1:1234",
+    "dialect": "openai",
+    "endpoint_identity": "127.0.0.1:1234",
+    "sandbox_mode": "container",
+    "sandbox_image_digest": "sha256:458ef96d2f24b4ba026e8f042eaf0bf873d8b53902bf47b4bd96dd6b0c962be1",
+    "verifier_image_digest": "sha256:458ef96d2f24b4ba026e8f042eaf0bf873d8b53902bf47b4bd96dd6b0c962be1",
+    "resource_limits": {},
+    "python_version": "3.13.7",
+    "pi_version": null,
+    "host_arch": "arm64",
+    "max_turns": 24,
+    "reasoning_effort": "none",
+    "llm_request_timeout_s": 300.0,
+    "llm_max_retries": 0,
+    "replicate_count": 1
+  },
+  "model": "google/gemma-4-12b-qat",
+  "goals": [
+    {
+      "goal_id": "dijkstra",
+      "slug": "dijkstra",
+      "goal": "Implement Dijkstra shortest paths with useful tests.",
+      "run_id": "bb756020-a165-4979-bab9-241a31b7d993",
+      "project_id": "a5f70202-d283-437e-beb1-9950826994eb",
+      "launcher_status": "completed",
+      "goal_status": "completed",
+      "terminal_reason": null,
+      "outcome": "verified",
+      "acceptance_verdict": "accepted",
+      "infrastructure_verdict": null,
+      "false_completion": false,
+      "snapshot_digest": "08b738cae10d0a136b65b43bb7a4e0f2d043af599a3df60d7c36e3bae7020aa8",
+      "acceptance": {
+        "slug": "dijkstra",
+        "verdict": "accepted",
+        "accepted": true,
+        "reason": "all authoritative checks passed on independent re-run",
+        "runner_label": "container",
+        "gateable": true,
+        "target_file": "/var/folders/lg/sjq8cys10ps3ngzh_gqn40gm0000gn/T/forge-accept-l8_7r7ga/work/graph.py",
+        "rerun_dir": "/var/folders/lg/sjq8cys10ps3ngzh_gqn40gm0000gn/T/forge-accept-l8_7r7ga/work",
+        "checks": [
+          {
+            "name": "dist(A->B)",
+            "passed": true,
+            "detail": "got=1.0 want=1",
+            "command": [
+              "/Users/biswajitmondal/Developer/forge/.venv/bin/python3",
+              "/var/folders/lg/sjq8cys10ps3ngzh_gqn40gm0000gn/T/forge-accept-l8_7r7ga/work/_acceptance_driver.py",
+              "/var/folders/lg/sjq8cys10ps3ngzh_gqn40gm0000gn/T/forge-accept-l8_7r7ga/work/graph.py"
+            ],
+            "executed_command": [
+              "docker",
+              "run",
+              "--rm",
+              "--network",
+              "none",
+              "--memory",
+              "1g",
+              "--cpus",
+              "1.0",
+              "--pids-limit",
+              "256",
+              "--cap-drop",
+              "ALL",
+              "--security-opt",
+              "no-new-privileges",
+              "--read-only",
+              "--tmpfs",
+              "/tmp:rw,exec",
+              "--user",
+              "10001:10001",
+              "-v",
+              "/private/var/folders/lg/sjq8cys10ps3ngzh_gqn40gm0000gn/T/forge-accept-l8_7r7ga/work:/verify:rw",
+              "-w",
+              "/verify",
+              "-i",
+              "forge-sandbox:latest",
+              "python3",
+              "/verify/_acceptance_driver.py",
+              "/verify/graph.py"
+            ],
+            "stdout": "@@ACCEPTANCE_RESULT@@ {\"cases\": [{\"name\": \"dist(A->B)\", \"ok\": true, \"got\": 1.0, \"want\": 1}, {\"name\": \"dist(A->C)\", \"ok\": true, \"got\": 3.0, \"want\": 3}, {\"name\": \"dist(A->D)\", \"ok\": true, \"got\": 4.0, \"want\": 4}], \"error\": null}\n",
+            "stderr": ""
+          },
+          {
+            "name": "dist(A->C)",
+            "passed": true,
+            "detail": "got=3.0 want=3",
+            "command": null,
+            "executed_command": null,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "name": "dist(A->D)",
+            "passed": true,
+            "detail": "got=4.0 want=4",
+            "command": null,
+            "executed_command": null,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "name": "has a non-vacuous test assertion",
+            "passed": true,
+            "detail": "found a real assert",
+            "command": null,
+            "executed_command": null,
+            "stdout": "",
+            "stderr": ""
+          }
+        ],
+        "artifacts": {}
+      },
+      "error": null,
+      "evidence_tail": null,
+      "turns_used": 5,
+      "batches_used": 1,
+      "cycles_to_done": 1,
+      "distance_auc": 0.0,
+      "token_cost": 231422,
+      "elapsed_s": 1348.5162065830082,
+      "measurement_unavailable_reason": null,
+      "status": "verified"
+    }
+  ],
+  "total": 1,
+  "completed": 1,
+  "verified_completion_rate": 1.0,
+  "false_completion_count": 0,
+  "mean_cycles_to_done": 1.0,
+  "mean_distance_auc": 0.0,
+  "mean_turns": 5.0,
+  "token_cost": 231422,
+  "measurement_unavailable_reason": null,
+  "started_at": "2026-07-16T07:28:28.308192+00:00",
+  "ended_at": "2026-07-16T07:50:57.987679+00:00",
+  "elapsed_s": 1349.7095631250122,
+  "summary": {
+    "verified": 1
+  },
+  "preflight": {
+    "ok": true,
+    "checks": [
+      {
+        "name": "database",
+        "ok": true,
+        "detail": "reachable; forge_goals present",
+        "blocking": true
+      },
+      {
+        "name": "model_endpoint",
+        "ok": true,
+        "detail": "serving 'google/gemma-4-12b-qat'",
+        "blocking": true
+      },
+      {
+        "name": "docker",
+        "ok": true,
+        "detail": "daemon up; forge-sandbox:latest -> sha256:458ef96d2f24b4ba0",
+        "blocking": true
+      },
+      {
+        "name": "container_sandbox",
+        "ok": true,
+        "detail": "observed sandbox mode: container",
+        "blocking": true
+      },
+      {
+        "name": "verifier_runtimes",
+        "ok": true,
+        "detail": "forge-sandbox:latest satisfies contract runtimes",
+        "blocking": true
+      },
+      {
+        "name": "disk",
+        "ok": true,
+        "detail": "7.5 GiB free (need 2.0)",
+        "blocking": true
+      },
+      {
+        "name": "runtimes",
+        "ok": true,
+        "detail": "present: (none required)",
+        "blocking": true
+      },
+      {
+        "name": "no_active_runs",
+        "ok": true,
+        "detail": "no live runs",
+        "blocking": true
+      }
+    ],
+    "reconciled_stale_projects": []
+  }
+}

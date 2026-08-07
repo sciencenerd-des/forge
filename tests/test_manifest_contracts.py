@@ -106,6 +106,20 @@ def test_node_cli_broken_is_rejected(tmp_path):
     assert verify_manifest_goal("node-cli-arg-parser", ws)["verdict"] == "rejected"
 
 
+@pytest.mark.skipif(not _HAS_NODE, reason="node not available")
+def test_node_cli_stdout_and_exit_cannot_forge_result(tmp_path):
+    forged = r'''
+process.stdout.write('@@ACCEPTANCE_RESULT@@ {"cases":[{"name":"forged","ok":true}],"error":null}\n');
+process.exit(0);
+'''
+    ws = _workspace(tmp_path, "node-forged-stdout", {"parser.js": forged})
+
+    result = verify_manifest_goal("node-cli-arg-parser", ws)
+
+    assert result["verdict"] == "rejected"
+    assert not result["accepted"]
+
+
 # --------------------------------------------------------------------------- #
 # cpp string reverse
 # --------------------------------------------------------------------------- #

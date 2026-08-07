@@ -93,6 +93,40 @@ template variant. **Engine code is never a valid proposal target** — this is
 a deliberate safety inversion from self-modifying-code patterns; changes
 still require a human to merge the PR the gate produces.
 
+### Bug-fix reproduction evidence
+
+Forge's acceptance API can additionally require SWT-Bench-style
+fail-before/pass-after evidence for bug-fix benchmarks. Pass both an immutable
+pre-patch workspace and an exact reproduction specification:
+
+```python
+from evals.acceptance import ContainerRunner, verify_goal
+
+result = verify_goal(
+    "lru",
+    candidate_workspace,
+    runner=ContainerRunner(),
+    baseline_workspace=pre_patch_workspace,
+    reproduction={
+        "command": ["python3", "-m", "pytest", "-q", "tests/test_regression.py"],
+        "test_paths": ["tests/test_regression.py"],
+        "coverage_json": "coverage.json",  # optional coverage.py JSON output
+    },
+)
+```
+
+The listed test files are copied from the candidate into the isolated baseline,
+then the same command runs in both environments. Acceptance requires the test
+to pass on the candidate and fail on the baseline. A test that passes in both
+is non-discriminating and rejects the patch. Coverage is recorded under
+`artifacts.reproduction`; missing coverage remains `null` with an explicit
+reason rather than silently becoming zero. This gate is opt-in because feature
+construction goals do not necessarily have a meaningful pre-patch defect.
+
+The design follows [SWT-Bench](https://arxiv.org/abs/2406.12952) for generated
+issue-reproduction tests and complements the repository-level evaluation model
+introduced by [SWE-bench](https://openreview.net/forum?id=VTF8yNQM66).
+
 ## Running it
 
 ```bash

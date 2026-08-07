@@ -71,7 +71,11 @@ impl ForgeConfig {
 }
 
 fn validate_control_url(url: &Url) -> Result<(), ForgeConfigError> {
-    if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
         return Err(ForgeConfigError::UnsafeUrl(
             "userinfo, query strings, and fragments are not allowed".into(),
         ));
@@ -81,7 +85,9 @@ fn validate_control_url(url: &Url) -> Result<(), ForgeConfigError> {
         "http" => {
             let host = url.host_str().unwrap_or_default();
             let loopback = host.eq_ignore_ascii_case("localhost")
-                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback());
             if loopback {
                 Ok(())
             } else {
@@ -149,7 +155,10 @@ mod tests {
             "file:///tmp/control.sock",
         ] {
             let url = Url::parse(value).expect("parse fixture");
-            assert!(matches!(validate_control_url(&url), Err(ForgeConfigError::UnsafeUrl(_))));
+            assert!(matches!(
+                validate_control_url(&url),
+                Err(ForgeConfigError::UnsafeUrl(_))
+            ));
         }
         assert!(validate_control_url(&Url::parse("http://127.0.0.1:8787").unwrap()).is_ok());
         assert!(validate_control_url(&Url::parse("https://forge.example.com").unwrap()).is_ok());

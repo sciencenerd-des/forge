@@ -61,7 +61,8 @@ _DEFAULT_TIMEOUT = 120
 # and copying them would let stale/agent-controlled state pollute verification.
 _SNAPSHOT_PRUNE = {".git", "__pycache__", ".pytest_cache", ".mypy_cache",
                    ".ruff_cache", "node_modules", ".venv", "venv", ".tox",
-                   "target", "build", ".forge-sandbox-host-import-v1"}
+                   "target", "build", ".forge-sandbox-host-import-v1",
+                   ".forge-home", ".forge-internal"}
 
 
 @dataclass(frozen=True)

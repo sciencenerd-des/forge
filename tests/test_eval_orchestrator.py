@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,10 +40,197 @@ from evals.orchestrator import (
         ({"completed": 0, "total": 0}, 1),
         ({"preflight": {"ok": True}, "completed": 1, "total": 1}, 0),
         ({"preflight": {"ok": True}, "completed": 0, "total": 1}, 1),
+        ({"preflight": {"ok": True}, "completed": 8, "total": 8,
+          "baseline_status": "not_created_qualification_failed"}, 1),
+        ({"preflight": {"ok": True}, "completed": 8, "total": 8,
+          "baseline_status": "created"}, 0),
     ],
 )
 def test_suite_exit_code_requires_a_real_completed_run(report, expected):
     assert suite_exit_code(report) == expected
+
+
+def test_suite_definition_hash_covers_goals_and_metric_semantics(monkeypatch):
+    import evals.orchestrator as orchestrator
+
+    goals = [("one", "first goal")]
+    original = orchestrator.suite_definition_hash(goals, suite_label="canonical")
+    changed_goal = orchestrator.suite_definition_hash(
+        [("one", "changed goal")], suite_label="canonical"
+    )
+    monkeypatch.setattr(orchestrator, "METRIC_SEMANTICS_VERSION", "distance_auc:v2")
+    changed_semantics = orchestrator.suite_definition_hash(goals, suite_label="canonical")
+
+    assert original != changed_goal
+    assert original != changed_semantics
+
+
+def test_verifier_runtime_preflight_fails_closed(monkeypatch):
+    from evals.preflight import check_verifier_runtimes
+
+    monkeypatch.setattr("evals.preflight.shutil.which", lambda tool: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "evals.preflight.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="No module named numpy"),
+    )
+
+    check = check_verifier_runtimes("stale:test")
+
+    assert check.ok is False
+    assert "python-sci probe failed" in check.detail
+
+
+def test_production_suite_pins_mutable_image_tags_to_one_digest(monkeypatch, tmp_path):
+    import evals.orchestrator as orchestrator
+    import evals.preflight as preflight
+
+    observed = {}
+    monkeypatch.setenv("FORGE_SANDBOX_IMAGE", "sandbox:mutable")
+    monkeypatch.setenv("FORGE_VERIFIER_IMAGE", "verifier:mutable")
+    monkeypatch.setattr(
+        orchestrator,
+        "image_digest",
+        lambda image: {
+            "sandbox:mutable": "sha256:sandbox-pinned",
+            "verifier:mutable": "sha256:verifier-pinned",
+        }.get(image),
+    )
+
+    def fake_callbacks(*, verifier_image=None):
+        observed["callback_verifier_image"] = verifier_image
+
+        def launch_pge(project_id, **kwargs):
+            observed["launch_env"] = kwargs["env"]
+            return {"status": "success", "started": True, "run_id": "r1"}
+
+        return {
+            "create_project": lambda plan: ("project", "p1"),
+            "launch_pge": launch_pge,
+            "poll": lambda *args: {},
+            "terminate": lambda *args: {},
+            "snapshot": lambda *args: None,
+            "verify": lambda *args: {},
+        }
+
+    monkeypatch.setattr(orchestrator, "production_callbacks", fake_callbacks)
+
+    def fake_preflight(**kwargs):
+        observed["preflight"] = kwargs
+        return SimpleNamespace(as_dict=lambda: {"ok": True})
+
+    monkeypatch.setattr(preflight, "run_preflight", fake_preflight)
+
+    def fake_run_suite(**kwargs):
+        observed["run"] = kwargs
+        kwargs["preflight"]()
+        kwargs["create_project"](GoalPlan("g", "g", "goal", 1))
+        kwargs["launch"](GoalPlan("g", "g", "goal", 1))
+        return {"ok": True}
+
+    monkeypatch.setattr(orchestrator, "run_suite", fake_run_suite)
+
+    orchestrator.run_production_suite(
+        goals=[("g", "goal")],
+        model="model",
+        base_url="http://localhost:1234/v1",
+        timeout=1,
+        max_turns=1,
+        output=tmp_path / "result.json",
+    )
+
+    assert observed["callback_verifier_image"] == "sha256:verifier-pinned"
+    assert observed["preflight"]["sandbox_image"] == "sha256:sandbox-pinned"
+    assert observed["preflight"]["verifier_image"] == "sha256:verifier-pinned"
+    assert observed["run"]["sandbox_image_digest"] == "sha256:sandbox-pinned"
+    assert observed["run"]["verifier_image_digest"] == "sha256:verifier-pinned"
+    assert observed["launch_env"]["FORGE_SANDBOX_IMAGE"] == "sha256:sandbox-pinned"
+    assert observed["launch_env"]["FORGE_VERIFIER_IMAGE"] == "sha256:verifier-pinned"
+
+
+def test_production_suite_fails_closed_when_image_digest_is_unresolved(monkeypatch, tmp_path):
+    import evals.orchestrator as orchestrator
+
+    observed = {}
+    monkeypatch.setenv("FORGE_SANDBOX_IMAGE", "sandbox:mutable")
+    monkeypatch.setenv("FORGE_VERIFIER_IMAGE", "verifier:mutable")
+    monkeypatch.setattr(orchestrator, "image_digest", lambda _image: None)
+
+    def fake_callbacks(*, verifier_image=None):
+        observed["callback_verifier_image"] = verifier_image
+
+        def launch_pge(*args, **kwargs):
+            raise AssertionError("launch must not run after image resolution fails")
+
+        return {
+            "create_project": lambda plan: ("project", "p1"),
+            "launch_pge": launch_pge,
+            "poll": lambda *args: {},
+            "terminate": lambda *args: {},
+            "snapshot": lambda *args: None,
+            "verify": lambda *args: {},
+        }
+
+    monkeypatch.setattr(orchestrator, "production_callbacks", fake_callbacks)
+
+    def fake_run_suite(**kwargs):
+        observed["run"] = kwargs
+        observed["preflight"] = kwargs["preflight"]()
+        return {"ok": False}
+
+    monkeypatch.setattr(orchestrator, "run_suite", fake_run_suite)
+
+    permissive_override_called = False
+
+    def permissive_override():
+        nonlocal permissive_override_called
+        permissive_override_called = True
+        return {"ok": True}
+
+    orchestrator.run_production_suite(
+        goals=[("g", "goal")],
+        model="model",
+        base_url="http://localhost:1234/v1",
+        timeout=1,
+        max_turns=1,
+        output=tmp_path / "result.json",
+        preflight_override=permissive_override,
+    )
+
+    assert permissive_override_called is False
+    assert observed["preflight"]["ok"] is False
+    assert observed["preflight"]["checks"][0]["name"] == "immutable_image_resolution"
+    assert observed["run"]["sandbox_image_digest"] is None
+    assert observed["run"]["verifier_image_digest"] is None
+
+
+def test_verifier_runtime_preflight_probes_python_and_node(monkeypatch):
+    from evals.preflight import check_verifier_runtimes
+
+    commands = []
+    monkeypatch.setattr("evals.preflight.shutil.which", lambda tool: "/usr/bin/docker")
+
+    def succeed(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("evals.preflight.subprocess.run", succeed)
+
+    check = check_verifier_runtimes("forge-sandbox:test")
+
+    assert check.ok is True
+    assert [command[-1] for command in commands] == ["import numpy, sklearn", "--version"]
+    assert all(command[3:6] == ["--network", "none", "forge-sandbox:test"] for command in commands)
+
+
+def test_container_sandbox_preflight_rejects_host_mode(monkeypatch):
+    from evals.preflight import check_container_sandbox
+
+    monkeypatch.setenv("FORGE_SANDBOX_MODE", "host")
+
+    check = check_container_sandbox()
+
+    assert check.ok is False
+    assert "host" in check.detail
 
 
 def _spawn(code: str) -> subprocess.Popen:
@@ -316,6 +504,7 @@ def test_eight_verified_goals_with_metrics_promote_baseline(tmp_path):
     assert report["mean_cycles_to_done"] == 1.0
     assert report["mean_distance_auc"] == 0.0
     assert report["token_cost"] == 80
+    assert report["preflight"] == {"ok": True, "checks": [], "reconciled_stale_projects": []}
 
 
 def test_model_failure_never_promotes_baseline(tmp_path):

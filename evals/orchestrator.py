@@ -44,6 +44,8 @@ from evals.contracts import (
     write_result_atomic,
 )
 
+METRIC_SEMANTICS_VERSION = "cycles:v1;distance_auc:trapezoid-v1;token_cost:provider-usage-v1"
+
 
 class LeaseHeld(RuntimeError):
     """Raised when another evaluation already holds the global lease."""
@@ -183,6 +185,8 @@ def image_digest(image: str | None) -> str | None:
 def build_environment(*, model: str | None, base_url: str | None,
                       max_turns: int, suite_hash: str,
                       sandbox_image_digest: str | None = None,
+                      verifier_image_digest: str | None = None,
+                      sandbox_mode: str | None = None,
                       reasoning_effort: str | None = None,
                       llm_request_timeout_s: float | None = None,
                       llm_max_retries: int | None = None,
@@ -195,8 +199,9 @@ def build_environment(*, model: str | None, base_url: str | None,
         git_sha=_git_sha(), dirty_diff_hash=_dirty_diff_hash(),
         suite_hash=suite_hash, contract_hash=contract_hash(), model=model,
         provider=_endpoint_identity(base_url), dialect=dialect,
-        endpoint_identity=_endpoint_identity(base_url), sandbox_mode="container",
+        endpoint_identity=_endpoint_identity(base_url), sandbox_mode=sandbox_mode,
         sandbox_image_digest=sandbox_image_digest,
+        verifier_image_digest=verifier_image_digest,
         python_version=platform.python_version(), host_arch=platform.machine(),
         max_turns=max_turns, reasoning_effort=reasoning_effort,
         llm_request_timeout_s=llm_request_timeout_s,
@@ -408,8 +413,29 @@ def suite_exit_code(report: Mapping[str, Any]) -> int:
     preflight = report.get("preflight")
     if isinstance(preflight, Mapping) and not preflight.get("ok", False):
         return 1
+    baseline_status = report.get("baseline_status")
+    if baseline_status is not None and baseline_status != "created":
+        return 1
     total = report.get("total")
     return 0 if isinstance(total, int) and total > 0 and report.get("completed") == total else 1
+
+
+def suite_definition_hash(
+    goals: Iterable[tuple[str, str]],
+    *,
+    suite_label: str = "",
+) -> str:
+    """Hash the real goal catalog and metric semantics used for comparison."""
+
+    import json
+
+    payload = {
+        "suite_label": suite_label,
+        "goals": list(goals),
+        "metric_semantics": METRIC_SEMANTICS_VERSION,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 def run_suite(*, goals: Iterable[tuple[str, str]], model: str | None,
@@ -423,6 +449,8 @@ def run_suite(*, goals: Iterable[tuple[str, str]], model: str | None,
               snapshot: Snapshotter | None = None, verify: Verifier | None = None,
               lease_path: Path | None = None,
               suite_hash: str = "unknown", sandbox_image_digest: str | None = None,
+              verifier_image_digest: str | None = None,
+              sandbox_mode: str | None = None,
               reasoning_effort: str | None = None,
               llm_request_timeout_s: float | None = None,
               llm_max_retries: int | None = None,
@@ -441,6 +469,7 @@ def run_suite(*, goals: Iterable[tuple[str, str]], model: str | None,
         environment=build_environment(
             model=model, base_url=base_url, max_turns=max_turns,
             suite_hash=suite_hash, sandbox_image_digest=sandbox_image_digest,
+            verifier_image_digest=verifier_image_digest, sandbox_mode=sandbox_mode,
             reasoning_effort=reasoning_effort,
             llm_request_timeout_s=llm_request_timeout_s,
             llm_max_retries=llm_max_retries,
@@ -458,6 +487,7 @@ def run_suite(*, goals: Iterable[tuple[str, str]], model: str | None,
     if not all((launch, poll, terminate, snapshot, verify, create_project)):
         raise ValueError("production suite requires launch, poll, terminate, snapshot, verify, and create_project callbacks")
 
+    preflight_report: dict[str, Any] | None = None
     with EvaluationLease(lease_path or EvaluationLease.default_path()):
         reconciled = reconcile_stale_manifests()
         if preflight:
@@ -505,6 +535,8 @@ def run_suite(*, goals: Iterable[tuple[str, str]], model: str | None,
             report.goals.append(goal_result)
             report.recompute_aggregates()
             checkpoint = _report_payload(report)
+            if preflight_report is not None:
+                checkpoint["preflight"] = preflight_report
             checkpoint["last_project"] = project_name
             checkpoint["last_project_id"] = project_id
             write_result_atomic(checkpoint_path, checkpoint)
@@ -513,6 +545,8 @@ def run_suite(*, goals: Iterable[tuple[str, str]], model: str | None,
     report.elapsed_s = time.monotonic() - suite_clock_started
     report.recompute_aggregates()
     payload = _report_payload(report)
+    if preflight_report is not None:
+        payload["preflight"] = preflight_report
     if baseline_target:
         required = ("mean_cycles_to_done", "mean_distance_auc", "token_cost")
         qualifying = (
@@ -572,7 +606,7 @@ def reconcile_stale_manifests() -> list[str]:
     return reconciled
 
 
-def production_callbacks() -> dict[str, Callable[..., Any]]:
+def production_callbacks(*, verifier_image: str | None = None) -> dict[str, Callable[..., Any]]:
     """Return the real launcher/snapshot/verifier callbacks.
 
     Kept in the orchestrator so every CLI uses the same authoritative path.
@@ -627,7 +661,14 @@ def production_callbacks() -> dict[str, Callable[..., Any]]:
 
         if snapshot_path is None:
             return {"verdict": "unverifiable", "reason": "snapshot path is missing", "gateable": True}
-        return verify_goal(goal_id, snapshot_path, runner=ContainerRunner())
+        return verify_goal(
+            goal_id,
+            snapshot_path,
+            runner=ContainerRunner(
+                image=verifier_image
+                or os.getenv("FORGE_VERIFIER_IMAGE", "forge-sandbox:latest")
+            ),
+        )
 
     return {
         "create_project": create_project, "poll": poll, "terminate": terminate,
@@ -643,7 +684,20 @@ def run_production_suite(*, goals: Iterable[tuple[str, str]], model: str,
                          verify_override: Verifier | None = None,
                          preflight_override: Callable[[], Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Production entry point used by all suite CLIs."""
-    adapters = production_callbacks()
+    goal_catalog = list(goals)
+    suite_hash = suite_definition_hash(goal_catalog, suite_label=suite_hash)
+    sandbox_tag = os.getenv("FORGE_SANDBOX_IMAGE", "forge-sandbox:latest")
+    verifier_tag = os.getenv("FORGE_VERIFIER_IMAGE", sandbox_tag)
+    # Resolve mutable tags exactly once. The immutable IDs are used by
+    # preflight, every sandbox/verifier invocation, and the fingerprint, so a
+    # concurrent rebuild cannot make later goals execute unrecorded images.
+    sandbox_digest = image_digest(sandbox_tag)
+    verifier_digest = image_digest(verifier_tag)
+    sandbox_image = sandbox_digest or sandbox_tag
+    verifier_image = verifier_digest or verifier_tag
+    adapters = production_callbacks(verifier_image=verifier_image)
+    from forge_runtime.sandbox import sandbox_mode as configured_sandbox_mode
+
     create_project = adapters["create_project"]
     launch_pge = adapters["launch_pge"]
     current_project: dict[str, str] = {}
@@ -658,6 +712,8 @@ def run_production_suite(*, goals: Iterable[tuple[str, str]], model: str,
         launch_env = {
             **(child_env or {}),
             "FORGE_EVAL_GOAL_SLUG": plan.slug,
+            "FORGE_SANDBOX_IMAGE": sandbox_image,
+            "FORGE_VERIFIER_IMAGE": verifier_image,
         }
         launched = launch_pge(current_project["id"], source="eval-orchestrator",
                               invocation={"goal": plan.goal, "slug": plan.slug},
@@ -668,19 +724,44 @@ def run_production_suite(*, goals: Iterable[tuple[str, str]], model: str,
             error=launched.get("message"),
         )
 
-    preflight = preflight_override or (lambda: __import__("evals.preflight", fromlist=["run_preflight"]).run_preflight(
-        database_url=forge_config.database_url(), base_url=base_url, model=model,
-        sandbox_image=os.getenv("FORGE_SANDBOX_IMAGE", "forge-sandbox:latest"),
-        require_docker=True, required_runtimes=("python3", "node"),
-    ).as_dict())
+    unresolved_images = [
+        tag
+        for tag, digest in (
+            (sandbox_tag, sandbox_digest),
+            (verifier_tag, verifier_digest),
+        )
+        if digest is None
+    ]
+    if unresolved_images:
+        # A qualifying run may never fall back to mutable tags. Persist a
+        # blocking preflight result instead of launching with null/misleading
+        # comparability evidence.
+        preflight = lambda: {
+            "ok": False,
+            "checks": [{
+                "name": "immutable_image_resolution",
+                "ok": False,
+                "detail": "could not resolve immutable Docker image ID for: "
+                + ", ".join(unresolved_images),
+                "blocking": True,
+            }],
+        }
+    else:
+        preflight = preflight_override or (lambda: __import__("evals.preflight", fromlist=["run_preflight"]).run_preflight(
+            database_url=forge_config.database_url(), base_url=base_url, model=model,
+            sandbox_image=sandbox_image, verifier_image=verifier_image,
+            require_docker=True, require_container_sandbox=True,
+        ).as_dict())
     return run_suite(
-        goals=goals, model=model, base_url=base_url, timeout=timeout,
+        goals=goal_catalog, model=model, base_url=base_url, timeout=timeout,
         max_turns=max_turns, output=output, only=only,
         preflight=preflight, create_project=create, launch=launch,
         poll=adapters["poll"], terminate=adapters["terminate"],
         snapshot=adapters["snapshot"], verify=verify_override or adapters["verify"],
         suite_hash=suite_hash,
-        sandbox_image_digest=image_digest(os.getenv("FORGE_SANDBOX_IMAGE", "forge-sandbox:latest")),
+        sandbox_image_digest=sandbox_digest,
+        verifier_image_digest=verifier_digest,
+        sandbox_mode=configured_sandbox_mode(),
         reasoning_effort=(child_env or {}).get("FORGE_LLM_REASONING_EFFORT"),
         llm_request_timeout_s=float(
             (child_env or {}).get("FORGE_LLM_TIMEOUT", forge_config.DEFAULT_TIMEOUT)
