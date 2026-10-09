@@ -22,6 +22,48 @@ def _failure_evidence(output: str, budget: int = 400) -> str:
     return "\n".join(error_lines[:6])[:budget] if error_lines else output[-budget:]
 
 
+def _run_contract_command(workspace, command: str, *, env=None, timeout: int = 60):
+    """Execute audit commands in the authoritative executor workspace."""
+    return workspace.run(command, timeout=timeout, env=env)
+
+
+def _canonical_eval_results(slug: str, workspace, *, verify_goal_fn=None, runner=None):
+    """Re-run the suite's final contract during convergence for eval runs only."""
+    import tempfile
+
+    if verify_goal_fn is None:
+        from evals.acceptance import ContainerRunner, verify_goal
+
+        verify_goal_fn = verify_goal
+        runner = runner or ContainerRunner()
+    with tempfile.TemporaryDirectory(prefix="forge-live-accept-") as temporary:
+        snapshot = workspace.export_snapshot(temporary)
+        report = verify_goal_fn(slug, snapshot.path, runner=runner)
+    checks = []
+    for index, check in enumerate(report.get("checks") or [], start=1):
+        command = check.get("command")
+        checks.append({
+            "id": f"canonical:{index}",
+            "command": " ".join(str(part) for part in command) if command else "canonical-static-check",
+            "passed": bool(check.get("passed")),
+            "exit": 0 if check.get("passed") else 1,
+            "output": "\n".join(filter(None, (
+                str(check.get("detail") or ""),
+                str(check.get("stdout") or ""),
+                str(check.get("stderr") or ""),
+            )))[:700],
+        })
+    if not checks:
+        checks.append({
+            "id": "canonical:contract",
+            "command": "canonical acceptance contract",
+            "passed": False,
+            "exit": 1,
+            "output": str(report.get("reason") or "contract produced no checks")[:700],
+        })
+    return checks, report.get("verdict") == "accepted"
+
+
 def _semantic_revert_grace(last_eval) -> bool:
     """Keep a forward attempt when the previous state was semantically rejected."""
     return bool(last_eval and last_eval.get("semantic_block"))
@@ -134,7 +176,6 @@ def evaluator_node(state: AgentState) -> Dict:
     # The evaluator does not ask for evidence and does not trust claims: it
     # executes the deterministic test commands from the audit contract and
     # judges from their real output. All pass -> the loop may terminate.
-    import subprocess
     from src.nodes.auditor_node import load_audit_tests
     test_results, tests_all_pass, tests_exist = [], False, False
     db = SessionLocal()
@@ -143,6 +184,9 @@ def evaluator_node(state: AgentState) -> Dict:
         workdir = project_workspace(db, project_id)
     finally:
         db.close()
+    from forge_runtime.sandbox import HostWorkspace, get_workspace
+
+    workspace = get_workspace(project_id, workdir)
     # Make the project's .venv (and toolchains) visible to every test command —
     # otherwise install_deps succeeds but the audit tests' python can't import
     # the packages.
@@ -153,7 +197,7 @@ def evaluator_node(state: AgentState) -> Dict:
               "/opt/homebrew/bin", _o.path.expanduser("~/.local/bin"), _o.path.expanduser("~/.cargo/bin")]
         e["PATH"] = ":".join(ex) + ":" + e.get("PATH", "")
         return e
-    _tenv = _test_env(workdir)
+    _tenv = _test_env(workdir) if isinstance(workspace, HostWorkspace) else None
     if audit_tests:
         tests_exist = True
         for t in audit_tests:
@@ -161,8 +205,7 @@ def evaluator_node(state: AgentState) -> Dict:
             want_sub = t.get("expect_substring") or ""
             want_exit = int(t.get("expect_exit") or 0)
             try:
-                r = subprocess.run(["/bin/bash", "-lc", cmd], capture_output=True,
-                                   text=True, timeout=60, cwd=workdir, env=_tenv)
+                r = _run_contract_command(workspace, cmd, timeout=60, env=_tenv)
                 out = (r.stdout or "") + (r.stderr or "")
                 passed = (r.returncode == want_exit) and (want_sub in out if want_sub else True)
                 test_results.append({"id": tid, "command": cmd, "passed": passed,
@@ -183,9 +226,10 @@ def evaluator_node(state: AgentState) -> Dict:
             if "unittest" not in t.get("command", ""):
                 continue
             try:
-                rv = subprocess.run(["/bin/bash", "-lc",
-                                     "python3 -m unittest discover -v 2>&1"],
-                                    capture_output=True, text=True, timeout=60, cwd=workdir, env=_tenv)
+                rv = _run_contract_command(
+                    workspace, "python3 -m unittest discover -v 2>&1",
+                    timeout=60, env=_tenv
+                )
                 for m in _re.finditer(r"^(\w+) \([^)]+\) \.\.\. (ok|FAIL|ERROR)",
                                       (rv.stdout or "") + (rv.stderr or ""), _re.M):
                     name, verdict = m.group(1), m.group(2)
@@ -227,15 +271,38 @@ def evaluator_node(state: AgentState) -> Dict:
         summary = ", ".join(f"{tr['id']}:{'PASS' if tr['passed'] else 'FAIL'}" for tr in test_results)
         print(f"🔬 Evaluator ran {len(test_results)} audit tests itself -> {summary}")
 
+    eval_slug = os.getenv("FORGE_EVAL_GOAL_SLUG")
+    if eval_slug:
+        try:
+            test_results, tests_all_pass = _canonical_eval_results(eval_slug, workspace)
+            tests_exist = True
+            summary = ", ".join(
+                f"{tr['id']}:{'PASS' if tr['passed'] else 'FAIL'}" for tr in test_results
+            )
+            print(
+                f"🔐 Canonical eval contract {eval_slug}: {summary} "
+                "(authoritative for convergence)"
+            )
+        except Exception as canonical_error:
+            test_results = [{
+                "id": "canonical:harness",
+                "command": "canonical acceptance contract",
+                "passed": False,
+                "exit": -1,
+                "output": f"canonical verifier error: {canonical_error}"[:700],
+            }]
+            tests_exist, tests_all_pass = True, False
+            print(f"🔐 Canonical eval contract failed closed: {canonical_error}")
+
+    if test_results:
         # ---- MONOTONIC RATCHET (regression rollback) ----
         # The 12B executor rewrites whole files, re-rolling the dice on every
         # previously-fixed bug (observed: T4 green -> regressed -> T2 green for
         # hours -> regressed by an architecture rewrite). Git-checkpoint the
         # workspace at each evaluation; if a change makes a previously-passing
         # test fail, REVERT it deterministically and tell the executor.
-        import subprocess as _sp
         def _git(*a):
-            return _sp.run(["git", "-C", workdir, *a], capture_output=True, text=True, timeout=30)
+            return workspace.run(["git", *a], timeout=30, env=_tenv)
         try:
             if _git("rev-parse", "--git-dir").returncode != 0:
                 _git("init"); _git("add", "-A")
@@ -406,9 +473,8 @@ def evaluator_node(state: AgentState) -> Dict:
         _vanished = sorted(_prev_ok - _now_ids)
         if _vanished:
             print(f"🛑 Completion BLOCKED: previously-passing test(s) vanished: {_vanished} — reverting.")
-            import subprocess as _sp2
-            _sp2.run(["git", "-C", workdir, "checkout", "--", "."], capture_output=True)
-            _sp2.run(["git", "-C", workdir, "clean", "-fd"], capture_output=True)
+            workspace.run(["git", "checkout", "--", "."], timeout=30, env=_tenv)
+            workspace.run(["git", "clean", "-fd"], timeout=30, env=_tenv)
             return {"decision": "continue", "last_pass_ids": sorted(_prev_ok),
                     "last_eval": {"reason": (
                         f"Your change DELETED previously-passing tests {_vanished} — forbidden, "

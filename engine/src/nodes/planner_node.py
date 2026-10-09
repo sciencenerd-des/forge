@@ -9,6 +9,28 @@ from app.models import ForgeProject, ForgeGoal, ForgeTask
 from src.runtime import active_goal_query
 
 
+_ALIGNMENT_STOP_WORDS = {
+    "a", "an", "the", "in", "on", "at", "to", "for", "of", "and", "is",
+    "this", "project", "task", "run", "do", "how", "why", "what", "with", "from",
+}
+_CONSTRUCTION_WORDS = {
+    "add", "build", "create", "define", "develop", "implement", "implementation",
+    "test", "testing", "write",
+}
+
+
+def _alignment_keywords(text: str) -> set[str]:
+    """Normalize lexical equivalents without turning alignment into LLM judgment."""
+    words = {
+        word
+        for word in "".join(char if char.isalnum() else " " for char in text.lower()).split()
+        if word not in _ALIGNMENT_STOP_WORDS and len(word) > 1
+    }
+    if words & _CONSTRUCTION_WORDS:
+        words.add("construct")
+    return words
+
+
 def _runtime_task(task: ForgeTask) -> Task:
     return Task(
         id=task.id,
@@ -317,10 +339,8 @@ def planner_node(state: AgentState) -> Dict:
                 goal_text = (db_goal.title + " " + (db_goal.description or "")).lower()
                 task_text = (nt.get("title", "") + " " + (nt.get("description", "") or "")).lower()
                 
-                # Tokenize keywords
-                stop_words = {"a", "an", "the", "in", "on", "at", "to", "for", "of", "and", "is", "this", "project", "task", "run", "do", "how", "why", "what", "with", "from"}
-                goal_words = {w for w in "".join(c if c.isalnum() else " " for c in goal_text).split() if w not in stop_words and len(w) > 1}
-                task_words = {w for w in "".join(c if c.isalnum() else " " for c in task_text).split() if w not in stop_words and len(w) > 1}
+                goal_words = _alignment_keywords(goal_text)
+                task_words = _alignment_keywords(task_text)
                 
                 overlap = goal_words.intersection(task_words)
                 if not overlap and goal_words:
