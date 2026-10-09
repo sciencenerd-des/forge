@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import forge_config
 
@@ -111,7 +112,100 @@ def update_run(project_id: str, run_id: str, **changes: Any) -> bool:
     return True
 
 
-def launch_pge(project_id: str, source: str, invocation: dict[str, Any] | None = None) -> dict[str, Any]:
+def increment_run_metric(project_id: str, run_id: str, metric: str, amount: int) -> bool:
+    """Increment one numeric manifest metric without emitting a DB event per LLM call."""
+    if metric not in {"token_cost"} or not isinstance(amount, int) or amount < 0:
+        raise ValueError("unsupported run metric increment")
+    state = load_run_state()
+    current = state.get(project_id)
+    if not current or current.get("run_id") != run_id:
+        return False
+    current[metric] = int(current.get(metric) or 0) + amount
+    current["updated_at"] = _now()
+    state[project_id] = current
+    save_run_state(state)
+    return True
+
+
+def _signal_group(pgid: int, sig: int) -> bool:
+    """Signal a whole process group; return False if it no longer exists."""
+    try:
+        os.killpg(pgid, sig)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def terminate_process_group(pgid: int | None, leader_pid: int | None,
+                            grace_seconds: float = 10.0) -> str:
+    """Stop a detached run's whole process group and report how it ended.
+
+    SIGTERM the group, poll the leader for ``grace_seconds``, then escalate to
+    SIGKILL. Returns one of ``already_dead`` / ``terminated`` / ``killed``. This
+    is the single place that knows how to actually stop a run, so a suite
+    timeout can never leave orphaned work behind.
+    """
+    if not isinstance(pgid, int) or pgid <= 0:
+        return "already_dead"
+    liveness_pid = leader_pid if isinstance(leader_pid, int) and leader_pid > 0 else pgid
+    if not process_is_alive(liveness_pid):
+        return "already_dead"
+    if not _signal_group(pgid, signal.SIGTERM):
+        return "already_dead"
+    deadline = time.monotonic() + max(0.0, grace_seconds)
+    while time.monotonic() < deadline:
+        _reap(liveness_pid)  # a terminated-but-unreaped child looks alive to os.kill(pid, 0)
+        if not process_is_alive(liveness_pid):
+            return "terminated"
+        time.sleep(0.1)
+    _reap(liveness_pid)
+    if not process_is_alive(liveness_pid):
+        return "terminated"
+    _signal_group(pgid, signal.SIGKILL)
+    # Block-reap the leader if it is our direct child so it does not linger.
+    try:
+        os.waitpid(liveness_pid, 0)
+    except (ChildProcessError, OSError):
+        pass
+    return "killed"
+
+
+def _reap(pid: int) -> None:
+    """Non-blocking reap of ``pid`` if it is our child; harmless otherwise."""
+    try:
+        os.waitpid(pid, os.WNOHANG)
+    except (ChildProcessError, OSError):
+        pass
+
+
+def terminate_run(project_id: str, run_id: str, reason: str, *,
+                  grace_seconds: float = 10.0, status: str = "stopped") -> dict[str, Any]:
+    """Terminate a run's process group and atomically finalize its manifest.
+
+    Reused by the control-plane stop endpoint and every eval timeout/error path,
+    so termination and lifecycle persistence never drift between call sites.
+    """
+    state = load_run_state()
+    current = state.get(project_id)
+    if not current or current.get("run_id") != run_id:
+        return {"status": "not_found", "project_id": project_id, "run_id": run_id}
+    pgid = current.get("process_group") or current.get("pid")
+    disposition = terminate_process_group(pgid, current.get("pid"), grace_seconds)
+    update_run(project_id, run_id, status=status, terminal_reason=reason,
+               finished_at=_now(), termination=disposition)
+    return {"status": status, "project_id": project_id, "run_id": run_id,
+            "termination": disposition, "reason": reason}
+
+
+def launch_pge(
+    project_id: str,
+    source: str,
+    invocation: dict[str, Any] | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Launch PGE independently of the gateway and verify that startup succeeded."""
     if not project_id:
         return {"status": "error", "message": "project_id is required"}
@@ -119,7 +213,9 @@ def launch_pge(project_id: str, source: str, invocation: dict[str, Any] | None =
     state = load_run_state()
     existing = state.get(project_id, {})
     if process_is_alive(existing.get("pid")):
-        return {"status": "success", "started": False, "already_running": True, **existing}
+        # Spread the manifest first: its stale lifecycle status ("running",
+        # "stopped") must not clobber the launch verdict, which callers gate on.
+        return {**existing, "status": "success", "started": False, "already_running": True}
 
     run_id = str(uuid.uuid4())
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -151,9 +247,18 @@ def launch_pge(project_id: str, source: str, invocation: dict[str, Any] | None =
                 cwd=ROOT,
                 env={
                     **os.environ,
-                    "LLM_MODEL": os.getenv("LLM_MODEL", "google/gemma-4-12b-qat"),
-                    "PGE_PLANNER_MODEL": os.getenv("PGE_PLANNER_MODEL", "omnicoder-9b-q8"),
-                    "PGE_EXECUTOR_MODEL": os.getenv("PGE_EXECUTOR_MODEL", "omnicoder-9b-q8"),
+                    **(env or {}),
+                    "LLM_MODEL": (env or {}).get(
+                        "LLM_MODEL", os.getenv("LLM_MODEL", "google/gemma-4-12b-qat")
+                    ),
+                    "PGE_PLANNER_MODEL": (env or {}).get(
+                        "PGE_PLANNER_MODEL", os.getenv("PGE_PLANNER_MODEL", "omnicoder-9b-q8")
+                    ),
+                    "PGE_EXECUTOR_MODEL": (env or {}).get(
+                        "PGE_EXECUTOR_MODEL", os.getenv("PGE_EXECUTOR_MODEL", "omnicoder-9b-q8")
+                    ),
+                    "FORGE_PROJECT_ID": project_id,
+                    "FORGE_RUN_ID": run_id,
                 },
                 start_new_session=True,
                 close_fds=True,

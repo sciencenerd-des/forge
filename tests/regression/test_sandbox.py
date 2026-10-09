@@ -25,6 +25,7 @@ from forge_runtime.sandbox import (
     reset_workspace_cache,
     sandbox_mode,
 )
+from forge_runtime.sandbox import _stage_dir_snapshot as stage_dir_snapshot
 from forge_runtime.tools import ToolContext, ToolRequest, default_registry
 
 
@@ -176,6 +177,64 @@ def test_host_workspace_write_is_atomic_no_partial_file_on_crash(tmp_path: Path)
     ws.write_text("f.txt", "v2")
     assert ws.read_text("f.txt") == "v2"
     assert not list(tmp_path.glob(".*.forge-tmp-*"))
+
+
+def test_export_snapshot_strips_prune_dirs_and_is_content_addressed(tmp_path: Path):
+    src = tmp_path / "src"
+    (src / ".git").mkdir(parents=True)
+    (src / ".git" / "HEAD").write_text("ref: refs/heads/main")
+    (src / "__pycache__").mkdir()
+    (src / "__pycache__" / "x.pyc").write_bytes(b"\x00")
+    (src / ".forge-home" / "site-packages").mkdir(parents=True)
+    (src / ".forge-home" / "site-packages" / "decoy.py").write_text("version = 1\n")
+    (src / ".forge-internal").mkdir()
+    (src / ".forge-internal" / "state.json").write_text("{}\n")
+    (src / "main.py").write_text("print('hi')\n")
+    ws = HostWorkspace(str(src))
+
+    snap = ws.export_snapshot(str(tmp_path / "snap"))
+    staged = Path(snap.path)
+    assert (staged / "main.py").exists()
+    assert not (staged / ".git").exists()          # VCS metadata pruned
+    assert not (staged / "__pycache__").exists()    # caches pruned
+    assert not (staged / ".forge-home").exists()
+    assert not (staged / ".forge-internal").exists()
+    assert snap.file_count == 1
+
+    # Byte-identical content -> identical digest; a change -> different digest.
+    snap_again = ws.export_snapshot(str(tmp_path / "snap2"))
+    assert snap_again.digest == snap.digest
+    (src / ".forge-home" / "site-packages" / "decoy.py").write_text("version = 2\n")
+    snap_after_hidden_change = ws.export_snapshot(str(tmp_path / "snap-hidden-change"))
+    assert snap_after_hidden_change.digest == snap.digest
+    (src / "main.py").write_text("print('changed')\n")
+    snap_changed = HostWorkspace(str(src)).export_snapshot(str(tmp_path / "snap3"))
+    assert snap_changed.digest != snap.digest
+
+
+def test_stage_dir_snapshot_empty_workspace_has_stable_digest(tmp_path: Path):
+    a = _make_empty(tmp_path / "a")
+    b = _make_empty(tmp_path / "b")
+    assert stage_dir_snapshot(a, tmp_path / "sa").digest == stage_dir_snapshot(b, tmp_path / "sb").digest
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_stage_dir_snapshot_never_follows_symlinks(tmp_path: Path, relative: bool):
+    src = _make_empty(tmp_path / "src")
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("host secret")
+    target = Path("../outside-secret.txt") if relative else outside
+    (src / "leak.txt").symlink_to(target)
+
+    snapshot = stage_dir_snapshot(src, tmp_path / "snapshot")
+
+    assert not (Path(snapshot.path) / "leak.txt").exists()
+    assert snapshot.file_count == 0
+
+
+def _make_empty(p: Path) -> Path:
+    p.mkdir(parents=True)
+    return p
 
 
 _DOCKER_GATE = pytest.mark.skipif(

@@ -24,6 +24,19 @@ def test_provider_resolution_precedence(tmp_path, monkeypatch):
     assert result["base_url"] == "http://default/v1"
 
 
+def test_provider_runtime_limits_are_explicit(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_HOME", str(tmp_path))
+    monkeypatch.setenv("FORGE_LLM_TIMEOUT", "45")
+    monkeypatch.setenv("FORGE_LLM_MAX_RETRIES", "2")
+
+    import forge_config
+
+    result = forge_config.provider_for("planner")
+
+    assert result["timeout"] == 45.0
+    assert result["max_retries"] == 2
+
+
 def test_masked_profile_never_contains_raw_key():
     from forge_runtime.credentials import masked_profile
 
