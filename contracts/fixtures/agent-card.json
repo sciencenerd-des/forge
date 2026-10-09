@@ -1,0 +1,55 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text/plain",
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "text/plain",
+    "application/json"
+  ],
+  "description": "Long-horizon coding task execution with test-verified completion.",
+  "name": "Forge",
+  "securityRequirements": [
+    {
+      "schemes": {
+        "bearer": []
+      }
+    }
+  ],
+  "securitySchemes": {
+    "bearer": {
+      "httpAuthSecurityScheme": {
+        "description": "Forge control-plane bearer token",
+        "scheme": "Bearer"
+      }
+    }
+  },
+  "skills": [
+    {
+      "description": "Execute a scoped coding goal and report verified artifacts.",
+      "id": "autonomous-coding",
+      "inputModes": [
+        "text/plain"
+      ],
+      "name": "Autonomous coding",
+      "outputModes": [
+        "text/plain",
+        "application/json"
+      ],
+      "tags": [
+        "coding"
+      ]
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://127.0.0.1:8787/a2a"
+    }
+  ],
+  "version": "0.1.0"
+}
