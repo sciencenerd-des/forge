@@ -1,61 +1,201 @@
-mod model;
+mod session;
 mod setup;
-mod store;
 mod tui;
 
-use std::{path::PathBuf, process::Command as ProcessCommand};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
-use model::{Event, Goal, Project, ProviderKind, ProviderProfile, Run, RunStatus};
-use store::Store;
-use url::{Host, Url};
-use uuid::Uuid;
+use forge_api::{
+    ApprovalDecision, ForgeApi, ForgeConfig, ProjectId, ProviderUpdate, RunId, RuntimeRunStart,
+};
+use forge_pi::SpawnOptions;
+use futures_util::StreamExt;
 
 #[derive(Parser)]
-#[command(
-    name = "forge",
-    version,
-    about = "Autonomous coding harness operator CLI"
-)]
+#[command(name = "forge", version, about = "Forge operator CLI")]
 struct Cli {
-    #[arg(long, global = true, help = "Print command results as JSON")]
+    #[arg(long, global = true, help = "Print command results as stable JSON")]
     json: bool,
+    #[arg(
+        long,
+        global = true,
+        help = "Write debug-level details to the Forge CLI log"
+    )]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    Init,
-    Project {
-        #[command(subcommand)]
-        command: ProjectCommand,
-    },
-    Goal {
-        #[command(subcommand)]
-        command: GoalCommand,
-    },
+    Health,
+    Config,
+    Tui(TuiArgs),
+    Session(SessionArgs),
     Run {
         #[command(subcommand)]
         command: RunCommand,
+    },
+    Approvals {
+        #[command(subcommand)]
+        command: ApprovalCommand,
     },
     Provider {
         #[command(subcommand)]
         command: ProviderCommand,
     },
-    Tui,
+    A2a {
+        #[command(subcommand)]
+        command: A2aCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum A2aCommand {
+    /// Fetch the public agent card.
+    Card,
+    /// Create an A2A task (requires an existing project).
+    Send {
+        #[arg(long)]
+        project: String,
+        goal: String,
+    },
+    /// Fetch a task's durable state.
+    Get { task_id: String },
+    /// Cancel a task and its detached run.
+    Cancel { task_id: String },
+}
+
+#[derive(Args)]
+struct SessionArgs {
+    #[arg(long)]
+    provider: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long = "continue")]
+    continue_recent: bool,
+    #[arg(long)]
+    session: Option<String>,
+    #[arg(long)]
+    fork: Option<String>,
+    #[arg(long)]
+    no_session: bool,
+    #[arg(long)]
+    session_dir: Option<std::path::PathBuf>,
+    #[arg(long, hide = true)]
+    resume: bool,
+}
+
+#[derive(Args)]
+struct TuiArgs {
+    #[arg(long)]
+    provider: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    session: Option<String>,
+    #[arg(long)]
+    fork: Option<String>,
+    #[arg(long = "continue")]
+    continue_recent: bool,
+    #[arg(long)]
+    no_session: bool,
+    #[arg(long)]
+    session_dir: Option<std::path::PathBuf>,
+}
+
+impl From<TuiArgs> for SpawnOptions {
+    fn from(args: TuiArgs) -> Self {
+        Self {
+            provider: args.provider,
+            model: args.model,
+            session: args.session,
+            fork: args.fork,
+            continue_recent: args.continue_recent,
+            no_session: args.no_session,
+            session_dir: args.session_dir,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum RunCommand {
+    Start(RunStart),
+    Stop {
+        project_id: String,
+    },
+    List {
+        #[arg(long)]
+        watch: bool,
+    },
+    Events {
+        run_id: String,
+        #[arg(long)]
+        follow: bool,
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+    },
+    Get {
+        run_id: String,
+    },
+}
+
+#[derive(Args)]
+struct RunStart {
+    #[arg(long)]
+    goal: String,
+    #[arg(long, default_value = "")]
+    description: String,
+    #[arg(long)]
+    project: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum ApprovalCommand {
+    List {
+        #[arg(long)]
+        status: Option<String>,
+    },
+    Decide(ApprovalDecide),
+}
+
+#[derive(Args)]
+struct ApprovalDecide {
+    id: String,
+    #[arg(long, conflicts_with = "deny")]
+    approve: bool,
+    #[arg(long, conflicts_with = "approve")]
+    deny: bool,
+    #[arg(long)]
+    reason: String,
+    #[arg(long, default_value = "forge-cli")]
+    actor: String,
 }
 
 #[derive(Subcommand)]
 enum ProviderCommand {
-    Setup(ProviderSetup),
-    AddLocal(ProviderLocal),
-    AddCloud(ProviderCloud),
-    AddSubscription(ProviderSubscription),
     List,
-    SetDefault { provider: Uuid },
-    Login { provider: Uuid },
+    Set(ProviderSet),
+    Rm {
+        role: String,
+    },
+    Test(ProviderSet),
+    /// Offline-only provider profile writer retained for bootstrapping.
+    Setup(ProviderSetup),
+}
+
+#[derive(Args)]
+struct ProviderSet {
+    role: String,
+    #[arg(long)]
+    base_url: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    api_key: Option<String>,
+    #[arg(long)]
+    auth_mode: Option<String>,
 }
 
 #[derive(Args)]
@@ -72,429 +212,252 @@ struct ProviderSetup {
     auth_mode: String,
 }
 
-#[derive(Args)]
-struct ProviderLocal {
-    #[arg(long)]
-    name: String,
-    #[arg(long)]
-    model: String,
-    #[arg(long, default_value = "http://localhost:1234/v1")]
-    base_url: String,
-}
-
-#[derive(Args)]
-struct ProviderCloud {
-    #[arg(long)]
-    name: String,
-    #[arg(long)]
-    model: String,
-    #[arg(long)]
-    base_url: String,
-    #[arg(long, help = "Environment variable containing the API key")]
-    api_key_env: String,
-}
-
-#[derive(Args)]
-struct ProviderSubscription {
-    #[arg(long)]
-    name: String,
-    #[arg(long)]
-    model: String,
-}
-
-#[derive(Subcommand)]
-enum ProjectCommand {
-    Add(ProjectAdd),
-    List,
-}
-
-#[derive(Args)]
-struct ProjectAdd {
-    path: PathBuf,
-    #[arg(long)]
-    name: Option<String>,
-}
-
-#[derive(Subcommand)]
-enum GoalCommand {
-    Create(GoalCreate),
-    List {
-        #[arg(long)]
-        project: Option<Uuid>,
-    },
-}
-
-#[derive(Args)]
-struct GoalCreate {
-    #[arg(long)]
-    project: Uuid,
-    #[arg(long)]
-    title: String,
-    #[arg(long, default_value = "")]
-    description: String,
-}
-
-#[derive(Subcommand)]
-enum RunCommand {
-    Start {
-        goal: Uuid,
-        #[arg(long)]
-        provider: Option<Uuid>,
-    },
-    List,
-    Inspect {
-        run: Uuid,
-    },
-    Pause {
-        run: Uuid,
-    },
-    Resume {
-        run: Uuid,
-    },
-    Cancel {
-        run: Uuid,
-    },
-}
-
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-    let mut store = Store::open()?;
-
-    match cli.command {
-        Command::Init => {
-            store.save()?;
-            print_value(
-                cli.json,
-                &serde_json::json!({
-                    "status": "initialized",
-                    "store": store.path(),
-                }),
+#[tokio::main]
+async fn main() -> Result<()> {
+    let Cli {
+        json,
+        verbose,
+        command,
+    } = Cli::parse();
+    let command = match command {
+        Command::Provider {
+            command: ProviderCommand::Setup(args),
+        } => {
+            let path = setup::save_profile(
+                &args.role,
+                &args.base_url,
+                &args.model,
+                &args.api_key,
+                &args.auth_mode,
             )?;
+            return print_value(json, &serde_json::json!({"status": "saved", "path": path}));
         }
-        Command::Project { command } => match command {
-            ProjectCommand::Add(args) => {
-                let path = args.path.canonicalize().with_context(|| {
-                    format!("project path does not exist: {}", args.path.display())
-                })?;
-                let name = args.name.unwrap_or_else(|| {
-                    path.file_name()
-                        .and_then(|v| v.to_str())
-                        .unwrap_or("project")
-                        .to_owned()
-                });
-                let project = Project::new(name, path);
-                store.state.projects.push(project.clone());
-                store.save()?;
-                print_value(cli.json, &project)?;
-            }
-            ProjectCommand::List => print_value(cli.json, &store.state.projects)?,
-        },
-        Command::Goal { command } => match command {
-            GoalCommand::Create(args) => {
-                store.require_project(args.project)?;
-                let goal = Goal::new(args.project, args.title, args.description);
-                store.state.goals.push(goal.clone());
-                store.save()?;
-                print_value(cli.json, &goal)?;
-            }
-            GoalCommand::List { project } => {
-                let goals: Vec<_> = store
-                    .state
-                    .goals
-                    .iter()
-                    .filter(|goal| project.is_none_or(|id| goal.project_id == id))
-                    .collect();
-                print_value(cli.json, &goals)?;
-            }
-        },
-        Command::Run { command } => match command {
-            RunCommand::Start { goal, provider } => {
-                let goal_record = store.require_goal(goal)?.clone();
-                let provider_id = provider.or(store.state.default_provider_id);
-                if let Some(id) = provider_id {
-                    store.require_provider(id)?;
-                }
-                let run = Run::new(goal_record.project_id, goal, provider_id);
-                store
-                    .state
-                    .events
-                    .push(Event::created(run.id, "runtime", "Run queued"));
-                store.state.runs.push(run.clone());
-                store.save()?;
-                print_value(cli.json, &run)?;
-            }
-            RunCommand::List => print_value(cli.json, &store.state.runs)?,
-            RunCommand::Inspect { run } => {
-                let record = store.require_run(run)?;
-                let events: Vec<_> = store
-                    .state
-                    .events
-                    .iter()
-                    .filter(|e| e.run_id == run)
-                    .collect();
-                print_value(
-                    cli.json,
-                    &serde_json::json!({"run": record, "events": events}),
-                )?;
-            }
-            RunCommand::Pause { run } => {
-                update_run(&mut store, run, RunStatus::Paused, "Run paused", cli.json)?
-            }
-            RunCommand::Resume { run } => update_run(
-                &mut store,
-                run,
-                RunStatus::Queued,
-                "Run re-queued",
-                cli.json,
-            )?,
-            RunCommand::Cancel { run } => update_run(
-                &mut store,
-                run,
-                RunStatus::Cancelled,
-                "Run cancelled",
-                cli.json,
-            )?,
-        },
-        Command::Provider { command } => match command {
-            ProviderCommand::Setup(args) => {
-                let path = setup::save_profile(&args.role, &args.base_url, &args.model, &args.api_key, &args.auth_mode)?;
-                print_value(cli.json, &serde_json::json!({"status": "saved", "path": path}))?;
-            }
-            ProviderCommand::AddLocal(args) => add_provider(
-                &mut store,
-                ProviderProfile::new(
-                    validate_profile_text("provider name", &args.name, 64)?,
-                    validate_profile_text("model ID", &args.model, 256)?,
-                    ProviderKind::LocalOpenAi {
-                        base_url: validate_local_url(&args.base_url)?,
-                    },
-                ),
-                cli.json,
-            )?,
-            ProviderCommand::AddCloud(args) => add_provider(
-                &mut store,
-                ProviderProfile::new(
-                    validate_profile_text("provider name", &args.name, 64)?,
-                    validate_profile_text("model ID", &args.model, 256)?,
-                    ProviderKind::CloudApi {
-                        base_url: validate_cloud_url(&args.base_url)?,
-                        api_key_env: validate_env_name(&args.api_key_env)?,
-                    },
-                ),
-                cli.json,
-            )?,
-            ProviderCommand::AddSubscription(args) => add_provider(
-                &mut store,
-                ProviderProfile::new(
-                    validate_profile_text("provider name", &args.name, 64)?,
-                    validate_profile_text("model ID", &args.model, 256)?,
-                    ProviderKind::CodexSubscription,
-                ),
-                cli.json,
-            )?,
-            ProviderCommand::List => print_value(
-                cli.json,
-                &serde_json::json!({
-                    "default_provider_id": store.state.default_provider_id,
-                    "providers": store.state.providers,
-                }),
-            )?,
-            ProviderCommand::SetDefault { provider } => {
-                store.require_provider(provider)?;
-                store.state.default_provider_id = Some(provider);
-                store.save()?;
-                print_value(
-                    cli.json,
-                    &serde_json::json!({ "default_provider_id": provider }),
-                )?;
-            }
-            ProviderCommand::Login { provider } => login_provider(&store, provider)?,
-        },
-        Command::Tui => tui::run(&store.state)?,
+        Command::Session(args) => return session::run(args).await,
+        command => command,
+    };
+
+    let config = ForgeConfig::resolve().context("resolve Forge control-plane configuration")?;
+    init_logging(&config, verbose)?;
+    let api = ForgeApi::new(&config).context("create Forge control-plane client")?;
+    match command {
+        Command::Health => print_value(json, &api.health().await?),
+        Command::Config => print_value(
+            json,
+            &serde_json::json!({
+                "home": config.home,
+                "control_url": config.control_url.to_string(),
+                "control_token": mask_token(&config.control_token),
+                "manifest": config.manifest_path(),
+            }),
+        ),
+        Command::Tui(args) => tui::run(api, config, args.into()).await,
+        Command::Session(_) => unreachable!("session starts before control-plane configuration"),
+        Command::Run { command } => run_command(&api, &config, json, command).await,
+        Command::Approvals { command } => approval_command(&api, json, command).await,
+        Command::Provider { command } => provider_command(&api, json, command).await,
+        Command::A2a { command } => a2a_command(&api, json, command).await,
     }
+}
+
+fn init_logging(config: &ForgeConfig, verbose: bool) -> Result<()> {
+    let path = config.home.join("logs/forge-cli.log");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    let filter = if verbose { "forge=debug" } else { "forge=info" };
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(file)
+        .try_init();
+    tracing::debug!(control_url = %config.control_url, "Forge CLI logging initialized");
     Ok(())
 }
 
-fn add_provider(store: &mut Store, provider: ProviderProfile, json: bool) -> Result<()> {
-    if store
-        .state
-        .providers
-        .iter()
-        .any(|item| item.name.eq_ignore_ascii_case(&provider.name))
-    {
-        anyhow::bail!("provider name '{}' already exists", provider.name);
-    }
-    if store.state.default_provider_id.is_none() {
-        store.state.default_provider_id = Some(provider.id);
-    }
-    store.state.providers.push(provider.clone());
-    store.save()?;
-    print_value(json, &provider)
-}
-
-fn login_provider(store: &Store, provider_id: Uuid) -> Result<()> {
-    let provider = store.require_provider(provider_id)?;
-    let ProviderKind::CodexSubscription = &provider.kind else {
-        anyhow::bail!(
-            "provider '{}' does not use subscription login",
-            provider.name
-        );
-    };
-    let status = ProcessCommand::new("codex")
-        .arg("login")
-        .status()
-        .context("could not launch 'codex'. Install the official Codex CLI first")?;
-    if !status.success() {
-        anyhow::bail!("codex login exited with {status}");
-    }
-    Ok(())
-}
-
-fn validate_cloud_url(value: &str) -> Result<String> {
-    let url = parse_provider_url(value)?;
-    if url.scheme() != "https" {
-        anyhow::bail!("cloud provider URLs must use HTTPS");
-    }
-    Ok(normalize_url(url))
-}
-
-fn validate_local_url(value: &str) -> Result<String> {
-    let url = parse_provider_url(value)?;
-    if !matches!(url.scheme(), "http" | "https") {
-        anyhow::bail!("local provider URLs must use HTTP or HTTPS");
-    }
-    let is_loopback = match url.host() {
-        Some(Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
-        Some(Host::Ipv4(address)) => address.is_loopback(),
-        Some(Host::Ipv6(address)) => address.is_loopback(),
-        None => false,
-    };
-    if !is_loopback {
-        anyhow::bail!("local provider URLs must use localhost or a loopback IP");
-    }
-    Ok(normalize_url(url))
-}
-
-fn parse_provider_url(value: &str) -> Result<Url> {
-    let url = Url::parse(value).context("provider base URL is invalid")?;
-    if !url.username().is_empty() || url.password().is_some() {
-        anyhow::bail!("provider URLs must not contain credentials");
-    }
-    if url.query().is_some() || url.fragment().is_some() {
-        anyhow::bail!("provider URLs must not contain query strings or fragments");
-    }
-    Ok(url)
-}
-
-fn normalize_url(mut url: Url) -> String {
-    let path = url.path().trim_end_matches('/').to_owned();
-    url.set_path(if path.is_empty() { "/" } else { &path });
-    url.to_string().trim_end_matches('/').to_owned()
-}
-
-fn validate_env_name(value: &str) -> Result<String> {
-    let mut characters = value.chars();
-    let valid_start = characters
-        .next()
-        .is_some_and(|character| character == '_' || character.is_ascii_uppercase());
-    if !valid_start
-        || !characters.all(|character| {
-            character == '_' || character.is_ascii_uppercase() || character.is_ascii_digit()
-        })
-    {
-        anyhow::bail!("API key environment variable must match [A-Z_][A-Z0-9_]*");
-    }
-    Ok(value.to_owned())
-}
-
-fn validate_profile_text(label: &str, value: &str, max_length: usize) -> Result<String> {
-    if value.chars().any(char::is_control) {
-        anyhow::bail!("{label} must not contain control characters");
-    }
-    let value = value.trim();
-    if value.is_empty() {
-        anyhow::bail!("{label} must not be empty");
-    }
-    if value.len() > max_length {
-        anyhow::bail!("{label} must be at most {max_length} bytes");
-    }
-    Ok(value.to_owned())
-}
-
-fn update_run(
-    store: &mut Store,
-    run_id: Uuid,
-    status: RunStatus,
-    message: &str,
+async fn run_command(
+    api: &ForgeApi,
+    config: &ForgeConfig,
     json: bool,
+    command: RunCommand,
 ) -> Result<()> {
-    let snapshot = {
-        let run = store.require_run_mut(run_id)?;
-        run.set_status(status);
-        run.clone()
-    };
-    store
-        .state
-        .events
-        .push(Event::created(run_id, "operator", message));
-    store.save()?;
-    print_value(json, &snapshot)
+    match command {
+        RunCommand::Start(args) => print_value(
+            json,
+            &api.start_run(&RuntimeRunStart {
+                goal: args.goal,
+                description: args.description,
+                project_id: args.project.map(ProjectId),
+            })
+            .await?,
+        ),
+        RunCommand::Stop { project_id } => {
+            print_value(json, &api.stop_run(&ProjectId(project_id)).await?)
+        }
+        RunCommand::Get { run_id } => print_value(json, &api.run(&RunId(run_id)).await?),
+        RunCommand::List { watch } => loop {
+            match api.runtime_runs().await {
+                Ok(runs) => print_value(
+                    json,
+                    &serde_json::json!({"source":"control-plane", "runs": runs}),
+                )?,
+                Err(error) => {
+                    let manifests: forge_api::OfflineRunManifests =
+                        std::fs::read(config.manifest_path())
+                            .ok()
+                            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                            .unwrap_or_default();
+                    print_value(
+                        json,
+                        &serde_json::json!({"source":"offline-manifest", "warning": error.to_string(), "runs": manifests}),
+                    )?;
+                }
+            }
+            if !watch {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        },
+        RunCommand::Events {
+            run_id,
+            follow,
+            after,
+        } => {
+            let run_id = RunId(run_id);
+            if !follow {
+                return print_value(json, &api.events(&run_id, after).await?);
+            }
+            let mut cursor = after;
+            loop {
+                let mut stream = api.event_stream(&run_id, cursor).await?;
+                while let Some(item) = stream.next().await {
+                    let event = item?;
+                    if let Some(id) = &event.id {
+                        cursor = id.parse().unwrap_or(cursor);
+                    }
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({"id": event.id, "event": event.event, "data": event.data})
+                        );
+                    } else {
+                        println!("{} {}", event.event, event.data);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+    }
 }
 
-fn print_value<T: serde::Serialize + std::fmt::Debug>(json: bool, value: &T) -> Result<()> {
-    if json {
-        println!("{}", serde_json::to_string_pretty(value)?);
+async fn approval_command(api: &ForgeApi, json: bool, command: ApprovalCommand) -> Result<()> {
+    match command {
+        ApprovalCommand::List { status } => {
+            print_value(json, &api.approvals(status.as_deref()).await?)
+        }
+        ApprovalCommand::Decide(args) => {
+            if args.approve == args.deny {
+                anyhow::bail!("choose exactly one of --approve or --deny");
+            }
+            print_value(
+                json,
+                &api.decide_approval(
+                    &args.id,
+                    &ApprovalDecision {
+                        actor: args.actor,
+                        approved: args.approve,
+                        reason: args.reason,
+                    },
+                )
+                .await?,
+            )
+        }
+    }
+}
+
+async fn a2a_command(api: &ForgeApi, json: bool, command: A2aCommand) -> Result<()> {
+    match command {
+        A2aCommand::Card => print_value(json, &api.agent_card().await?),
+        A2aCommand::Send { project, goal } => {
+            print_value(json, &api.a2a_send(&ProjectId(project), &goal).await?)
+        }
+        A2aCommand::Get { task_id } => print_value(json, &api.a2a_get(&task_id).await?),
+        A2aCommand::Cancel { task_id } => print_value(json, &api.a2a_cancel(&task_id).await?),
+    }
+}
+
+async fn provider_command(api: &ForgeApi, json: bool, command: ProviderCommand) -> Result<()> {
+    match command {
+        ProviderCommand::List => print_value(json, &api.providers().await?),
+        ProviderCommand::Rm { role } => {
+            api.remove_provider(&role).await?;
+            print_value(
+                json,
+                &serde_json::json!({"status": "deleted", "role": role}),
+            )
+        }
+        ProviderCommand::Set(args) => print_value(
+            json,
+            &api.put_provider(&args.role, &provider_update(&args))
+                .await?,
+        ),
+        ProviderCommand::Test(args) => print_value(
+            json,
+            &api.test_provider(&args.role, &provider_update(&args))
+                .await?,
+        ),
+        ProviderCommand::Setup(_) => {
+            unreachable!("offline setup is handled before configuration resolution")
+        }
+    }
+}
+
+fn provider_update(args: &ProviderSet) -> ProviderUpdate {
+    ProviderUpdate {
+        base_url: args.base_url.clone(),
+        model: args.model.clone(),
+        api_key: args.api_key.clone(),
+        auth_mode: args.auth_mode.clone(),
+    }
+}
+
+fn mask_token(token: &str) -> String {
+    if token.len() <= 8 {
+        "••••".into()
     } else {
-        println!("{value:#?}");
+        format!("{}…{}", &token[..3], &token[token.len() - 4..])
+    }
+}
+
+fn print_value<T: serde::Serialize>(json: bool, value: &T) -> Result<()> {
+    let rendered = serde_json::to_value(value)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rendered)?);
+    } else {
+        print_human(&rendered);
     }
     Ok(())
 }
 
-#[cfg(test)]
-mod security_tests {
-    use super::*;
-
-    #[test]
-    fn accepts_documented_local_endpoints() {
-        assert_eq!(
-            validate_local_url("http://localhost:1234/v1").unwrap(),
-            "http://localhost:1234/v1"
-        );
-        assert_eq!(
-            validate_local_url("http://127.0.0.1:11434/v1/").unwrap(),
-            "http://127.0.0.1:11434/v1"
-        );
-        assert!(validate_local_url("http://[::1]:11434/v1").is_ok());
-    }
-
-    #[test]
-    fn rejects_remote_or_credentialed_local_endpoints() {
-        assert!(validate_local_url("http://192.168.1.10:1234/v1").is_err());
-        assert!(validate_local_url("http://attacker.example/v1").is_err());
-        assert!(validate_local_url("http://token@localhost:1234/v1").is_err());
-    }
-
-    #[test]
-    fn cloud_endpoints_require_clean_https_urls() {
-        assert!(validate_cloud_url("https://api.openai.com/v1").is_ok());
-        assert!(validate_cloud_url("http://api.openai.com/v1").is_err());
-        assert!(validate_cloud_url("https://key@api.example/v1").is_err());
-        assert!(validate_cloud_url("https://api.example/v1?token=secret").is_err());
-    }
-
-    #[test]
-    fn environment_variable_names_cannot_inject_shell_syntax() {
-        assert!(validate_env_name("OPENAI_API_KEY").is_ok());
-        assert!(validate_env_name("OPENAI_API_KEY;rm -rf").is_err());
-        assert!(validate_env_name("$OPENAI_API_KEY").is_err());
-        assert!(validate_env_name("lowercase").is_err());
-    }
-
-    #[test]
-    fn profile_text_rejects_terminal_escape_sequences() {
-        assert!(validate_profile_text("name", "safe-provider", 64).is_ok());
-        assert!(validate_profile_text("name", "\u{1b}[2Jspoofed", 64).is_err());
-        assert!(validate_profile_text("name", "\nspoofed", 64).is_err());
-        assert!(validate_profile_text("name", "   ", 64).is_err());
+fn print_human(value: &serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            if items.is_empty() {
+                println!("No results.");
+            }
+            for item in items {
+                println!(
+                    "{}",
+                    serde_json::to_string(item).unwrap_or_else(|_| "<unprintable>".into())
+                );
+            }
+        }
+        _ => println!(
+            "{}",
+            serde_json::to_string_pretty(value).unwrap_or_else(|_| "<unprintable>".into())
+        ),
     }
 }
