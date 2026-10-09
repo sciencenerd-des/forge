@@ -1,0 +1,10 @@
+{
+  "already_running": false,
+  "log": "/tmp/fixture.log",
+  "note": "Detached PGE supervisor started; lifecycle is durable in PostgreSQL.",
+  "pid": 4242,
+  "run_id": "11111111-1111-1111-1111-111111111111",
+  "source": "control-plane:web",
+  "started": true,
+  "status": "success"
+}

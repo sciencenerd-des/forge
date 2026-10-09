@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "executor": {
+      "api_key": "sec\u20261234",
+      "auth_mode": "api_key",
+      "base_url": "http://127.0.0.1:1234/v1",
+      "model": "fixture-model"
+    }
+  },
+  "version": 1
+}
