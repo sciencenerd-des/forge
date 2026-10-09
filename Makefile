@@ -60,8 +60,11 @@ fmt: ## Lint/format with ruff
 	$(BIN)/ruff format .
 
 .PHONY: evals
+EVAL_MODEL ?= google/gemma-4-12b-qat
+EVAL_BASE_URL ?= http://127.0.0.1:1234/v1
+EVAL_OUTPUT ?= evals/results/orchestrator-manifest-v2.json
 evals: ## Run the harness benchmark suite (specs/convergent-autonomous-harness.html Phase 6)
-	$(BIN)/python evals/runner.py
+		$(BIN)/python evals/runner.py --model "$(EVAL_MODEL)" --base-url "$(EVAL_BASE_URL)" --output "$(EVAL_OUTPUT)"
 
 .PHONY: config
 config: ## Print the resolved configuration

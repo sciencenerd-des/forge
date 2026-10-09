@@ -37,6 +37,8 @@ def _chat(prompt: str, max_tokens: int = 400, timeout: int = 90) -> str:
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.loads(r.read())
+    from forge_runtime.usage import record_response_usage
+    record_response_usage(data)
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     return (msg.get("content") or "").strip()
 
