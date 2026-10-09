@@ -1,6 +1,8 @@
 import forge_config
 import os
 import json
+import re
+import shlex
 import subprocess
 import sqlite3
 import time
@@ -12,6 +14,24 @@ from app.database import SessionLocal
 from app.services import MemoryService
 from src.runtime import project_workspace
 from forge_runtime.tools import ToolContext, ToolRequest, default_registry
+from forge_runtime.sandbox import get_workspace
+
+_SAFE_GIT_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@{}^~:+-]*$")
+
+
+def _git_diff(sandbox, ref: str, path: str) -> dict:
+    """Inspect changes inside the active workspace without invoking a shell."""
+    if not _SAFE_GIT_REF.fullmatch(ref):
+        return {"status": "error", "message": "git_diff: invalid revision"}
+    diff_cmd = ["git", "diff", "--no-ext-diff", "--end-of-options", ref]
+    if path:
+        diff_cmd.extend(["--", path])
+    diff = sandbox.run(diff_cmd, timeout=20)
+    recent = sandbox.run(["git", "log", "--oneline", "-8"], timeout=20)
+    output = (diff.stdout or diff.stderr or "(no diff)")[:6000]
+    if recent.returncode == 0 and recent.stdout:
+        output += "\n--- recent checkpoints ---\n" + recent.stdout[:1000]
+    return {"status": "success" if diff.returncode in {0, 1} else "error", "diff": output}
 
 def record_tool_msg(tool_name: str, content: str, session_id: str | None = None):
     """Mirror a tool result only when the caller owns an explicit session.
@@ -67,46 +87,100 @@ def _venv_env(workspace: str) -> dict:
     return env
 
 
-# Shell metacharacters that prove a run_command payload is a SHELL line, not a
-# clean argv. The registry run_command is argv-only: a naive split feeds tokens
-# like `>/dev/null`, `2>&1;`, `&&`, `$(...)` to the program as literal arguments
-# (observed: `cmake: Unknown argument >/dev/null`), so the loop burns turns
-# fighting the tool instead of the task. When shell-shaped, we route through a
-# real shell (like the bash tool) so the model's correct commands just work.
-_SHELL_META = (">", "<", "|", ";", "&", "$", "`", "&&", "||", "2>", "*", "(")
+# Argv vs shell is decided structurally, not by scanning for metacharacters.
+# A run_command LIST is argv; it is only a malformed *shell-packed* list when it
+# contains a token that is itself a shell OPERATOR (a standalone `&&`, `|`, `;`,
+# or a redirect like `>/dev/null`). A metacharacter INSIDE a single argument —
+# e.g. the `;` and `(` in `python3 -c "import sklearn; print(clf)"` — is data,
+# not an operator, and must survive intact. (Observed failure: that semicolon
+# used to trigger shell routing, and the unquoted join then split the -c code.)
+_SHELL_OPERATORS = frozenset({
+    "&&", "||", "|", ";", "&", ">", ">>", "<", "<<", "2>", "2>>", "2>&1",
+    "&>", "1>", "1>&2",
+})
+_REDIRECT_PREFIXES = (">", "<", "2>", "1>", "&>")
 
 # Paths whose write_file was blocked once as "looks like an edit". A second
 # attempt on the same path is honored as an intentional overwrite — small models
 # (omnicoder) only ever emit write_file and will deadlock forever otherwise.
 _WRITE_BLOCK_SEEN: set = set()
 
+# These operations are the minimum safe feedback loop for any coding task:
+# inspect, verify, and run a sandbox-confined command. The semantic alignment
+# classifier is deliberately not authoritative for them; otherwise it can
+# reject `ls` or a test command merely because their argv lacks goal words.
+_ALWAYS_RELEVANT_TOOLS = frozenset({
+    "read_file", "list_files", "search_text", "grep", "glob", "git_diff",
+    "run_command", "bash",
+})
+
+
+def _alignment_blocks_tool(tool_name: str, alignment: str) -> bool:
+    return alignment == "distraction" and tool_name not in _ALWAYS_RELEVANT_TOOLS
+
+
+def _normalize_tool_arguments(tool_name: str, arguments: dict) -> dict:
+    """Accept the documented ``argv`` spelling for model-produced commands.
+
+    The prompt advertises ``run_command(argv-array, ...)`` while the typed
+    registry boundary expects ``command``. Normalize once here so both the
+    prompt contract and the registry remain explicit and testable.
+    """
+    normalized = dict(arguments or {})
+    if tool_name == "run_command" and "command" not in normalized and "argv" in normalized:
+        normalized["command"] = normalized["argv"]
+    return normalized
+
+
+def _is_operator_token(token: str) -> bool:
+    """A token that is a shell control/redirect operator in its own right.
+
+    Exact operators (``&&``, ``|``, ``;`` …) or a redirect glued to its target
+    (``>/dev/null``, ``2>&1``, ``>>log``). A token that merely *contains* a
+    metacharacter inside a larger argument is not an operator.
+    """
+    if token in _SHELL_OPERATORS:
+        return True
+    return any(token.startswith(p) for p in _REDIRECT_PREFIXES)
+
+
+def _command_tokens(args: dict) -> list[str] | None:
+    """The argv token list from a payload (`command` or `argv`), or None."""
+    for key in ("command", "argv"):
+        seq = args.get(key)
+        if isinstance(seq, list) and seq:
+            return [str(t) for t in seq if str(t) != "timeout_seconds"]
+    return None
+
 
 def _shellish_run_command(args: dict) -> bool:
-    """True when run_command was handed a shell line: a `command` string, OR a
-    `command`/`argv` LIST whose tokens contain shell metacharacters (the model
-    sometimes packs a whole shell line into the argv list)."""
+    """True when run_command must be routed through a real shell: a `command`
+    STRING is always a shell line; a LIST is shell-packed only when it contains a
+    standalone shell operator token. A list with metacharacters merely *inside*
+    an argument (a `-c` code string) stays argv and is NOT shellish."""
     cmd = args.get("command")
     if isinstance(cmd, str) and cmd.strip():
         return True
-    for key in ("command", "argv"):
-        seq = args.get(key)
-        if isinstance(seq, list) and any(any(m in str(tok) for m in _SHELL_META) for tok in seq):
-            return True
-    return False
+    tokens = _command_tokens(args)
+    if tokens is None:
+        return False
+    return any(_is_operator_token(tok) for tok in tokens)
 
 
 def _run_command_string(args: dict) -> str:
-    """Best-effort shell string from a run_command payload (command or argv).
-    Handles command as a string OR a list, and argv as a list. Drops a stray
-    trailing 'timeout_seconds' token the model sometimes appends to the list."""
+    """Shell string from a shell-packed run_command payload.
+
+    A `command` string is returned verbatim. For a shell-packed list, operator
+    tokens are emitted raw while every non-operator token is shell-quoted, so an
+    embedded metacharacter (e.g. inside `-c "...; ..."`) remains a single datum
+    instead of a new shell statement."""
     cmd = args.get("command")
     if isinstance(cmd, str) and cmd.strip():
         return cmd
-    for seq in (cmd, args.get("argv")):
-        if isinstance(seq, list) and seq:
-            toks = [str(t) for t in seq if str(t) != "timeout_seconds"]
-            return " ".join(toks)
-    return ""
+    tokens = _command_tokens(args)
+    if not tokens:
+        return ""
+    return " ".join(tok if _is_operator_token(tok) else shlex.quote(tok) for tok in tokens)
 
 
 def _detect_project_stack(sandbox) -> str:
@@ -489,7 +563,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
 
         elif msg_type == "tool_call":
             tool_name = data.get("name")
-            args = data.get("arguments", {})
+            args = _normalize_tool_arguments(tool_name, data.get("arguments", {}))
             tools_executed.append(tool_name)
             try:
                 import hashlib as _hl
@@ -549,7 +623,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
             if _precond_block is not None:
                 tool_result = json.dumps({"status": "error", "message": _precond_block})
                 print(f"🚧 {_precond_block[:90]}")
-            elif alignment == "distraction":
+            elif _alignment_blocks_tool(tool_name, alignment):
                 tool_result = json.dumps({
                     "status": "error",
                     "message": f"BLOCKED: The action '{action_desc}' was flagged as a distraction/drift from the active task. Please focus strictly on completing the active task: {active_task.title}."
@@ -557,13 +631,18 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                 print(f"⚠️ Guardrail Blocked Distraction Tool Call: {action_desc}")
             else:
                 try:
+                    # The auditor has normally initialized this cached
+                    # project sandbox already. Resolve it here as the single
+                    # authority for executor tools too; never fall back to
+                    # host shell execution when Docker isolation is absent.
+                    sandbox = get_workspace(project_id, workspace)
                     if tool_name == "edit_file":
                         # SURGICAL EDIT: exact unique-string replacement so the
                         # 12B changes only the lines that are wrong, instead of
                         # regenerating the whole file from memory (which
                         # perturbed working code 18x in one run -> regressions
                         # -> reverts). Routed through the sandboxed registry.
-                        _ctx = ToolContext(workspace=Path(workspace), allow_write=True,
+                        _ctx = ToolContext(workspace=Path(workspace), sandbox=sandbox, allow_write=True,
                                            allow_shell=False, allow_network=False,
                                            allowed_hosts=frozenset())
                         _path = str(args.get("path", "")); _old = args.get("old_string", "")
@@ -608,7 +687,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # tool call — cuts LLM round-trips (the 12B's dominant
                         # cost) when several lines need changing. All-or-nothing:
                         # if any edit's old_string is missing/ambiguous, NONE apply.
-                        _ctx = ToolContext(workspace=Path(workspace), allow_write=True,
+                        _ctx = ToolContext(workspace=Path(workspace), sandbox=sandbox, allow_write=True,
                                            allow_shell=False, allow_network=False, allowed_hosts=frozenset())
                         _path = str(args.get("path", "")); _edits = args.get("edits") or []
                         _rd = default_registry().execute(_ctx,
@@ -649,16 +728,10 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # Let the model SEE what changed — its own last edit and
                         # the ratchet's reverts. Critical for self-correction:
                         # without it the 12B re-derives state blindly each turn.
-                        import subprocess as _dsp
                         _ref = str(args.get("ref", "HEAD"))
                         _gp = str(args.get("path", ""))
-                        _cmd = f"git diff {_ref} -- {_gp}".strip() if _gp else f"git diff {_ref}"
                         try:
-                            _d = _dsp.run(["/bin/bash", "-lc",
-                                f"{_cmd} 2>&1 | head -200; echo '--- recent checkpoints ---'; "
-                                "git log --oneline -8 2>/dev/null"],
-                                capture_output=True, text=True, timeout=20, cwd=workspace)
-                            tool_result = json.dumps({"status": "success", "diff": (_d.stdout or "(no diff)")[:6000]})
+                            tool_result = json.dumps(_git_diff(sandbox, _ref, _gp))
                         except Exception as _de:
                             tool_result = json.dumps({"status": "error", "message": f"git_diff: {_de}"})
                         record_tool_msg("git_diff", tool_result[:200])
@@ -671,6 +744,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # PATH. Full network.
                         from forge_runtime.tools import host_execution_allowed as _host_exec
                         import subprocess as _isp
+                        import shlex as _shlex
                         _mgr = (args.get("manager") or "pip").lower()
                         _pkgs = args.get("packages") or []
                         if isinstance(_pkgs, str): _pkgs = _pkgs.split()
@@ -679,24 +753,36 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                             if not _host_exec():
                                 raise ValueError("dependency installation is disabled outside an isolated container")
                             if _mgr in ("pip", "python", "pip3"):
-                                _vpy = _ensure_venv(workspace)
-                                _cmd = [_vpy, "-m", "pip", "install", *_pkgs]
+                                # The project path is only a host-side display
+                                # path in container mode. Run the install via
+                                # the same Workspace object as every later
+                                # command; a host subprocess here creates the
+                                # PEP 668 loop and leaves the container without
+                                # the dependency it just reported installing.
+                                _pkg_text = " ".join(_shlex.quote(str(p)) for p in _pkgs)
+                                _cmd = ["/bin/bash", "-lc",
+                                        f"python3 -m venv .venv && .venv/bin/python -m pip install {_pkg_text}"]
                             elif _mgr in ("npm", "node"):
-                                _cmd = ["npm", "install", *_pkgs]
+                                _cmd = ["npm", "install", *[str(p) for p in _pkgs]]
                             elif _mgr == "brew":
                                 _cmd = ["brew", "install", *_pkgs]
                             elif _mgr == "cargo":
                                 _cmd = ["cargo", "add", *_pkgs]
                             else:
                                 _cmd = [_mgr, "install", *_pkgs]
-                            _ir = _isp.run(_cmd, capture_output=True, text=True,
-                                           timeout=600, cwd=workspace, env=_envp)
+                            if type(sandbox).__name__ == "ContainerSandbox":
+                                _ir = sandbox.run(_cmd, timeout=600)
+                                _returncode, _stdout, _stderr = _ir.returncode, _ir.stdout, _ir.stderr
+                            else:
+                                _ir = _isp.run(_cmd, capture_output=True, text=True,
+                                               timeout=600, cwd=workspace, env=_envp)
+                                _returncode, _stdout, _stderr = _ir.returncode, _ir.stdout, _ir.stderr
                             tool_result = json.dumps({
-                                "status": "success" if _ir.returncode == 0 else "error",
+                                "status": "success" if _returncode == 0 else "error",
                                 "manager": _mgr, "packages": _pkgs,
-                                "exit_code": _ir.returncode,
-                                "stdout": (_ir.stdout or "")[-3000:],
-                                "stderr": (_ir.stderr or "")[-3000:],
+                                "exit_code": _returncode,
+                                "stdout": (_stdout or "")[-3000:],
+                                "stderr": (_stderr or "")[-3000:],
                                 "note": "pip packages installed into ./.venv — tests run with .venv on PATH automatically."})
                         except _isp.TimeoutExpired:
                             tool_result = json.dumps({"status": "error", "message": "install timed out (600s)"})
@@ -708,20 +794,14 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # Real shell (pipes, redirects, &&, globs) — the
                         # registry run_command is argv-only. Sandboxed to the
                         # workspace; output recorded as test-run evidence.
-                        from forge_runtime.tools import host_execution_allowed as _host_exec
-                        import subprocess as _bsp
                         _cmd = args.get("command", "")
                         _to = min(int(args.get("timeout_seconds", 120) or 120), 600)
                         try:
-                            if not _host_exec():
-                                raise ValueError("shell execution is disabled outside an isolated container")
-                            _r = _bsp.run(["/bin/bash", "-lc", _cmd], capture_output=True,
-                                          text=True, timeout=_to, cwd=workspace,
-                                          env=_venv_env(workspace))
+                            _r = sandbox.run(["/bin/bash", "-lc", _cmd], timeout=_to)
                             tool_result = json.dumps({"status": "success" if _r.returncode == 0 else "error",
                                 "exit_code": _r.returncode, "stdout": (_r.stdout or "")[-6000:],
                                 "stderr": (_r.stderr or "")[-3000:]})
-                        except _bsp.TimeoutExpired:
+                        except subprocess.TimeoutExpired:
                             tool_result = json.dumps({"status": "error", "message": f"bash timed out after {_to}s"})
                         except Exception as _be:
                             tool_result = json.dumps({"status": "error", "message": f"bash: {_be}"})
@@ -771,21 +851,15 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         # The model handed run_command a SHELL line (pipes, >,
                         # ;, $(), &&) — the argv-only registry tool would mangle
                         # it. Run it through a real shell, like the bash tool.
-                        from forge_runtime.tools import host_execution_allowed as _host_exec
-                        import subprocess as _rsp
                         _cmd = _run_command_string(args)
                         _to = min(int(args.get("timeout_seconds", 120) or 120), 600)
                         try:
-                            if not _host_exec():
-                                raise ValueError("shell execution is disabled outside an isolated container")
-                            _r = _rsp.run(["/bin/bash", "-lc", _cmd], capture_output=True,
-                                          text=True, timeout=_to, cwd=workspace,
-                                          env=_venv_env(workspace))
+                            _r = sandbox.run(["/bin/bash", "-lc", _cmd], timeout=_to)
                             tool_result = json.dumps({"ok": _r.returncode == 0, "tool": "run_command",
                                 "status": "success" if _r.returncode == 0 else "error",
                                 "exit_code": _r.returncode, "stdout": (_r.stdout or "")[-6000:],
                                 "stderr": (_r.stderr or "")[-3000:]})
-                        except _rsp.TimeoutExpired:
+                        except subprocess.TimeoutExpired:
                             tool_result = json.dumps({"ok": False, "status": "error",
                                 "message": f"run_command timed out after {_to}s"})
                         except Exception as _re:
@@ -811,6 +885,7 @@ Do NOT wrap the JSON block in any other text. Output ONLY the JSON block.
                         )
                         context = ToolContext(
                             workspace=Path(workspace),
+                            sandbox=sandbox,
                             allow_write=True,
                             allow_shell=True,
                             allow_network=bool(allowed_hosts),
