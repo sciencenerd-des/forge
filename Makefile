@@ -54,6 +54,10 @@ gui: ## Run the web console dev server (proxies /api -> control plane)
 test: ## Run the test suite (incl. regression)
 	$(BIN)/pytest
 
+.PHONY: demo
+demo: ## Demonstrate real pipeline hardening without services or dependencies
+	$(PY) examples/verification_demo.py
+
 .PHONY: fmt
 fmt: ## Lint/format with ruff
 	$(BIN)/ruff check --fix .
