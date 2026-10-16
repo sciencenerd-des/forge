@@ -24,6 +24,8 @@ jobs:
           pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
+      - name: Offline verification demonstration
+        run: python examples/verification_demo.py
       - name: Test
         # The regression suite is self-contained (no DB/network); engine-import
         # tests skip cleanly if optional heavy deps are unavailable.

@@ -1,17 +1,5 @@
 # Forge
 
-## Provider setup and A2A
-
-Run `forge serve` to start the control plane. If `FORGE_CONTROL_TOKEN` is not
-set, Forge generates a per-installation token in `$FORGE_HOME/control-token`
-with mode `0600` and prints it once. Provider profiles can be managed through
-the Web Settings view or the `/providers` API; saved profiles live in
-`$FORGE_HOME/providers.json` and API responses always mask keys.
-
-Forge also exposes a project-scoped A2A adapter. See [docs/A2A.md](docs/A2A.md)
-for the Agent Card, JSON-RPC methods, authorization rules, and a working curl
-example.
-
 [![CI](https://github.com/sciencenerd-des/forge/actions/workflows/ci.yml/badge.svg)](https://github.com/sciencenerd-des/forge/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -20,15 +8,32 @@ example.
 
 **A plug-and-play harness for long-running autonomous coding — with local or cloud models.**
 
-Forge runs a **Planner → Auditor → Executor → Evaluator (PGE)** loop that builds real
-software with explicit operator and test gates. It is designed for *small* models (it runs happily on a local
-LM Studio / Ollama box) by making the loop reliable rather than clever: every cycle is
-checkpointed to a durable store, every "done" is backed by tests the evaluator runs
-itself, and no single failed step can take the run down.
+Forge runs a **Planner → Auditor → Executor → Evaluator (PGE)** loop with explicit
+operator and test gates. It supports local or cloud model backends, durable
+checkpoints, independent test execution, and bounded recovery. These mechanisms
+address specific failure modes; they do not guarantee an arbitrary goal will succeed.
 
 > Forge is the open-source extraction of a harness that was hardened over weeks of real
 > autonomous runs. Every failure mode we hit is now pinned by a test in
 > [`tests/regression/`](tests/regression) — see [docs/LESSONS.md](docs/LESSONS.md).
+
+## Try one reliability mechanism in a minute
+
+```bash
+git clone https://github.com/sciencenerd-des/forge.git
+cd forge
+python3 examples/verification_demo.py
+```
+
+Requires Python 3.11+, Bash, and `tail`. No dependency install, model, database,
+Docker, or API key is needed. The demo exercises the real auditor helper with
+negative and positive controls: a failing producer can look successful through
+a pipeline; Forge's hardening preserves the failure. This is a focused
+verification demo, not an autonomous run.
+
+[Learn the mechanism with Codex](docs/CODEX_WALKTHROUGH.md) ·
+[Failure lessons](docs/LESSONS.md) · [Architecture](ARCHITECTURE.md) ·
+[Contributing](CONTRIBUTING.md)
 
 ## Why Forge
 
@@ -49,6 +54,7 @@ Requirements: Python 3.11+, Docker (for Postgres), and a running model backend
 ```bash
 git clone https://github.com/sciencenerd-des/forge && cd forge
 make setup          # venv + install + create .env
+source .venv/bin/activate
 # edit .env: point LLM_BASE_URL / LLM_MODEL at your backend
 make db             # start Postgres (docker)
 docker build -t forge-sandbox:latest -f docker/sandbox/Dockerfile .  # one-time: the sandbox image
@@ -107,6 +113,17 @@ development control token. Set a strong `FORGE_CONTROL_TOKEN` before sharing the
 machine or placing Forge behind another service.
 
 ## Configuration
+
+### Provider setup and A2A
+
+Run `forge serve` to start the control plane. If `FORGE_CONTROL_TOKEN` is not
+set, Forge generates a per-installation token in `$FORGE_HOME/control-token`
+with mode `0600` and prints it once. Provider profiles can be managed through
+the Web Settings view or the `/providers` API; saved profiles live in
+`$FORGE_HOME/providers.json` and API responses mask keys.
+
+Forge also exposes a project-scoped A2A adapter. See [docs/A2A.md](docs/A2A.md)
+for the Agent Card, JSON-RPC methods, authorization rules, and a curl example.
 
 Everything resolves from environment variables via [`forge_config.py`](forge_config.py);
 see [`.env.example`](.env.example) for the full list. Highlights:
@@ -186,6 +203,7 @@ Full design: [ARCHITECTURE.md](ARCHITECTURE.md).
 ```bash
 make test    # pytest incl. the regression suite
 make fmt     # ruff lint/format
+make demo    # offline verification demonstration, no venv required
 ```
 
 ## Project layout
