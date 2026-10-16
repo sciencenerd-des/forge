@@ -95,7 +95,12 @@ def client_for(role: str = "general") -> OpenAI:
     model = profile["model"]
     if model == "auto":
         model = detect_model(profile["base_url"], forge_config.DEFAULT_MODEL)
-    client = OpenAI(api_key=profile["api_key"], base_url=profile["base_url"], timeout=profile["timeout"])
+    client = OpenAI(
+        api_key=profile["api_key"],
+        base_url=profile["base_url"],
+        timeout=profile["timeout"],
+        max_retries=profile["max_retries"],
+    )
     client._forge_model = model  # type: ignore[attr-defined]
     return client
 
@@ -113,6 +118,8 @@ class LLM:
         return getattr(client_for(self.role), "_forge_model")
 
     def _create(self, messages: list[dict[str, Any]], schema: dict[str, Any] | None = None, max_tokens: int = 4096):
+        from forge_runtime.usage import record_response_usage
+
         if forge_config.llm_dialect(self.role) == "ollama":
             request_messages = list(messages)
             if schema is not None:
@@ -130,6 +137,7 @@ class LLM:
                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {profile['api_key']}"})
             with urllib.request.urlopen(request, timeout=profile["timeout"]) as response:
                 result = json.load(response)
+            record_response_usage(result)
             content = result.get("message", {}).get("content", "")
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
@@ -140,7 +148,9 @@ class LLM:
             kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
         if schema is not None:
             kwargs["response_format"] = schema
-        return client_for(self.role).chat.completions.create(**kwargs)
+        response = client_for(self.role).chat.completions.create(**kwargs)
+        record_response_usage(response)
+        return response
 
     def generate_chat(self, messages: list[dict[str, Any]], schema: dict[str, Any] | None = None) -> str:
         return self._create(messages, schema=schema).choices[0].message.content or ""

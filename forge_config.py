@@ -138,12 +138,18 @@ def provider_for(role: str = "general") -> dict:
     ``PGE_EXECUTOR_MODEL`` > ``LLM_MODEL`` > built-in default; and
     ``FORGE_EXECUTOR_BASE_URL`` > ``FORGE_LLM_BASE_URL`` > built-in default.
     """
-    return {**resolve(role, {
+    profile = resolve(role, {
         "model": os.getenv("LLM_MODEL", DEFAULT_MODEL),
         "base_url": os.getenv("FORGE_LLM_BASE_URL", os.getenv("LLM_BASE_URL", DEFAULT_BASE_URL)),
         "api_key": os.getenv("FORGE_LLM_API_KEY", DEFAULT_API_KEY),
-        "timeout": str(DEFAULT_TIMEOUT),
-    }), "timeout": DEFAULT_TIMEOUT}
+        "timeout": os.getenv("FORGE_LLM_TIMEOUT", str(DEFAULT_TIMEOUT)),
+        "max_retries": os.getenv("FORGE_LLM_MAX_RETRIES", "0"),
+    })
+    return {
+        **profile,
+        "timeout": float(profile["timeout"]),
+        "max_retries": max(0, int(profile["max_retries"])),
+    }
 
 
 def llm_dialect(role: str = "general") -> str:

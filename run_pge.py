@@ -270,6 +270,32 @@ def _is_semantic_block(last_eval: dict | None) -> bool:
     return bool(last_eval and last_eval.get("semantic_block"))
 
 
+def _distance_from_state(state: dict | None) -> float | None:
+    """Return the measured fraction of current contract checks still failing."""
+    if not state:
+        return None
+    passed = {str(value) for value in (state.get("last_pass_ids") or [])}
+    last_eval = state.get("last_eval") or {}
+    missing = {str(value) for value in (last_eval.get("missing_items") or [])}
+    if state.get("decision") == "complete":
+        return 0.0
+    universe = passed | missing
+    if not universe:
+        return None
+    return len(missing) / len(universe)
+
+
+def _append_distance_sample(manifest: dict, distance: float) -> tuple[list[float], float]:
+    """Append one convergence sample and compute trapezoidal distance AUC."""
+    trace = [float(value) for value in (manifest.get("distance_trace") or [])]
+    if trace:
+        auc = float(manifest.get("distance_auc") or 0.0) + (trace[-1] + distance) / 2.0
+    else:
+        auc = distance
+    trace.append(distance)
+    return trace, auc
+
+
 def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
             run_id: str | None = None):
     if run_id:
@@ -345,6 +371,22 @@ def run_pge(project_id: str, goal_title: str = None, goal_desc: str = None,
                 _initial_state(project_id, state_goal), config=config
             )
             consecutive_failures = 0
+            if run_id:
+                # ``turn_count`` is batch-local because each graph invocation
+                # starts from a fresh in-memory state. Accumulate it in the
+                # durable launcher manifest so the suite reports the real
+                # total across resumes instead of resetting to zero each batch.
+                previous = load_run_state().get(project_id, {})
+                batch_turns = int((final_state or {}).get("turn_count") or 0)
+                metrics = {
+                    "turns_used": int(previous.get("turns_used") or 0) + batch_turns,
+                    "batches_used": batch,
+                }
+                distance = _distance_from_state(final_state)
+                if distance is not None:
+                    trace, auc = _append_distance_sample(previous, distance)
+                    metrics.update(distance=distance, distance_trace=trace, distance_auc=auc)
+                update_run(project_id, run_id, **metrics)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
@@ -502,6 +544,7 @@ if __name__ == "__main__":
             if current.get("run_id") == args.run_id and current.get("status") != "blocked":
                 update_run(args.project, args.run_id, status="completed",
                            final_decision=current_decision,
+                           cycles_to_done=current.get("batches_used"),
                            finished_at=_utcnow().isoformat(), exit_code=0)
     except BaseException as exc:
         if args.run_id:
