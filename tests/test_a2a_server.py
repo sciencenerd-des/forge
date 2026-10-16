@@ -5,6 +5,7 @@ def test_agent_card_is_public_and_rpc_is_protected(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_HOME", str(tmp_path))
     monkeypatch.setenv("FORGE_CONTROL_TOKEN", "test-token")
     from control_plane.api import app
+    monkeypatch.setattr("control_plane.api.create_schema", lambda: None)
 
     with TestClient(app) as client:
         card = client.get("/.well-known/agent-card.json")
@@ -28,6 +29,7 @@ def test_rpc_errors_are_json_rpc_shaped(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_HOME", str(tmp_path))
     monkeypatch.setenv("FORGE_CONTROL_TOKEN", "test-token")
     from control_plane.api import app
+    monkeypatch.setattr("control_plane.api.create_schema", lambda: None)
 
     with TestClient(app) as client:
         response = client.post("/a2a", headers={"Authorization": "Bearer test-token"}, json={"jsonrpc": "2.0", "id": 1, "method": "unknown"})
@@ -83,3 +85,50 @@ def test_task_bridge_deduplicates_message_id(tmp_path, monkeypatch):
     second = task_bridge.create_task(params)
 
     assert first["id"] == second["id"]
+
+
+def test_cancel_terminal_task_never_stops_newer_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_HOME", str(tmp_path))
+    from forge_a2a import task_bridge
+
+    document = {"version": 1, "tasks": {"old": {
+        "task_id": "old", "context_id": "project-1", "goal_id": "goal-old",
+        "run_id": "old-run", "status": "completed",
+    }}}
+    task_bridge._save(document)
+    terminated = []
+    monkeypatch.setattr("pge_launcher.load_run_state", lambda: {
+        "project-1": {"run_id": "new-run", "pid": 4242, "status": "running"}
+    })
+    monkeypatch.setattr(
+        "pge_launcher.terminate_run", lambda *args, **kwargs: terminated.append((args, kwargs))
+    )
+
+    result = task_bridge.cancel("old")
+
+    assert result["status"]["state"] == "completed"
+    assert terminated == []
+
+
+def test_cancel_only_terminates_matching_task_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_HOME", str(tmp_path))
+    from forge_a2a import task_bridge
+
+    task_bridge._save({"version": 1, "tasks": {"current": {
+        "task_id": "current", "context_id": "project-1", "goal_id": "goal-1",
+        "run_id": "run-1", "status": "working",
+    }}})
+    monkeypatch.setattr("pge_launcher.load_run_state", lambda: {
+        "project-1": {"run_id": "run-1", "pid": 4242, "status": "running"}
+    })
+    monkeypatch.setattr("pge_launcher.process_is_alive", lambda pid: True)
+    terminated = []
+    monkeypatch.setattr(
+        "pge_launcher.terminate_run",
+        lambda *args, **kwargs: terminated.append((args, kwargs)) or {"status": "stopped"},
+    )
+
+    result = task_bridge.cancel("current")
+
+    assert result["status"]["state"] == "canceled"
+    assert terminated == [(('project-1', 'run-1', 'a2a_cancel'), {"status": "stopped"})]

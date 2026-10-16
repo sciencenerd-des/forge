@@ -41,6 +41,7 @@ def test_runtime_routes_require_control_token(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_CONTROL_DATABASE_URL", f"sqlite:///{tmp_path / 'control.db'}")
     monkeypatch.setenv("FORGE_CONTROL_TOKEN", "test-control-token")
     from control_plane.api import app
+    monkeypatch.setattr("control_plane.api.create_schema", lambda: None)
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
@@ -57,3 +58,12 @@ def test_runtime_routes_require_control_token(tmp_path, monkeypatch):
             headers={"Authorization": "Bearer test-control-token"},
         )
         assert response.status_code == 200
+
+
+def test_openapi_declares_bearer_auth_on_protected_routes():
+    from control_plane.api import app
+
+    schema = app.openapi()
+    assert "HTTPBearer" in schema["components"]["securitySchemes"]
+    assert schema["paths"]["/runtime/runs"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert "security" not in schema["paths"]["/health"]["get"]
