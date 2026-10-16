@@ -1,0 +1,11 @@
+{
+  "conflict": {
+    "detail": "approval is no longer pending"
+  },
+  "not_found": {
+    "detail": "run not found"
+  },
+  "unauthorized": {
+    "detail": "invalid control-plane credential"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "missing_project": {
+    "error": {
+      "code": -32602,
+      "message": "A2A requests must include metadata.project_id"
+    },
+    "id": 1,
+    "jsonrpc": "2.0"
+  },
+  "task_not_found": {
+    "error": {
+      "code": -32001,
+      "message": "task not found"
+    },
+    "id": 1,
+    "jsonrpc": "2.0"
+  },
+  "unknown_method": {
+    "error": {
+      "code": -32601,
+      "message": "method not found"
+    },
+    "id": 1,
+    "jsonrpc": "2.0"
+  }
+}

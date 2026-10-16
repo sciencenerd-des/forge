@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 
 import forge_config
 from app.database import SessionLocal
@@ -105,51 +106,72 @@ def list_runtime_snapshots() -> list[dict[str, Any]]:
 def _list_runtime_snapshots() -> list[dict[str, Any]]:
     manifests = load_run_state()
     snapshots: list[dict[str, Any]] = []
-    with SessionLocal() as db:
-        projects = {row.id: row for row in db.query(ForgeProject).all()}
-        for project_id, manifest in manifests.items():
-            project = projects.get(project_id)
-            goal = (db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id)
-                    .order_by(ForgeGoal.created_at.desc()).first())
-            tasks = (db.query(ForgeTask).filter(
-                ForgeTask.project_id == project_id,
-                ForgeTask.goal_id == goal.id if goal else False,
-            ).order_by(ForgeTask.created_at.asc()).all()) if goal else []
-            task_ids = [task.id for task in tasks]
-            file_count = test_count = 0
-            if task_ids:
-                file_count = db.query(func.count(ForgeFileChange.id)).filter(
-                    ForgeFileChange.task_id.in_(task_ids)).scalar() or 0
-                test_count = db.query(func.count(ForgeTestRun.id)).filter(
-                    ForgeTestRun.task_id.in_(task_ids)).scalar() or 0
-            active = next((task for task in tasks if task.status == "active"), None)
-            completed = sum(task.status == "completed" for task in tasks)
-            status = manifest.get("status", "unknown")
-            if status in {"starting", "running", "launching"} and not process_is_alive(manifest.get("pid")):
-                status = "stopped"
-            log_tail = _tail(manifest.get("log"))
-            snapshots.append({
-                "id": manifest.get("run_id"),
-                "project_id": project_id,
-                "project_name": project.name if project else project_id,
-                "goal_id": goal.id if goal else None,
-                "goal_title": goal.title if goal else "No goal",
-                "status": status,
-                "current_node": _current_node(log_tail),
-                "batch": manifest.get("batch", 0),
-                "pid": manifest.get("pid"),
-                "updated_at": manifest.get("updated_at"),
-                "active_task": active.title if active else None,
-                "attempt_count": active.attempt_count if active else 0,
-                "no_progress_count": active.no_progress_count if active else 0,
-                "task_total": len(tasks),
-                "task_completed": completed,
-                "file_count": file_count,
-                "test_count": test_count,
-                "log_tail": log_tail,
-                "model": forge_config.provider_for("executor")["model"],
-            })
+    try:
+        with SessionLocal() as db:
+            projects = {row.id: row for row in db.query(ForgeProject).all()}
+            for project_id, manifest in manifests.items():
+                project = projects.get(project_id)
+                goal = (db.query(ForgeGoal).filter(ForgeGoal.project_id == project_id)
+                        .order_by(ForgeGoal.created_at.desc()).first())
+                tasks = (db.query(ForgeTask).filter(
+                    ForgeTask.project_id == project_id,
+                    ForgeTask.goal_id == goal.id if goal else False,
+                ).order_by(ForgeTask.created_at.asc()).all()) if goal else []
+                task_ids = [task.id for task in tasks]
+                file_count = test_count = 0
+                if task_ids:
+                    file_count = db.query(func.count(ForgeFileChange.id)).filter(
+                        ForgeFileChange.task_id.in_(task_ids)).scalar() or 0
+                    test_count = db.query(func.count(ForgeTestRun.id)).filter(
+                        ForgeTestRun.task_id.in_(task_ids)).scalar() or 0
+                snapshots.append(_runtime_snapshot(
+                    project_id, manifest, project, goal, tasks, file_count, test_count
+                ))
+    except SQLAlchemyError:
+        # The manifest is the durable source for run identity, status, logs,
+        # and heartbeats. A control-plane database outage must not turn an
+        # observable run into an HTTP 500 or force the operator UI offline.
+        snapshots = [_runtime_snapshot(project_id, manifest)
+                     for project_id, manifest in manifests.items()]
     return sorted(snapshots, key=lambda item: item.get("updated_at") or "", reverse=True)
+
+
+def _runtime_snapshot(
+    project_id: str,
+    manifest: dict[str, Any],
+    project: Any = None,
+    goal: Any = None,
+    tasks: list[Any] | None = None,
+    file_count: int = 0,
+    test_count: int = 0,
+) -> dict[str, Any]:
+    tasks = tasks or []
+    active = next((task for task in tasks if task.status == "active"), None)
+    status = manifest.get("status", "unknown")
+    if status in {"starting", "running", "launching"} and not process_is_alive(manifest.get("pid")):
+        status = "stopped"
+    log_tail = _tail(manifest.get("log"))
+    return {
+        "id": manifest.get("run_id"),
+        "project_id": project_id,
+        "project_name": project.name if project else project_id,
+        "goal_id": goal.id if goal else None,
+        "goal_title": goal.title if goal else manifest.get("invocation", {}).get("goal", "No goal"),
+        "status": status,
+        "current_node": _current_node(log_tail),
+        "batch": manifest.get("batch", 0),
+        "pid": manifest.get("pid"),
+        "updated_at": manifest.get("updated_at"),
+        "active_task": active.title if active else None,
+        "attempt_count": active.attempt_count if active else 0,
+        "no_progress_count": active.no_progress_count if active else 0,
+        "task_total": len(tasks),
+        "task_completed": sum(task.status == "completed" for task in tasks),
+        "file_count": file_count,
+        "test_count": test_count,
+        "log_tail": log_tail,
+        "model": forge_config.provider_for("executor")["model"],
+    }
 
 
 def _tail(path: str | None, lines: int = 12) -> list[str]:

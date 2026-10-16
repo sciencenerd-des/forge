@@ -1,0 +1,20 @@
+[
+  {
+    "action_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "action_preview": {
+      "url": "https://example.test"
+    },
+    "action_type": "external_action",
+    "consumed_at": null,
+    "created_at": "2099-07-12T00:00:00",
+    "decided_at": null,
+    "decided_by": null,
+    "decision_reason": null,
+    "expires_at": "2099-07-12T00:15:00",
+    "id": "55555555-5555-5555-5555-555555555555",
+    "requested_by": "planner",
+    "risk": "high",
+    "run_id": "11111111-1111-1111-1111-111111111111",
+    "status": "pending"
+  }
+]
